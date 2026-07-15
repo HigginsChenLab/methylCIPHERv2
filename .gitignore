@@ -3,6 +3,9 @@
 .RData
 .Ruserdata
 dev/
+# Sync staging: large external family assets and optional vendor clone
+data-raw/assets/
+data-raw/methylCIPHER-meta/
 tests/testthat/fixtures/*.gz
 tests/testthat/fixtures/*.qs2
 tests/testthat/fixtures/*.csv
