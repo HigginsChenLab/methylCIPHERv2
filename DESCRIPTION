@@ -29,9 +29,7 @@ Suggests:
     zen4R
 Remotes: 
     danbelsky/DunedinPoAm38,
-    MorganLevineLab/prcPhenoAge,
-    rstudio/gradethis,
-    rstudio/learnr
+    MorganLevineLab/prcPhenoAge
 biocViews:
 Config/roxygen2/version: 8.0.0
 Config/testthat/edition: 3

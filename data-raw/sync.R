@@ -25,9 +25,9 @@ for (pkg in c("jsonlite", "qs2", "usethis", "digest", "rlang")) {
   }
 }
 
-`%||%` <- function(x, y) {
-  if (is.null(x) || (length(x) == 1L && is.na(x))) y else x
-}
+# `%||%` <- function(x, y) {
+#   if (is.null(x) || (length(x) == 1L && is.na(x))) y else x
+# }
 
 lockfile_path <- file.path("data-raw", "lockfile.json")
 asset_dir <- file.path("data-raw", "assets")
@@ -71,7 +71,7 @@ FIELD_REGISTRY <- c(
   "output_transform", "normalization", "imputation", "intercept",
   "covariates", "recipe", "components", "shared",
   "external", "probe_sets", "code_ref", "definition",
-  "depends_on_clocks", "n_cpgs_normalization",
+  "depends_on_clocks", "n_cpgs_normalization", "covers",
   # user-facing (stripped to license only; n_cpgs/array_type/units/access dropped)
   "license"
 )
@@ -375,19 +375,37 @@ resolve_source <- function(source_git_sha = NULL) {
     dir.create(dirname(meta_dir), recursive = TRUE, showWarnings = FALSE)
   }
 
-  if (!dir.exists(meta_dir)) {
+  # Clone-vs-fetch is decided by a real .git, not merely by the directory existing: an
+  # interrupted clone or a stray extraction leaves meta_dir present but not a repo, and
+  # every `git -C` below would then fail opaquely. A dir that is not a valid repo is
+  # discarded and re-cloned -- the mirror is gitignored and disposable.
+  is_repo <- dir.exists(file.path(meta_dir, ".git"))
+  if (dir.exists(meta_dir) && !is_repo) {
+    message("sync: ", meta_dir, " exists but is not a git repo -- removing and re-cloning")
+    unlink(meta_dir, recursive = TRUE, force = TRUE)
+  }
+
+  if (!is_repo) {
+    # Clone into a temp sibling then rename into place, so a clone that dies partway never
+    # leaves a poisoned meta_dir that the next run would try (and fail) to fetch into.
     message("sync: cloning ", META_REMOTE, " -> ", meta_dir)
-    git_exec("clone", "--filter=blob:none", META_REMOTE, meta_dir)
+    tmp <- paste0(meta_dir, ".tmp-", Sys.getpid())
+    unlink(tmp, recursive = TRUE, force = TRUE)
+    git_exec("clone", "--filter=blob:none", META_REMOTE, tmp)
+    if (!file.rename(tmp, meta_dir)) {
+      unlink(tmp, recursive = TRUE, force = TRUE)
+      stop("Failed to move fresh clone ", tmp, " -> ", meta_dir, call. = FALSE)
+    }
   } else {
     message("sync: fetching ", META_REMOTE, " into ", meta_dir)
     # ensure origin points at the canonical remote
     git_exec("remote", "set-url", "origin", META_REMOTE, dir = meta_dir)
-    git_exec("fetch", "--all", "--tags", dir = meta_dir)
+    # single remote, so target it explicitly (not --all); --prune drops deleted upstream refs
+    git_exec("fetch", "origin", "--tags", "--prune", dir = meta_dir)
   }
 
   if (!is.null(source_git_sha) && nzchar(source_git_sha)) {
-    message("sync: checkout ", source_git_sha)
-    git_exec("checkout", "--detach", source_git_sha, dir = meta_dir)
+    ref <- source_git_sha
   } else {
     # default branch tip (origin/HEAD -> e.g. origin/master)
     ref <- tryCatch(
@@ -397,9 +415,12 @@ resolve_source <- function(source_git_sha = NULL) {
     if (is.na(ref) || !nzchar(ref)) {
       ref <- "origin/master"
     }
-    message("sync: checkout ", ref)
-    git_exec("checkout", "--detach", ref, dir = meta_dir)
   }
+  message("sync: checkout ", ref)
+  # -f: the mirror is disposable (gitignored), so force a pristine tree. Without it a
+  # hand-edit to a tracked file in the clone makes `checkout --detach` refuse and sync
+  # dies opaquely -- or, worse, bundles a modified weights/ tree.
+  git_exec("checkout", "-f", "--detach", ref, dir = meta_dir)
 
   path <- normalizePath(meta_dir, winslash = "/", mustWork = TRUE)
   if (!dir.exists(file.path(path, "weights"))) {
@@ -486,7 +507,7 @@ manifest_key <- function(man) {
     function(c) {
       paste(
         as.character(c$clock_id %||% ""),
-        as.character(c$meta_hash %||% ""),
+        as.character(c$bundle_hash %||% ""),
         as.character(c$out_sha256 %||% ""),
         as.character(c$verification_status %||% ""),
         sep = "\x1f"
@@ -660,25 +681,16 @@ build_catalog <- function(repo_path, manifest) {
       )
     }
 
-    # meta_hash is sha256 over the raw bytes of this meta (release.py). Verifying it is
-    # not tensor rehashing -- it is the cheap check that manifest.json actually describes
-    # the tree we checked out. Upstream's release.py --check is producer-side; without
-    # this, a weights/ commit that skipped release.py would bundle silently against a
-    # stale manifest, and out_sha256 inside each meta means this covers tensors too.
-    actual_meta_hash <- digest::digest(file = mp, algo = "sha256")
-    declared_meta_hash <- as.character(man_row$meta_hash %||% NA_character_)
-    if (!is.na(declared_meta_hash) && !identical(actual_meta_hash, declared_meta_hash)) {
-      stop(
-        "manifest.json is stale for clock ",
-        cid,
-        ":\n  manifest meta_hash = ",
-        declared_meta_hash,
-        "\n  actual meta_hash   = ",
-        actual_meta_hash,
-        "\nRe-run `uv run python scripts/release.py` upstream and commit the manifest.",
-        call. = FALSE
-      )
-    }
+    # bundle_hash (release.py) replaced the old per-meta meta_hash: it is sha256 over the
+    # meta bytes PLUS the logical hashes of every artifact the meta declares. Faithfully
+    # recomputing it here would mean re-implementing release.py's logical_sha256 in R -- a
+    # fragile second copy that could silently drift on what "logical hash" means. Manifest
+    # freshness is instead an upstream guarantee: release.py --check runs in the meta repo's
+    # pre-commit gate, so a committed tree cannot carry a stale manifest. Here bundle_hash is
+    # retained only as provenance/identity, and it feeds manifest_key (the top-level skip
+    # key). Structural alignment -- every manifest clock has a meta and vice versa -- is
+    # still asserted (man_row lookup above; missing_meta check below).
+    bundle_hash <- as.character(man_row$bundle_hash %||% NA_character_)
 
     vstatus <- as.character(man_row$verification_status %||% "")
     if (!vstatus %in% VERIFICATION_STATUS) {
@@ -691,12 +703,8 @@ build_catalog <- function(repo_path, manifest) {
       )
     }
 
-    # prefer manifest hashes; meta out_sha256 is secondary provenance
-    meta_hash <- as.character(man_row$meta_hash %||% NA_character_)
+    # out_sha256 now lives only in the manifest (release-computed); metas no longer carry it.
     out_sha256 <- man_row$out_sha256
-    if (is.null(out_sha256)) {
-      out_sha256 <- meta$out_sha256 %||% NULL
-    }
 
     # derive from the *full* upstream meta before pruning
     wf <- as.character(meta$weights_format %||% NA_character_)
@@ -753,7 +761,7 @@ build_catalog <- function(repo_path, manifest) {
     entry$batch_ops <- batch_ops
     entry$batch_dependent <- length(batch_ops) > 0L
     entry$external_group <- gid %in% EXTERNAL_GROUPS
-    entry$meta_hash <- meta_hash
+    entry$bundle_hash <- bundle_hash
     entry$out_sha256 <- out_sha256
     entry$verification_status <- vstatus
     entry$fixture <- prune_fixture(meta$fixture)
@@ -920,6 +928,166 @@ build_group_bundles <- function(repo_path, catalog, group_ids) {
     )
   }
   bundles
+}
+
+# --- scoring CpG resolution (ship groups only; role-based, format-independent) ----------------
+#
+# Every consumer (clock_cpgs(), the future calc_clocks()) needs one question answered the same
+# way for every clock regardless of weights_format: "which CpGs does this clock's SCORING step
+# need?" Rather than branch on weights_format at each call site (unreadable, and silently wrong
+# for a clock shaped unlike whatever the branch author had in mind -- entry$coef_path is only
+# ever set for cpg_coefficient, so every other format used to fall back to unioning the WHOLE
+# group bundle), this resolves it ONCE per clock here and stores the answer as a materialized
+# entry$probe_sets list of {name, role, cpgs} -- cpgs an actual character vector, never a file
+# pointer. Mirrors methylCIPHER-meta's own sec 4b resolver contract
+# (scoring_cpgs(clock) = probe_sets[role=scoring] if present else the coef/tensor file's CpGs),
+# but as a build-time materialization: this is a denormalized convenience view, deliberately NOT
+# pushed upstream into the meta repo, which enforces exactly one CpG source of truth per clock.
+
+# Row labels of one loaded tensor, whatever shape read_tensor_csv() gave it: a named numeric
+# vector (2-col cpg,value), a bare character vector (1-col probe list), or a data.frame (3+
+# columns, e.g. EpiTOC2's cpg,delta,beta0). The row-key column is always named `cpg` per the
+# tensor CSV schema (methylCIPHER-meta sec 3); fall back to the first column if renamed.
+tensor_row_keys <- function(t) {
+  if (is.null(t)) {
+    return(character())
+  }
+  if (is.data.frame(t)) {
+    col <- if ("cpg" %in% names(t)) "cpg" else 1L
+    return(as.character(t[[col]]))
+  }
+  if (is.numeric(t) && !is.null(names(t))) {
+    return(names(t))
+  }
+  if (is.character(t) && is.null(dim(t))) {
+    return(t)
+  }
+  character()
+}
+
+# Turn one upstream probe_sets entry ({name, role, file, n}) into {name, role, cpgs} by reading
+# the file it points at out of the already-loaded bundle tensors. Any role, not just scoring --
+# e.g. DunedinPACE's quantile_normalization_background entry materializes the same way, so a
+# future consumer never needs to open a tensor file itself either.
+materialize_probe_set <- function(ps, tensors) {
+  list(name = ps$name, role = ps$role, cpgs = tensor_row_keys(tensors[[ps$file]]))
+}
+
+# Tier 3: union of a clock's OWN cpg-keyed components. Covers single-tensor clocks (EpiTOC2),
+# sex-split clocks with more than one cpg-keyed component (DNAmFitAge's DNAmGait_wAge: separate
+# female_model/male_model), and composites that inline their own cpg-keyed pieces directly
+# (GrimAgeV2's _internal_* surrogates; PhysAge's own coef_DNAm* components) -- none of those need
+# any recursion.
+own_component_cpgs <- function(entry, tensors) {
+  cpgs <- character()
+  for (comp in entry$components %||% list()) {
+    if (!identical(comp$row_key, "cpg")) {
+      next
+    }
+    cpgs <- c(cpgs, tensor_row_keys(tensors[[comp$file]]))
+  }
+  unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
+}
+
+# Tier 4: a group-level shared_tensors entry that is itself a bare one-column probe list (not a
+# value-bearing table) -- covers a composite whose own component isn't cpg-keyed but whose group
+# ships an explicit canonical list (DNAmFitAge's _shared/AllCpGs.csv.gz, SystemsAge's
+# _shared/CpGs.csv.gz).
+group_shared_cpg_list <- function(gside, tensors) {
+  for (rel in gside$shared_tensors %||% character()) {
+    t <- tensors[[rel]]
+    if (is.character(t) && is.null(dim(t)) && length(t) > 0L) {
+      return(as.character(t))
+    }
+  }
+  character()
+}
+
+# Tiers 2-6 for one clock. Tier 1 (an upstream role=="scoring" probe_sets entry, e.g.
+# external_package) is checked by the driver before this is ever called, so a real upstream
+# declaration always wins untouched. `seen` guards a covers-list cycle (a composite always lists
+# itself in its own `covers`); in practice recursion never runs deep here because every member a
+# composite covers resolves via tier 2/3 before it would ever need its own covers list.
+resolve_scoring_cpgs <- function(cid, catalog, tensors, gside, seen = character()) {
+  entry <- catalog$clocks[[cid]]
+  if (is.null(entry) || cid %in% seen) {
+    return(character())
+  }
+  seen <- c(seen, cid)
+
+  # tier 2: cpg_coefficient's own tensor.
+  if (!is.null(entry$coef_path)) {
+    cpgs <- tensor_row_keys(tensors[[entry$coef_path]])
+    if (length(cpgs)) {
+      return(cpgs)
+    }
+  }
+
+  # tier 3: union of the clock's own cpg-keyed components.
+  own <- own_component_cpgs(entry, tensors)
+  if (length(own)) {
+    return(own)
+  }
+
+  # tier 4: group-level shared bare CpG list.
+  shared <- group_shared_cpg_list(gside, tensors)
+  if (length(shared)) {
+    return(shared)
+  }
+
+  # tier 5: recursive union over this clock's own `covers` list -- composites with no cpg-keyed
+  # tensor of their own and no group shared list (e.g. GrimAgeV1, whose own component is the
+  # 8-surrogate Cox combo, row_key == "component", not "cpg").
+  covers <- setdiff(as.character(entry$covers %||% character()), cid)
+  if (length(covers)) {
+    out <- character()
+    for (member in covers) {
+      out <- c(out, resolve_scoring_cpgs(member, catalog, tensors, gside, seen))
+    }
+    if (length(out)) {
+      return(unique(out))
+    }
+  }
+
+  character() # tier 6: genuinely unresolved (custom, e.g. MiAge -- frozen code, no tensor)
+}
+
+# Driver, called once per ship group from build_sysdata() right after its bundle is built. Two
+# passes: (1) materialize every clock's own upstream probe_sets (any role) from file pointers
+# into actual CpG vectors; (2) synthesize a role=="scoring" entry for any clock that still
+# doesn't have one, via the tiered resolver above.
+resolve_group_scoring_probe_sets <- function(catalog, bundles) {
+  for (gid in names(bundles)) {
+    tensors <- bundles[[gid]]$tensors
+    gside <- catalog$groups[[gid]]
+    member_ids <- bundles[[gid]]$clocks
+
+    for (cid in member_ids) {
+      entry <- catalog$clocks[[cid]]
+      if (length(entry$probe_sets)) {
+        catalog$clocks[[cid]]$probe_sets <-
+          lapply(entry$probe_sets, materialize_probe_set, tensors = tensors)
+      }
+    }
+
+    for (cid in member_ids) {
+      entry <- catalog$clocks[[cid]]
+      has_scoring <- length(Filter(
+        function(p) identical(p$role, "scoring"), entry$probe_sets %||% list()
+      )) > 0L
+      if (has_scoring) {
+        next
+      }
+      cpgs <- resolve_scoring_cpgs(cid, catalog, tensors, gside)
+      if (length(cpgs)) {
+        catalog$clocks[[cid]]$probe_sets <- c(
+          entry$probe_sets %||% list(),
+          list(list(name = "scoring_derived", role = "scoring", cpgs = unique(cpgs)))
+        )
+      }
+    }
+  }
+  catalog
 }
 
 # External assets: one probe-order carrier per group ($cpgs), cpg-aligned values as
@@ -1165,6 +1333,53 @@ external_asset_lock_row <- function(a) {
   external_asset_registry_row(a)
 }
 
+# Flat per-clock index derived from the catalog. One row per clock, scalar dispatch/discovery
+# fields only (+ a covariates list-col). This is the shape list_clocks() filters over and the
+# clock_id -> group_id map resolve_clocks / dispatch need, so neither has to vapply across the
+# ragged mc_catalog. Pure derived data: rebuilt from catalog every sync, never hand-edited.
+build_index <- function(catalog) {
+  clocks <- catalog$clocks
+  ids <- names(clocks)
+
+  # first scalar of a per-clock field, or `default` when absent/empty
+  scal <- function(field, default = NA_character_) {
+    unname(vapply(
+      clocks,
+      function(e) {
+        v <- e[[field]]
+        if (is.null(v) || !length(v)) default else as.character(v)[[1L]]
+      },
+      character(1L)
+    ))
+  }
+  lgl <- function(field) {
+    unname(vapply(clocks, function(e) isTRUE(e[[field]]), logical(1L)))
+  }
+
+  idx <- data.frame(
+    clock_id            = ids,
+    group_id            = scal("group_id"),
+    weights_format      = scal("weights_format"),
+    computation_type    = scal("computation_type"),
+    output_transform    = scal("output_transform", "identity"),
+    imputation_policy   = scal("imputation_policy"),
+    verification_status = scal("verification_status", ""),
+    batch_dependent     = lgl("batch_dependent"),
+    external_group      = lgl("external_group"),
+    bib_key             = scal("bib_key"),
+    pmid                = scal("pmid"),
+    stringsAsFactors    = FALSE,
+    row.names           = NULL
+  )
+  # variable-length per clock -> list-col; empty character() means "no covariates"
+  idx$covariates_required <- unname(lapply(clocks, function(e) {
+    as.character(e$covariates_required %||% character())
+  }))
+  idx$n_covariates <- lengths(idx$covariates_required)
+
+  idx
+}
+
 build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NULL) {
   message(
     "sync: building shipped bundles for ",
@@ -1172,10 +1387,12 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
     " groups..."
   )
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
+  catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
 
   mc_catalog <- catalog$clocks
   mc_groups <- catalog$groups
   mc_bundles <- bundles
+  mc_index <- build_index(catalog)
   ext_reg <- NULL
   if (!is.null(external_assets) && length(external_assets)) {
     ext_reg <- lapply(external_assets, external_asset_registry_row)
@@ -1200,6 +1417,7 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
     mc_catalog,
     mc_groups,
     mc_bundles,
+    mc_index,
     mc_provenance,
     internal = TRUE,
     overwrite = TRUE
@@ -1207,11 +1425,14 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
 
   path <- file.path("R", "sysdata.rda")
   sz <- file.info(path)$size
-  message(sprintf("sync: wrote %s (%.1f KB)", path, sz / 1024))
+  message(sprintf(
+    "sync: wrote %s (%.1f KB; %d clocks indexed)",
+    path, sz / 1024, nrow(mc_index)
+  ))
   invisible(list(
     path = path,
     size_bytes = sz,
-    objects = c("mc_catalog", "mc_groups", "mc_bundles", "mc_provenance")
+    objects = c("mc_catalog", "mc_groups", "mc_bundles", "mc_index", "mc_provenance")
   ))
 }
 
@@ -1336,439 +1557,115 @@ package_release_target_commitish <- function() {
   br
 }
 
-github_token <- function() {
-  tok <- Sys.getenv("GH_TOKEN", unset = "")
-  if (!nzchar(tok)) {
-    tok <- Sys.getenv("GITHUB_TOKEN", unset = "")
-  }
-  tok
-}
+# Uploads go through PyGithub (declared in pyproject.toml), invoked as
+#   uv run python data-raw/gh_upload.py
+# with the asset manifest piped on stdin. This replaces the old `gh` CLI path and
+# its Windows argv-quoting workarounds. A non-upload sync never touches any of this.
+GH_UPLOAD_PY <- file.path("data-raw", "gh_upload.py")
 
-# Prefer gh CLI; fall back to curl + GitHub REST API.
-# Resolve once: PATH, then common Windows install locations.
-gh_cli_path <- local({
-  cached <- NULL
-  function() {
-    if (!is.null(cached)) {
-      return(cached)
-    }
-    w <- Sys.which("gh")
-    if (nzchar(w)) {
-      cached <<- w
-      return(cached)
-    }
-    candidates <- c(
-      file.path(Sys.getenv("ProgramFiles", "C:/Program Files"), "GitHub CLI", "gh.exe"),
-      file.path(Sys.getenv("LOCALAPPDATA", ""), "GitHub CLI", "gh.exe"),
-      file.path(Sys.getenv("USERPROFILE", ""), "scoop", "shims", "gh.exe")
-    )
-    for (p in candidates) {
-      if (nzchar(p) && file.exists(p)) {
-        cached <<- normalizePath(p, winslash = "/", mustWork = TRUE)
-        return(cached)
-      }
-    }
-    cached <<- ""
-    cached
-  }
-})
-
-gh_cli_available <- function() {
-  nzchar(gh_cli_path())
-}
-
-# Windows system2 does not quote args with spaces; gh then treats extra words as globs.
-gh_quote_args <- function(args) {
-  if (.Platform$OS.type != "windows") {
-    return(as.character(args))
-  }
-  vapply(as.character(args), function(a) {
-    if (!nzchar(a) || !grepl("[[:space:]]", a)) {
-      return(a)
-    }
-    shQuote(a, type = "cmd")
-  }, character(1L), USE.NAMES = FALSE)
-}
-
-gh_exec <- function(args, ...) {
-  path <- gh_cli_path()
-  if (!nzchar(path)) {
-    stop("'gh' CLI not found", call. = FALSE)
-  }
-  system2(path, gh_quote_args(args), ...)
-}
-
-curl_cli <- function() {
-  w <- Sys.which("curl")
+uv_bin <- function() {
+  w <- Sys.which("uv")
   if (!nzchar(w)) {
-    stop("Neither 'gh' nor 'curl' is on PATH; cannot upload release assets.", call. = FALSE)
+    stop(
+      "`uv` not found on PATH (needed to run ", GH_UPLOAD_PY, " for uploads).",
+      call. = FALSE
+    )
   }
   w
 }
 
-# GET GitHub API JSON; returns parsed list or NULL on 404.
-github_api_get <- function(path, token) {
-  if (gh_cli_available()) {
-    args <- c("api", path, "-H", "Accept: application/vnd.github+json")
-    err_file <- tempfile("gh-api-")
-    on.exit(unlink(err_file), add = TRUE)
-    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-    status <- attr(out, "status")
-    if (!is.null(status) && status != 0L) {
-      err <- paste(readLines(err_file, warn = FALSE), collapse = "\n")
-      if (grepl("404|Not Found", err, ignore.case = TRUE)) {
-        return(NULL)
-      }
-      stop("gh api ", path, " failed:\n", err, call. = FALSE)
-    }
-    return(jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE))
-  }
-
-  url <- paste0("https://api.github.com", path)
-  hdr_file <- tempfile("curl-hdr-")
-  body_file <- tempfile("curl-body-")
-  on.exit(unlink(c(hdr_file, body_file)), add = TRUE)
-  args <- c(
-    "-sS", "-D", hdr_file, "-o", body_file,
-    "-H", "Accept: application/vnd.github+json"
-  )
-  if (nzchar(token)) {
-    args <- c(args, "-H", paste0("Authorization: Bearer ", token))
-  }
-  args <- c(args, url)
-  status <- system2(curl_cli(), args)
-  if (!is.null(attr(status, "status"))) {
-    status <- attr(status, "status")
-  }
-  hdr <- paste(readLines(hdr_file, warn = FALSE), collapse = "\n")
-  body <- paste(readLines(body_file, warn = FALSE), collapse = "\n")
-  code <- sub("(?s).*HTTP/[0-9.]+\\s+([0-9]+).*", "\\1", hdr, perl = TRUE)
-  if (!grepl("^[0-9]+$", code)) {
-    code <- if (is.numeric(status) && status != 0) "000" else "200"
-  }
-  if (identical(code, "404")) {
-    return(NULL)
-  }
-  if (!identical(code, "200") && !identical(code, "201")) {
-    stop("GitHub API GET ", path, " failed (HTTP ", code, "):\n", body, call. = FALSE)
-  }
-  jsonlite::fromJSON(body, simplifyVector = FALSE)
-}
-
-github_api_post_json <- function(path, payload, token) {
-  body_json <- jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null")
-  in_file <- tempfile("gh-body-", fileext = ".json")
-  on.exit(unlink(in_file), add = TRUE)
-  writeLines(body_json, in_file, useBytes = TRUE)
-
-  if (gh_cli_available()) {
-    err_file <- tempfile("gh-post-")
-    on.exit(unlink(err_file), add = TRUE)
-    args <- c(
-      "api", "--method", "POST", path,
-      "-H", "Accept: application/vnd.github+json",
-      "-H", "Content-Type: application/json",
-      "--input", in_file
-    )
-    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-    status <- attr(out, "status")
-    if (!is.null(status) && status != 0L) {
-      stop(
-        "gh api POST ", path, " failed:\n",
-        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
-        call. = FALSE
-      )
-    }
-    return(jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE))
-  }
-
-  if (!nzchar(token)) {
-    stop(
-      "GITHUB_TOKEN or GH_TOKEN required for release upload when 'gh' is not installed.",
-      call. = FALSE
-    )
-  }
-  out_file <- tempfile("curl-out-")
-  on.exit(unlink(out_file), add = TRUE)
-  args <- c(
-    "-sS", "-o", out_file, "-w", "%{http_code}",
-    "-X", "POST",
-    "-H", "Accept: application/vnd.github+json",
-    "-H", paste0("Authorization: Bearer ", token),
-    "-H", "Content-Type: application/json",
-    "--data-binary", paste0("@", in_file),
-    paste0("https://api.github.com", path)
-  )
-  code <- system2(curl_cli(), args, stdout = TRUE)
-  body <- paste(readLines(out_file, warn = FALSE), collapse = "\n")
-  if (!code %in% c("200", "201")) {
-    stop("GitHub API POST ", path, " failed (HTTP ", code, "):\n", body, call. = FALSE)
-  }
-  jsonlite::fromJSON(body, simplifyVector = FALSE)
-}
-
-github_release_by_tag <- function(slug, tag, token) {
-  github_api_get(paste0("/repos/", slug, "/releases/tags/", utils::URLencode(tag, reserved = TRUE)), token)
-}
-
-github_create_release <- function(slug, tag, target_commitish, name, body, token) {
-  github_api_post_json(
-    paste0("/repos/", slug, "/releases"),
-    list(
-      tag_name = tag,
-      target_commitish = target_commitish,
-      name = name,
-      body = body,
-      draft = FALSE,
-      prerelease = FALSE
-    ),
-    token
-  )
-}
-
-github_upload_release_asset <- function(slug, release, file_path, asset_name, token) {
-  if (!file.exists(file_path)) {
-    stop("Cannot upload missing file: ", file_path, call. = FALSE)
-  }
-  # Skip if an asset with this name already exists on the release.
-  assets <- release$assets %||% list()
-  existing_names <- vapply(
-    assets,
-    function(a) as.character(a$name %||% ""),
-    character(1L)
-  )
-  if (asset_name %in% existing_names) {
-    message("sync: release asset already present: ", asset_name, " (tag ", release$tag_name %||% "?", ")")
-    return(invisible(TRUE))
-  }
-
-  if (gh_cli_available()) {
-    # gh release upload TAG FILE --repo slug --clobber
-    tag <- as.character(release$tag_name %||% "")
-    args <- c(
-      "release", "upload", tag, file_path,
-      "--repo", slug,
-      "--clobber"
-    )
-    err_file <- tempfile("gh-up-")
-    on.exit(unlink(err_file), add = TRUE)
-    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-    status <- attr(out, "status")
-    if (!is.null(status) && status != 0L) {
-      stop(
-        "gh release upload failed:\n",
-        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
-        call. = FALSE
-      )
-    }
-    return(invisible(TRUE))
-  }
-
-  if (!nzchar(token)) {
-    stop("GITHUB_TOKEN or GH_TOKEN required for asset upload without 'gh'.", call. = FALSE)
-  }
-  upload_url <- as.character(release$upload_url %||% "")
-  if (!nzchar(upload_url)) {
-    stop("Release response missing upload_url", call. = FALSE)
-  }
-  # upload_url is like https://uploads.github.com/.../assets{?name,label}
-  base <- sub("\\{.*$", "", upload_url)
-  url <- paste0(base, "?name=", utils::URLencode(asset_name, reserved = TRUE))
-  out_file <- tempfile("curl-up-")
-  on.exit(unlink(out_file), add = TRUE)
-  args <- c(
-    "-sS", "-o", out_file, "-w", "%{http_code}",
-    "-X", "POST",
-    "-H", "Accept: application/vnd.github+json",
-    "-H", paste0("Authorization: Bearer ", token),
-    "-H", "Content-Type: application/octet-stream",
-    "--data-binary", paste0("@", normalizePath(file_path, winslash = "/", mustWork = TRUE)),
-    url
-  )
-  code <- system2(curl_cli(), args, stdout = TRUE)
-  body <- paste(readLines(out_file, warn = FALSE), collapse = "\n")
-  if (!code %in% c("200", "201")) {
-    stop(
-      "GitHub asset upload failed for ", asset_name, " (HTTP ", code, "):\n", body,
-      call. = FALSE
-    )
-  }
-  invisible(TRUE)
-}
-
-external_asset_release_notes <- function(a, tag) {
-  paste0(
-    "Content-addressed external clock pack.\n\n",
-    "- group_id: `", a$group_id %||% "", "`\n",
-    "- payload_hash (rlang::hash): `", tag, "`\n",
-    "- file_sha256: `", a$file_sha256 %||% "", "`\n",
-    "- encoding: `", a$encoding %||% "", "` v", a$encoding_version %||% "", "\n",
-    "\nRuntime resolves by payload_hash; package pin (source_git_sha) is separate.\n"
-  )
-}
-
-# Asset names on a release tag. NULL if the release/tag does not exist.
-gh_release_asset_names <- function(slug, tag) {
-  err_file <- tempfile("gh-view-")
-  on.exit(unlink(err_file), add = TRUE)
-  out <- gh_exec(
-    c("release", "view", tag, "--repo", slug, "--json", "assets"),
-    stdout = TRUE,
-    stderr = err_file
-  )
-  status <- attr(out, "status")
-  if (!is.null(status) && status != 0L) {
-    return(NULL)
-  }
-  parsed <- tryCatch(
-    jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE),
-    error = function(e) NULL
-  )
-  if (is.null(parsed)) {
-    return(NULL)
-  }
-  assets <- parsed$assets %||% list()
-  vapply(assets, function(x) as.character(x$name %||% ""), character(1L))
-}
-
-# Preferred path: gh release create/upload (avoids brittle gh api argv on Windows).
-# Returns "created" | "uploaded" | "skipped".
-#
-# Identity is the content-addressed name `{family}-{payload_hash}.qs2` (tag =
-# payload_hash). Skip when that exact name is already on the release — no size
-# check; the hash in the name is the identity.
-upload_one_external_asset_gh <- function(a, slug, target_commitish, tag, fpath) {
-  title <- sprintf("methylCIPHER external asset %s", a$group_id %||% tag)
-  notes <- external_asset_release_notes(a, tag)
-  notes_file <- tempfile("gh-notes-", fileext = ".md")
-  on.exit(unlink(notes_file), add = TRUE)
-  writeLines(notes, notes_file, useBytes = TRUE)
-  fpath_abs <- normalizePath(fpath, winslash = "/", mustWork = TRUE)
-  asset_name <- as.character(a$file %||% basename(fpath_abs))
-  err_file <- tempfile("gh-rel-")
-  on.exit(unlink(err_file), add = TRUE)
-
-  remote_names <- gh_release_asset_names(slug, tag)
-  if (is.null(remote_names)) {
-    message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
-    args <- c(
-      "release", "create", tag, fpath_abs,
-      "--repo", slug,
-      "--title", title,
-      "--notes-file", notes_file,
-      "--target", target_commitish
-    )
-    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-    status <- attr(out, "status")
-    if (!is.null(status) && status != 0L) {
-      stop(
-        "gh release create failed:\n",
-        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
-        call. = FALSE
-      )
-    }
-    return("created")
-  }
-
-  if (asset_name %in% remote_names) {
-    message(
-      "sync: skip upload ", asset_name, " (already on ", slug, " @ tag ", tag, ")"
-    )
-    return("skipped")
-  }
-
-  message("sync: release tag ", tag, " exists; uploading missing asset ", asset_name)
-  args <- c(
-    "release", "upload", tag, fpath_abs,
-    "--repo", slug
-  )
-  out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-  status <- attr(out, "status")
-  if (!is.null(status) && status != 0L) {
-    stop(
-      "gh release upload failed:\n",
-      paste(readLines(err_file, warn = FALSE), collapse = "\n"),
-      call. = FALSE
-    )
-  }
-  "uploaded"
-}
-
-# Publish one content-addressed asset. Tag = payload_hash (stable identity).
-upload_one_external_asset <- function(a, repo, target_commitish, token) {
-  tag <- as.character(a$payload_hash %||% "")
-  if (!nzchar(tag)) {
-    stop("Asset missing payload_hash: ", a$group_id %||% "?", call. = FALSE)
-  }
-  fpath <- a$path %||% file.path(asset_dir, a$file)
-  if (!file.exists(fpath)) {
-    stop(
-      "Staged asset missing for ", a$group_id, ": ", fpath,
-      "\nRe-run sync() to rebuild before upload.",
-      call. = FALSE
-    )
-  }
-  # Verify staged file still matches lock/registry checksum when present.
-  if (!is.null(a$file_sha256) && nzchar(a$file_sha256)) {
-    actual <- file_sha256_of(fpath)
-    if (!identical(actual, a$file_sha256)) {
-      stop(
-        "Staged file sha256 mismatch for ", a$group_id, ":\n  expected ", a$file_sha256,
-        "\n  actual   ", actual,
-        call. = FALSE
-      )
-    }
-  }
-
-  slug <- repo$slug
-  if (gh_cli_available()) {
-    action <- upload_one_external_asset_gh(a, slug, target_commitish, tag, fpath)
-    if (!identical(action, "skipped")) {
-      message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
-    }
-    return(invisible(action))
-  }
-
-  # curl REST fallback when gh is unavailable
-  rel <- github_release_by_tag(slug, tag, token)
-  if (is.null(rel)) {
-    message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
-    rel <- github_create_release(
-      slug = slug,
-      tag = tag,
-      target_commitish = target_commitish,
-      name = sprintf("methylCIPHER external asset %s", a$group_id %||% tag),
-      body = external_asset_release_notes(a, tag),
-      token = token
-    )
-  } else {
-    message("sync: release tag ", tag, " already exists on ", slug)
-  }
-  github_upload_release_asset(slug, rel, fpath, a$file, token)
-  message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
-  invisible(TRUE)
-}
-
+# Publish all staged external assets to GitHub Releases via PyGithub. Identity is
+# already fixed in R (tag = payload_hash, sha256 = file hash); this only verifies
+# the staged bytes, then hands a manifest to data-raw/gh_upload.py over stdin.
 upload_external_assets <- function(assets) {
   if (!length(assets)) {
     message("sync: no external assets to upload")
     return(invisible(list()))
   }
-  repo <- package_release_repo()
-  target <- package_release_target_commitish()
-  token <- github_token()
-  if (!gh_cli_available() && !nzchar(token)) {
+  if (!nzchar(Sys.getenv("GITHUB_TOKEN")) && !nzchar(Sys.getenv("GH_TOKEN"))) {
     stop(
-      "upload=TRUE needs the GitHub CLI (`gh`) or GITHUB_TOKEN/GH_TOKEN for API upload.",
+      "upload=TRUE requires a GitHub token in GITHUB_TOKEN (or GH_TOKEN). ",
+      "Create a PAT with Contents:read/write on the package repo and set it ",
+      "(e.g. in ~/.Renviron).",
       call. = FALSE
     )
   }
-  message(
-    "sync: uploading ", length(assets), " external asset(s) to ", repo$slug,
-    " (target_commitish=", target, ")"
+  if (!file.exists(GH_UPLOAD_PY)) {
+    stop("Upload helper not found: ", GH_UPLOAD_PY, call. = FALSE)
+  }
+
+  repo <- package_release_repo()
+  target <- package_release_target_commitish()
+
+  # Verify each staged file against its recorded hash, then build the upload manifest.
+  items <- lapply(assets, function(a) {
+    tag <- as.character(a$payload_hash %||% "")
+    if (!nzchar(tag)) {
+      stop("Asset missing payload_hash: ", a$group_id %||% "?", call. = FALSE)
+    }
+    fpath <- a$path %||% file.path(asset_dir, a$file)
+    if (!file.exists(fpath)) {
+      stop(
+        "Staged asset missing for ", a$group_id, ": ", fpath,
+        "\nRe-run sync() to rebuild before upload.",
+        call. = FALSE
+      )
+    }
+    if (!is.null(a$file_sha256) && nzchar(a$file_sha256)) {
+      actual <- file_sha256_of(fpath)
+      if (!identical(actual, a$file_sha256)) {
+        stop(
+          "Staged file sha256 mismatch for ", a$group_id, ":\n  expected ", a$file_sha256,
+          "\n  actual   ", actual,
+          call. = FALSE
+        )
+      }
+    }
+    list(
+      group_id = as.character(a$group_id %||% ""),
+      tag = tag,
+      path = normalizePath(fpath, winslash = "/", mustWork = TRUE),
+      name = as.character(a$file %||% basename(fpath)),
+      sha256 = as.character(a$file_sha256 %||% "")
+    )
+  })
+
+  req <- list(
+    slug = repo$slug,
+    target_commitish = target,
+    assets = unname(items)
   )
-  for (a in assets) {
-    upload_one_external_asset(a, repo, target, token)
+  json <- jsonlite::toJSON(req, auto_unbox = TRUE, null = "null")
+
+  message(
+    "sync: uploading ", length(items), " external asset(s) to ", repo$slug,
+    " (target_commitish=", target, ") via PyGithub"
+  )
+  err_file <- tempfile("uv-gh-")
+  on.exit(unlink(err_file), add = TRUE)
+  out <- system2(
+    uv_bin(),
+    c("run", "python", GH_UPLOAD_PY),
+    input = json,
+    stdout = TRUE,
+    stderr = err_file
+  )
+  status <- attr(out, "status")
+  if (!is.null(status) && status != 0L) {
+    stop(
+      GH_UPLOAD_PY, " failed:\n",
+      paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+      call. = FALSE
+    )
+  }
+
+  # Python emits a single {"results":[...]} object on stdout; surface each action.
+  res <- tryCatch(
+    jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  for (r in res$results %||% list()) {
+    message("sync: ", r$action, " ", r$name, " -> ", repo$slug, " @ tag ", r$tag)
   }
   invisible(assets)
 }
@@ -2013,7 +1910,8 @@ sync <- function(
 
   prior_assets <- lockfile_external_assets_list(lock)
   assets <- build_external_assets(
-    src$path, catalog, external, prior_assets = prior_assets
+    src$path, catalog, external,
+    prior_assets = prior_assets
   )
   # sysdata after assets so mc_provenance carries the runtime registry
   sys <- build_sysdata(src$path, catalog, ship, external_assets = assets)
