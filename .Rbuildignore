@@ -5,3 +5,7 @@
 ^\.positai$
 ^\.claude$
 ^tests/testthat/fixtures$
+^\.venv$
+^pyproject\.toml$
+^uv\.lock$
+^\.python-version$

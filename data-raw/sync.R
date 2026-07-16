@@ -5,16 +5,21 @@
 #   sync(dry_run = TRUE)
 #   sync(force = TRUE)                  # ignore lockfile
 #   sync(source_git_sha = "dc543a7b...") # pin a specific commit
+#   sync(upload = TRUE)                 # also publish external qs2 to GitHub Releases
 #
 # Outputs:
 #   R/sysdata.rda                    catalog + group sidecars + small tensor bundles
-#   data-raw/assets/*.qs2            SystemsAge / PCClocks / PCBrainAge (staged)
-#   data-raw/lockfile.json           resolved source_git_sha + manifest_key (the skip key)
+#                                    (+ mc_provenance$external_assets registry)
+#   data-raw/assets/*.qs2            SystemsAge / PCClocks / PCBrainAge (content-addressed)
+#   data-raw/lockfile.json           pin + manifest_key + external asset hashes
 #   inst/bibliography/clocks.bib     vendored paper library (overwritten each sync)
+#
+# External assets are identified by rlang::hash of the stable in-memory pack (not the
+# meta git SHA). Release tag on the package repo = that payload_hash.
 
 # --- setup -------------------------------------------------------------------
 
-for (pkg in c("jsonlite", "qs2", "usethis", "digest")) {
+for (pkg in c("jsonlite", "qs2", "usethis", "digest", "rlang")) {
   if (!requireNamespace(pkg, quietly = TRUE)) {
     stop("Missing package '", pkg, "'. Install it first.", call. = FALSE)
   }
@@ -33,6 +38,12 @@ META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
 
 # External families: ship the rest. These three go to release assets due to size.
 EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
+
+# Bump when the in-memory pack layout changes (forces new payload_hash).
+EXTERNAL_ENCODING_VERSION <- 1L
+
+# Pin-only fields: never part of the hashed / published pack (would defeat content-addressing).
+EXTERNAL_PIN_FIELDS <- c("source_git_sha", "manifest_generated_at_sha")
 
 # Valid verification_status values from the release manifest.
 VERIFICATION_STATUS <- c("", "pending", "verified", "disputed", "skipped")
@@ -403,6 +414,31 @@ resolve_source <- function(source_git_sha = NULL) {
     stop("git rev-parse HEAD did not return a full commit sha: ", sha, call. = FALSE)
   }
   list(path = path, source_git_sha = sha)
+}
+
+# Fixture cohort DuckDB (gitignored, regenerable). Self-contained: tables `beta` + `pheno`.
+# Not a sync bundle input -- local testthat reads it under the meta clone. Warn when missing.
+# See migration-plan "Fixture cohort" and meta fixtures/build_cohort.R.
+warn_if_missing_fixture_duckdb <- function(repo_path) {
+  duckdb_rel <- file.path("fixtures", "cohort_EPIC", "beta.duckdb")
+  duckdb_abs <- file.path(repo_path, duckdb_rel)
+  if (file.exists(duckdb_abs)) {
+    return(invisible(TRUE))
+  }
+  # Paths relative to package root (sync is run from there via source("data-raw/sync.R")).
+  meta_fixtures <- file.path("data-raw", "methylCIPHER-meta", "fixtures")
+  cohort_dir <- file.path(meta_fixtures, "cohort_EPIC")
+  warning(
+    "Fixture cohort DuckDB not found at ",
+    file.path("data-raw", "methylCIPHER-meta", duckdb_rel),
+    " (gitignored; regenerable; embeds beta + pheno).\n",
+    "  Generate it:\n",
+    "    cd ", meta_fixtures, "\n",
+    "    Rscript build_cohort.R\n",
+    "  Or copy an existing beta.duckdb into ", cohort_dir, ".",
+    call. = FALSE
+  )
+  invisible(FALSE)
 }
 
 # --- manifest ----------------------------------------------------------------
@@ -1108,7 +1144,28 @@ encode_external_asset <- function(bundle) {
   }
 }
 
-build_sysdata <- function(repo_path, catalog, ship_groups) {
+# Runtime-facing registry row (also embedded in mc_provenance). No upload state.
+external_asset_registry_row <- function(a) {
+  list(
+    group_id = a$group_id,
+    payload_hash = a$payload_hash,
+    release_tag = a$release_tag %||% a$payload_hash,
+    file = a$file,
+    file_sha256 = a$file_sha256,
+    size_bytes = a$size_bytes,
+    encoding = a$encoding,
+    encoding_version = a$encoding_version,
+    n_clocks = a$n_clocks,
+    n_cpgs = a$n_cpgs
+  )
+}
+
+# Maintainer lockfile row (same identity fields; pin is package-level).
+external_asset_lock_row <- function(a) {
+  external_asset_registry_row(a)
+}
+
+build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NULL) {
   message(
     "sync: building shipped bundles for ",
     length(ship_groups),
@@ -1119,6 +1176,10 @@ build_sysdata <- function(repo_path, catalog, ship_groups) {
   mc_catalog <- catalog$clocks
   mc_groups <- catalog$groups
   mc_bundles <- bundles
+  ext_reg <- NULL
+  if (!is.null(external_assets) && length(external_assets)) {
+    ext_reg <- lapply(external_assets, external_asset_registry_row)
+  }
   mc_provenance <- list(
     # identity of the tree these bytes came from
     source_git_sha = catalog$source_git_sha,
@@ -1129,7 +1190,9 @@ build_sysdata <- function(repo_path, catalog, ship_groups) {
     n_clocks = catalog$n_clocks,
     n_ship_groups = length(ship_groups),
     ship_groups = ship_groups,
-    external_groups = EXTERNAL_GROUPS
+    external_groups = EXTERNAL_GROUPS,
+    # expected payload_hash / file_sha256 for download + integrity (runtime)
+    external_assets = ext_reg
   )
 
   # internal = TRUE -> R/sysdata.rda
@@ -1157,52 +1220,523 @@ build_sysdata <- function(repo_path, catalog, ship_groups) {
 QS2_COMPRESS_LEVEL <- 1L
 QS2_SHUFFLE <- FALSE
 
-build_external_assets <- function(repo_path, catalog, external_groups) {
+# Canonical in-memory pack for hash + qs_save. Includes catalog (intercepts, out_sha256,
+# …) so scoring contract and tensors move together. Excludes pin-only fields so a new
+# meta checkout with identical packs does not force a new release.
+stable_external_payload <- function(bundle) {
+  for (f in EXTERNAL_PIN_FIELDS) {
+    bundle[[f]] <- NULL
+  }
+
+  tensors <- bundle$tensors %||% list()
+  if (length(tensors) && !is.null(names(tensors))) {
+    tensors <- tensors[sort(names(tensors))]
+  }
+
+  catalog <- bundle$catalog %||% list()
+  if (length(catalog) && !is.null(names(catalog))) {
+    catalog <- catalog[sort(names(catalog))]
+  }
+
+  clocks <- as.character(bundle$clocks %||% character())
+  if (length(clocks)) {
+    clocks <- sort(unique(clocks))
+  }
+
+  # Fixed field order; drop pure-nulls so PC* and SystemsAge share one schema.
+  out <- list(
+    encoding_version = as.integer(bundle$encoding_version %||% EXTERNAL_ENCODING_VERSION),
+    encoding = as.character(bundle$encoding %||% "canonical_matrices"),
+    group_id = as.character(bundle$group_id %||% NA_character_),
+    clocks = clocks,
+    schema_version = bundle$schema_version,
+    catalog = if (length(catalog)) catalog else NULL,
+    group = bundle$group,
+    cpgs = bundle$cpgs,
+    coefficient_matrix = bundle$coefficient_matrix,
+    organs = bundle$organs,
+    systems = bundle$systems,
+    age = bundle$age,
+    impute = bundle$impute,
+    tensors = if (length(tensors)) tensors else NULL
+  )
+  out <- out[!vapply(out, is.null, logical(1L))]
+  out
+}
+
+payload_hash_of <- function(payload) {
+  rlang::hash(payload)
+}
+
+file_sha256_of <- function(path) {
+  digest::digest(file = path, algo = "sha256")
+}
+
+# --- package GitHub remote (release target) ----------------------------------
+
+# Parse owner/repo from a git remote URL (https or ssh).
+parse_github_owner_repo <- function(url) {
+  url <- trimws(as.character(url %||% ""))
+  if (!nzchar(url)) {
+    return(NULL)
+  }
+  url <- sub("\\.git$", "", url)
+  # https://github.com/owner/repo or git@github.com:owner/repo
+  m <- regexec(
+    "(?:github\\.com[:/])([^/]+)/([^/]+)$",
+    url,
+    perl = TRUE
+  )
+  parts <- regmatches(url, m)[[1L]]
+  if (length(parts) != 3L) {
+    return(NULL)
+  }
+  list(owner = parts[[2L]], repo = parts[[3L]], slug = paste0(parts[[2L]], "/", parts[[3L]]))
+}
+
+# Release target: env METHYLCIPHER_RELEASE_REPO, else package origin remote.
+package_release_repo <- function() {
+  env <- Sys.getenv("METHYLCIPHER_RELEASE_REPO", unset = "")
+  if (nzchar(env)) {
+    if (grepl("/", env) && !grepl("github\\.com", env)) {
+      return(list(owner = sub("/.*", "", env), repo = sub(".*/", "", env), slug = env))
+    }
+    parsed <- parse_github_owner_repo(env)
+    if (!is.null(parsed)) {
+      return(parsed)
+    }
+  }
+  url <- tryCatch(
+    git_value("remote", "get-url", "origin"),
+    error = function(e) NA_character_
+  )
+  parsed <- parse_github_owner_repo(url)
+  if (is.null(parsed)) {
+    stop(
+      "Cannot resolve package GitHub repo for releases. Set METHYLCIPHER_RELEASE_REPO=owner/repo ",
+      "or configure git remote origin.",
+      call. = FALSE
+    )
+  }
+  parsed
+}
+
+package_release_target_commitish <- function() {
+  env <- Sys.getenv("METHYLCIPHER_RELEASE_TARGET", unset = "")
+  if (nzchar(env)) {
+    return(env)
+  }
+  br <- tryCatch(
+    git_value("rev-parse", "--abbrev-ref", "HEAD"),
+    error = function(e) NA_character_
+  )
+  if (is.na(br) || !nzchar(br) || identical(br, "HEAD")) {
+    return(git_value("rev-parse", "HEAD"))
+  }
+  br
+}
+
+github_token <- function() {
+  tok <- Sys.getenv("GH_TOKEN", unset = "")
+  if (!nzchar(tok)) {
+    tok <- Sys.getenv("GITHUB_TOKEN", unset = "")
+  }
+  tok
+}
+
+# Prefer gh CLI; fall back to curl + GitHub REST API.
+gh_cli_available <- function() {
+  nzchar(Sys.which("gh"))
+}
+
+curl_cli <- function() {
+  w <- Sys.which("curl")
+  if (!nzchar(w)) {
+    stop("Neither 'gh' nor 'curl' is on PATH; cannot upload release assets.", call. = FALSE)
+  }
+  w
+}
+
+# GET GitHub API JSON; returns parsed list or NULL on 404.
+github_api_get <- function(path, token) {
+  if (gh_cli_available()) {
+    args <- c("api", path, "-H", "Accept: application/vnd.github+json")
+    err_file <- tempfile("gh-api-")
+    on.exit(unlink(err_file), add = TRUE)
+    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    status <- attr(out, "status")
+    if (!is.null(status) && status != 0L) {
+      err <- paste(readLines(err_file, warn = FALSE), collapse = "\n")
+      if (grepl("404|Not Found", err, ignore.case = TRUE)) {
+        return(NULL)
+      }
+      stop("gh api ", path, " failed:\n", err, call. = FALSE)
+    }
+    return(jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE))
+  }
+
+  url <- paste0("https://api.github.com", path)
+  hdr_file <- tempfile("curl-hdr-")
+  body_file <- tempfile("curl-body-")
+  on.exit(unlink(c(hdr_file, body_file)), add = TRUE)
+  args <- c(
+    "-sS", "-D", hdr_file, "-o", body_file,
+    "-H", "Accept: application/vnd.github+json"
+  )
+  if (nzchar(token)) {
+    args <- c(args, "-H", paste0("Authorization: Bearer ", token))
+  }
+  args <- c(args, url)
+  status <- system2(curl_cli(), args)
+  if (!is.null(attr(status, "status"))) {
+    status <- attr(status, "status")
+  }
+  hdr <- paste(readLines(hdr_file, warn = FALSE), collapse = "\n")
+  body <- paste(readLines(body_file, warn = FALSE), collapse = "\n")
+  code <- sub("(?s).*HTTP/[0-9.]+\\s+([0-9]+).*", "\\1", hdr, perl = TRUE)
+  if (!grepl("^[0-9]+$", code)) {
+    code <- if (is.numeric(status) && status != 0) "000" else "200"
+  }
+  if (identical(code, "404")) {
+    return(NULL)
+  }
+  if (!identical(code, "200") && !identical(code, "201")) {
+    stop("GitHub API GET ", path, " failed (HTTP ", code, "):\n", body, call. = FALSE)
+  }
+  jsonlite::fromJSON(body, simplifyVector = FALSE)
+}
+
+github_api_post_json <- function(path, payload, token) {
+  body_json <- jsonlite::toJSON(payload, auto_unbox = TRUE, null = "null")
+  in_file <- tempfile("gh-body-", fileext = ".json")
+  on.exit(unlink(in_file), add = TRUE)
+  writeLines(body_json, in_file, useBytes = TRUE)
+
+  if (gh_cli_available()) {
+    err_file <- tempfile("gh-post-")
+    on.exit(unlink(err_file), add = TRUE)
+    args <- c(
+      "api", "--method", "POST", path,
+      "-H", "Accept: application/vnd.github+json",
+      "-H", "Content-Type: application/json",
+      "--input", in_file
+    )
+    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    status <- attr(out, "status")
+    if (!is.null(status) && status != 0L) {
+      stop(
+        "gh api POST ", path, " failed:\n",
+        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+        call. = FALSE
+      )
+    }
+    return(jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE))
+  }
+
+  if (!nzchar(token)) {
+    stop(
+      "GITHUB_TOKEN or GH_TOKEN required for release upload when 'gh' is not installed.",
+      call. = FALSE
+    )
+  }
+  out_file <- tempfile("curl-out-")
+  on.exit(unlink(out_file), add = TRUE)
+  args <- c(
+    "-sS", "-o", out_file, "-w", "%{http_code}",
+    "-X", "POST",
+    "-H", "Accept: application/vnd.github+json",
+    "-H", paste0("Authorization: Bearer ", token),
+    "-H", "Content-Type: application/json",
+    "--data-binary", paste0("@", in_file),
+    paste0("https://api.github.com", path)
+  )
+  code <- system2(curl_cli(), args, stdout = TRUE)
+  body <- paste(readLines(out_file, warn = FALSE), collapse = "\n")
+  if (!code %in% c("200", "201")) {
+    stop("GitHub API POST ", path, " failed (HTTP ", code, "):\n", body, call. = FALSE)
+  }
+  jsonlite::fromJSON(body, simplifyVector = FALSE)
+}
+
+github_release_by_tag <- function(slug, tag, token) {
+  github_api_get(paste0("/repos/", slug, "/releases/tags/", utils::URLencode(tag, reserved = TRUE)), token)
+}
+
+github_create_release <- function(slug, tag, target_commitish, name, body, token) {
+  github_api_post_json(
+    paste0("/repos/", slug, "/releases"),
+    list(
+      tag_name = tag,
+      target_commitish = target_commitish,
+      name = name,
+      body = body,
+      draft = FALSE,
+      prerelease = FALSE
+    ),
+    token
+  )
+}
+
+github_upload_release_asset <- function(slug, release, file_path, asset_name, token) {
+  if (!file.exists(file_path)) {
+    stop("Cannot upload missing file: ", file_path, call. = FALSE)
+  }
+  # Skip if an asset with this name already exists on the release.
+  assets <- release$assets %||% list()
+  existing_names <- vapply(
+    assets,
+    function(a) as.character(a$name %||% ""),
+    character(1L)
+  )
+  if (asset_name %in% existing_names) {
+    message("sync: release asset already present: ", asset_name, " (tag ", release$tag_name %||% "?", ")")
+    return(invisible(TRUE))
+  }
+
+  if (gh_cli_available()) {
+    # gh release upload TAG FILE --repo slug --clobber
+    tag <- as.character(release$tag_name %||% "")
+    args <- c(
+      "release", "upload", tag, file_path,
+      "--repo", slug,
+      "--clobber"
+    )
+    err_file <- tempfile("gh-up-")
+    on.exit(unlink(err_file), add = TRUE)
+    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    status <- attr(out, "status")
+    if (!is.null(status) && status != 0L) {
+      stop(
+        "gh release upload failed:\n",
+        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+        call. = FALSE
+      )
+    }
+    return(invisible(TRUE))
+  }
+
+  if (!nzchar(token)) {
+    stop("GITHUB_TOKEN or GH_TOKEN required for asset upload without 'gh'.", call. = FALSE)
+  }
+  upload_url <- as.character(release$upload_url %||% "")
+  if (!nzchar(upload_url)) {
+    stop("Release response missing upload_url", call. = FALSE)
+  }
+  # upload_url is like https://uploads.github.com/.../assets{?name,label}
+  base <- sub("\\{.*$", "", upload_url)
+  url <- paste0(base, "?name=", utils::URLencode(asset_name, reserved = TRUE))
+  out_file <- tempfile("curl-up-")
+  on.exit(unlink(out_file), add = TRUE)
+  args <- c(
+    "-sS", "-o", out_file, "-w", "%{http_code}",
+    "-X", "POST",
+    "-H", "Accept: application/vnd.github+json",
+    "-H", paste0("Authorization: Bearer ", token),
+    "-H", "Content-Type: application/octet-stream",
+    "--data-binary", paste0("@", normalizePath(file_path, winslash = "/", mustWork = TRUE)),
+    url
+  )
+  code <- system2(curl_cli(), args, stdout = TRUE)
+  body <- paste(readLines(out_file, warn = FALSE), collapse = "\n")
+  if (!code %in% c("200", "201")) {
+    stop(
+      "GitHub asset upload failed for ", asset_name, " (HTTP ", code, "):\n", body,
+      call. = FALSE
+    )
+  }
+  invisible(TRUE)
+}
+
+# Publish one content-addressed asset. Tag = payload_hash (stable identity).
+upload_one_external_asset <- function(a, repo, target_commitish, token) {
+  tag <- as.character(a$payload_hash %||% "")
+  if (!nzchar(tag)) {
+    stop("Asset missing payload_hash: ", a$group_id %||% "?", call. = FALSE)
+  }
+  fpath <- a$path %||% file.path(asset_dir, a$file)
+  if (!file.exists(fpath)) {
+    stop(
+      "Staged asset missing for ", a$group_id, ": ", fpath,
+      "\nRe-run sync() to rebuild before upload.",
+      call. = FALSE
+    )
+  }
+  # Verify staged file still matches lock/registry checksum when present.
+  if (!is.null(a$file_sha256) && nzchar(a$file_sha256)) {
+    actual <- file_sha256_of(fpath)
+    if (!identical(actual, a$file_sha256)) {
+      stop(
+        "Staged file sha256 mismatch for ", a$group_id, ":\n  expected ", a$file_sha256,
+        "\n  actual   ", actual,
+        call. = FALSE
+      )
+    }
+  }
+
+  slug <- repo$slug
+  rel <- github_release_by_tag(slug, tag, token)
+  if (is.null(rel)) {
+    message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
+    rel <- github_create_release(
+      slug = slug,
+      tag = tag,
+      target_commitish = target_commitish,
+      name = sprintf("methylCIPHER external asset %s", a$group_id %||% tag),
+      body = paste0(
+        "Content-addressed external clock pack.\n\n",
+        "- group_id: `", a$group_id %||% "", "`\n",
+        "- payload_hash (rlang::hash): `", tag, "`\n",
+        "- file_sha256: `", a$file_sha256 %||% "", "`\n",
+        "- encoding: `", a$encoding %||% "", "` v", a$encoding_version %||% "", "\n",
+        "\nRuntime resolves by payload_hash; package pin (source_git_sha) is separate.\n"
+      ),
+      token = token
+    )
+  } else {
+    message("sync: release tag ", tag, " already exists on ", slug)
+  }
+  github_upload_release_asset(slug, rel, fpath, a$file, token)
+  message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
+  invisible(TRUE)
+}
+
+upload_external_assets <- function(assets) {
+  if (!length(assets)) {
+    message("sync: no external assets to upload")
+    return(invisible(list()))
+  }
+  repo <- package_release_repo()
+  target <- package_release_target_commitish()
+  token <- github_token()
+  if (!gh_cli_available() && !nzchar(token)) {
+    stop(
+      "upload=TRUE needs the GitHub CLI (`gh`) or GITHUB_TOKEN/GH_TOKEN for API upload.",
+      call. = FALSE
+    )
+  }
+  message(
+    "sync: uploading ", length(assets), " external asset(s) to ", repo$slug,
+    " (target_commitish=", target, ")"
+  )
+  for (a in assets) {
+    upload_one_external_asset(a, repo, target, token)
+  }
+  invisible(assets)
+}
+
+# Normalize lockfile external_assets (JSON object or data.frame) to named list of lists.
+lockfile_external_assets_list <- function(lock) {
+  a <- lock$external_assets
+  if (is.null(a)) {
+    return(list())
+  }
+  if (is.data.frame(a)) {
+    # fromJSON simplifyVector=TRUE can give a data.frame
+    out <- list()
+    nms <- a$group_id
+    for (i in seq_len(nrow(a))) {
+      row <- lapply(a, function(col) col[[i]])
+      gid <- as.character(row$group_id %||% nms[[i]] %||% paste0("row", i))
+      row$path <- file.path(asset_dir, as.character(row$file %||% ""))
+      out[[gid]] <- row
+    }
+    return(out)
+  }
+  if (!is.list(a)) {
+    return(list())
+  }
+  # already list of lists; ensure names + path
+  if (!is.null(names(a)) && all(nzchar(names(a)))) {
+    out <- a
+  } else {
+    out <- list()
+    for (item in a) {
+      gid <- as.character(item$group_id %||% NA_character_)
+      if (nzchar(gid) && !is.na(gid)) {
+        out[[gid]] <- item
+      }
+    }
+  }
+  for (gid in names(out)) {
+    if (is.null(out[[gid]]$path) || !nzchar(out[[gid]]$path %||% "")) {
+      out[[gid]]$path <- file.path(asset_dir, as.character(out[[gid]]$file %||% ""))
+    }
+  }
+  out
+}
+
+build_external_assets <- function(repo_path, catalog, external_groups, prior_assets = NULL) {
   if (!dir.exists(asset_dir)) {
     dir.create(asset_dir, recursive = TRUE, showWarnings = FALSE)
   }
   assets <- list()
+  prior <- prior_assets %||% list()
 
   for (gid in external_groups) {
     message("sync: building external asset for ", gid, "...")
     bundle <- build_group_bundles(repo_path, catalog, gid)[[gid]]
     bundle <- encode_external_asset(bundle)
-    bundle$source_git_sha <- catalog$source_git_sha
-    bundle$manifest_generated_at_sha <- catalog$manifest_generated_at_sha
     bundle$schema_version <- catalog$schema_version
+    bundle$encoding_version <- EXTERNAL_ENCODING_VERSION
     bundle$catalog <- catalog$clocks[bundle$clocks]
     bundle$group <- catalog$groups[[gid]]
+    # Pin fields intentionally omitted from pack (see stable_external_payload).
 
-    fname <- sprintf("%s-%s.qs2", tolower(gid), catalog$source_git_sha)
+    payload <- stable_external_payload(bundle)
+    phash <- payload_hash_of(payload)
+    fname <- sprintf("%s-%s.qs2", tolower(gid), phash)
     fpath <- file.path(asset_dir, fname)
-    qs2::qs_save(
-      bundle,
-      fpath,
-      compress_level = QS2_COMPRESS_LEVEL,
-      shuffle = QS2_SHUFFLE
-    )
-    sz <- file.info(fpath)$size
-    n_cpgs <- length(bundle$cpgs %||% character())
-    shape_bits <- character()
-    if (!is.null(bundle$coefficient_matrix)) {
-      shape_bits <- c(
-        shape_bits,
-        sprintf("coef=%s", paste(dim(bundle$coefficient_matrix), collapse = "x"))
+
+    reuse <- FALSE
+    prev <- prior[[gid]]
+    if (
+      !is.null(prev) &&
+        identical(as.character(prev$payload_hash %||% ""), phash) &&
+        file.exists(fpath)
+    ) {
+      actual_sha <- file_sha256_of(fpath)
+      if (identical(as.character(prev$file_sha256 %||% ""), actual_sha)) {
+        reuse <- TRUE
+        message(
+          "sync: ", gid, " payload_hash unchanged (", phash, ") -- reusing staged ", fname
+        )
+      }
+    }
+
+    if (!reuse) {
+      qs2::qs_save(
+        payload,
+        fpath,
+        compress_level = QS2_COMPRESS_LEVEL,
+        shuffle = QS2_SHUFFLE
       )
     }
-    if (!is.null(bundle$organs)) {
+
+    sz <- file.info(fpath)$size
+    fsha <- file_sha256_of(fpath)
+    n_cpgs <- length(payload$cpgs %||% character())
+    shape_bits <- character()
+    if (!is.null(payload$coefficient_matrix)) {
       shape_bits <- c(
         shape_bits,
-        sprintf("organs=%s", paste(dim(bundle$organs), collapse = "x")),
-        sprintf("systems=%s", paste(dim(bundle$systems), collapse = "x"))
+        sprintf("coef=%s", paste(dim(payload$coefficient_matrix), collapse = "x"))
+      )
+    }
+    if (!is.null(payload$organs)) {
+      shape_bits <- c(
+        shape_bits,
+        sprintf("organs=%s", paste(dim(payload$organs), collapse = "x")),
+        sprintf("systems=%s", paste(dim(payload$systems), collapse = "x"))
       )
     }
     message(
       sprintf(
-        "sync: wrote %s (%.2f MB; encoding=%s; n_cpgs=%s%s)",
+        "sync: %s %s (%.2f MB; payload_hash=%s; file_sha256=%s; n_cpgs=%s%s)",
+        if (reuse) "kept" else "wrote",
         fpath,
         sz / 1e6,
-        bundle$encoding %||% "?",
+        phash,
+        fsha,
         n_cpgs,
         if (length(shape_bits)) paste0("; ", paste(shape_bits, collapse = "; ")) else ""
       )
@@ -1211,11 +1745,14 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
       group_id = gid,
       path = fpath,
       file = fname,
-      size_bytes = sz,
-      source_git_sha = catalog$source_git_sha,
-      n_clocks = length(bundle$clocks),
+      payload_hash = phash,
+      release_tag = phash,
+      file_sha256 = fsha,
+      size_bytes = as.integer(sz),
+      n_clocks = length(payload$clocks %||% character()),
       n_cpgs = n_cpgs,
-      encoding = bundle$encoding %||% "canonical_matrices"
+      encoding = payload$encoding %||% "canonical_matrices",
+      encoding_version = as.integer(payload$encoding_version %||% EXTERNAL_ENCODING_VERSION)
     )
   }
   assets
@@ -1230,6 +1767,7 @@ sync <- function(
   upload = FALSE
 ) {
   src <- resolve_source(source_git_sha = source_git_sha)
+  warn_if_missing_fixture_duckdb(src$path)
   man <- read_manifest(src$path)
 
   # The pin is the commit we actually read. manifest$source_git_sha names the *parent*
@@ -1242,24 +1780,19 @@ sync <- function(
   lock <- read_lockfile()
   up_to_date <- !is.na(lock$manifest_key) && identical(lock$manifest_key, mkey)
 
-  pending_upload <- function(l) {
-    a <- l$external_assets
-    if (is.null(a) || !NROW(a)) {
-      return(FALSE)
-    }
-    !isTRUE(all(a$uploaded))
-  }
-
   if (isTRUE(dry_run)) {
     files <- list_meta_files(src$path)
     verdict <- if (up_to_date && !isTRUE(force)) {
-      "would SKIP (manifest unchanged)"
+      "would SKIP rebuild (manifest unchanged)"
     } else if (up_to_date) {
       "would REBUILD (up to date, but force = TRUE)"
     } else if (is.na(lock$manifest_key)) {
       "would BUILD (no usable lockfile)"
     } else {
       "would REBUILD (manifest changed)"
+    }
+    if (isTRUE(upload)) {
+      verdict <- paste0(verdict, "; would UPLOAD external assets (tag = payload_hash)")
     }
     message(
       "sync: ",
@@ -1280,6 +1813,7 @@ sync <- function(
     return(invisible(list(
       skipped = up_to_date && !isTRUE(force),
       dry_run = TRUE,
+      upload = isTRUE(upload),
       source_git_sha = current_sha,
       manifest_key = mkey,
       manifest_generated_at_sha = stamped_sha,
@@ -1290,28 +1824,24 @@ sync <- function(
   }
 
   if (!isTRUE(force) && up_to_date) {
-    message("sync: manifest unchanged since lockfile (", current_sha, ") -- skip")
-    if (pending_upload(lock)) {
-      message(
-        "sync: NOTE -- lockfile records external assets that were staged but never ",
-        "uploaded. Upload them from data-raw/assets/, or re-run with force = TRUE to ",
-        "rebuild them."
-      )
+    message("sync: manifest unchanged since lockfile (", current_sha, ") -- skip rebuild")
+    assets <- lockfile_external_assets_list(lock)
+    if (isTRUE(upload)) {
+      if (!length(assets)) {
+        stop(
+          "upload=TRUE but lockfile has no external_assets. Run sync(force = TRUE) first.",
+          call. = FALSE
+        )
+      }
+      upload_external_assets(assets)
     }
     return(invisible(list(
       skipped = TRUE,
-      source_git_sha = as.character(lock$source_git_sha),
-      manifest_key = mkey
+      source_git_sha = as.character(lock$source_git_sha %||% current_sha),
+      manifest_key = mkey,
+      assets = assets,
+      uploaded = isTRUE(upload)
     )))
-  }
-
-  # fail before an expensive build, not after it
-  if (isTRUE(upload)) {
-    stop(
-      "upload=TRUE is not configured yet. Stage assets from data-raw/assets/ ",
-      "to a GitHub Release keyed by source_git_sha.",
-      call. = FALSE
-    )
   }
 
   message("sync: building catalog @ ", current_sha)
@@ -1332,20 +1862,13 @@ sync <- function(
     paste(external, collapse = ", ")
   )
 
-  sys <- build_sysdata(src$path, catalog, ship)
-  assets <- build_external_assets(src$path, catalog, external)
-  bib <- vendor_bibliography(src$path)
-
-  message(
-    "sync: upload skipped (local staging only). ",
-    length(assets),
-    " asset(s) under data-raw/assets/ for source_git_sha=",
-    current_sha
+  prior_assets <- lockfile_external_assets_list(lock)
+  assets <- build_external_assets(
+    src$path, catalog, external, prior_assets = prior_assets
   )
-  uploaded <- lapply(assets, function(a) {
-    a$uploaded <- FALSE
-    a
-  })
+  # sysdata after assets so mc_provenance carries the runtime registry
+  sys <- build_sysdata(src$path, catalog, ship, external_assets = assets)
+  bib <- vendor_bibliography(src$path)
 
   write_lockfile(
     source_git_sha = current_sha,
@@ -1353,16 +1876,17 @@ sync <- function(
     manifest_generated_at_sha = stamped_sha,
     schema_version = catalog$schema_version,
     n_clocks = catalog$n_clocks,
-    external_assets = lapply(uploaded, function(a) {
-      list(
-        group_id = a$group_id,
-        file = a$file,
-        size_bytes = a$size_bytes,
-        encoding = a$encoding,
-        uploaded = isTRUE(a$uploaded)
-      )
-    })
+    external_assets = lapply(assets, external_asset_lock_row)
   )
+
+  if (isTRUE(upload)) {
+    upload_external_assets(assets)
+  } else {
+    message(
+      "sync: staged ", length(assets),
+      " external asset(s) under data-raw/assets/ (upload=FALSE; content-addressed by payload_hash)"
+    )
+  }
 
   message("sync: done @ ", current_sha)
   invisible(list(
@@ -1375,7 +1899,8 @@ sync <- function(
     external_groups = external,
     sysdata = sys,
     bibliography = bib,
-    assets = uploaded,
+    assets = assets,
+    uploaded = isTRUE(upload),
     lockfile = lockfile_path
   ))
 }
@@ -1387,6 +1912,7 @@ if (interactive()) {
     "  sync(dry_run = TRUE)\n",
     "  sync()\n",
     "  sync(force = TRUE)\n",
+    "  sync(upload = TRUE)\n",
     "  sync(source_git_sha = \"dc543a7b...\")"
   )
 }
