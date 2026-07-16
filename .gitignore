@@ -3,6 +3,9 @@
 .RData
 .Ruserdata
 dev/
+
+# uv local environment (keep pyproject.toml + uv.lock tracked for uv sync)
+.venv/
 # Sync staging: large external family assets and optional vendor clone
 data-raw/assets/
 data-raw/methylCIPHER-meta/
