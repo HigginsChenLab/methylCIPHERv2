@@ -1607,20 +1607,36 @@ external_asset_release_notes <- function(a, tag) {
   )
 }
 
-# gh release view exits 0 if the tag/release exists.
-gh_release_exists <- function(slug, tag) {
+# Asset names on a release tag. NULL if the release/tag does not exist.
+gh_release_asset_names <- function(slug, tag) {
   err_file <- tempfile("gh-view-")
   on.exit(unlink(err_file), add = TRUE)
-  # system2(..., stdout = FALSE) returns the integer exit status.
-  status <- gh_exec(
-    c("release", "view", tag, "--repo", slug),
-    stdout = FALSE,
+  out <- gh_exec(
+    c("release", "view", tag, "--repo", slug, "--json", "assets"),
+    stdout = TRUE,
     stderr = err_file
   )
-  identical(as.integer(status %||% 1L), 0L)
+  status <- attr(out, "status")
+  if (!is.null(status) && status != 0L) {
+    return(NULL)
+  }
+  parsed <- tryCatch(
+    jsonlite::fromJSON(paste(out, collapse = "\n"), simplifyVector = FALSE),
+    error = function(e) NULL
+  )
+  if (is.null(parsed)) {
+    return(NULL)
+  }
+  assets <- parsed$assets %||% list()
+  vapply(assets, function(x) as.character(x$name %||% ""), character(1L))
 }
 
 # Preferred path: gh release create/upload (avoids brittle gh api argv on Windows).
+# Returns "created" | "uploaded" | "skipped".
+#
+# Identity is the content-addressed name `{family}-{payload_hash}.qs2` (tag =
+# payload_hash). Skip when that exact name is already on the release — no size
+# check; the hash in the name is the identity.
 upload_one_external_asset_gh <- function(a, slug, target_commitish, tag, fpath) {
   title <- sprintf("methylCIPHER external asset %s", a$group_id %||% tag)
   notes <- external_asset_release_notes(a, tag)
@@ -1628,10 +1644,12 @@ upload_one_external_asset_gh <- function(a, slug, target_commitish, tag, fpath) 
   on.exit(unlink(notes_file), add = TRUE)
   writeLines(notes, notes_file, useBytes = TRUE)
   fpath_abs <- normalizePath(fpath, winslash = "/", mustWork = TRUE)
+  asset_name <- as.character(a$file %||% basename(fpath_abs))
   err_file <- tempfile("gh-rel-")
   on.exit(unlink(err_file), add = TRUE)
 
-  if (!gh_release_exists(slug, tag)) {
+  remote_names <- gh_release_asset_names(slug, tag)
+  if (is.null(remote_names)) {
     message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
     args <- c(
       "release", "create", tag, fpath_abs,
@@ -1649,24 +1667,31 @@ upload_one_external_asset_gh <- function(a, slug, target_commitish, tag, fpath) 
         call. = FALSE
       )
     }
-  } else {
-    message("sync: release tag ", tag, " already exists on ", slug, " -- uploading/clobbering asset")
-    args <- c(
-      "release", "upload", tag, fpath_abs,
-      "--repo", slug,
-      "--clobber"
-    )
-    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
-    status <- attr(out, "status")
-    if (!is.null(status) && status != 0L) {
-      stop(
-        "gh release upload failed:\n",
-        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
-        call. = FALSE
-      )
-    }
+    return("created")
   }
-  invisible(TRUE)
+
+  if (asset_name %in% remote_names) {
+    message(
+      "sync: skip upload ", asset_name, " (already on ", slug, " @ tag ", tag, ")"
+    )
+    return("skipped")
+  }
+
+  message("sync: release tag ", tag, " exists; uploading missing asset ", asset_name)
+  args <- c(
+    "release", "upload", tag, fpath_abs,
+    "--repo", slug
+  )
+  out <- gh_exec(args, stdout = TRUE, stderr = err_file)
+  status <- attr(out, "status")
+  if (!is.null(status) && status != 0L) {
+    stop(
+      "gh release upload failed:\n",
+      paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+      call. = FALSE
+    )
+  }
+  "uploaded"
 }
 
 # Publish one content-addressed asset. Tag = payload_hash (stable identity).
@@ -1697,9 +1722,11 @@ upload_one_external_asset <- function(a, repo, target_commitish, token) {
 
   slug <- repo$slug
   if (gh_cli_available()) {
-    upload_one_external_asset_gh(a, slug, target_commitish, tag, fpath)
-    message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
-    return(invisible(TRUE))
+    action <- upload_one_external_asset_gh(a, slug, target_commitish, tag, fpath)
+    if (!identical(action, "skipped")) {
+      message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
+    }
+    return(invisible(action))
   }
 
   # curl REST fallback when gh is unavailable
