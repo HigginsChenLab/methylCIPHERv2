@@ -1345,8 +1345,57 @@ github_token <- function() {
 }
 
 # Prefer gh CLI; fall back to curl + GitHub REST API.
+# Resolve once: PATH, then common Windows install locations.
+gh_cli_path <- local({
+  cached <- NULL
+  function() {
+    if (!is.null(cached)) {
+      return(cached)
+    }
+    w <- Sys.which("gh")
+    if (nzchar(w)) {
+      cached <<- w
+      return(cached)
+    }
+    candidates <- c(
+      file.path(Sys.getenv("ProgramFiles", "C:/Program Files"), "GitHub CLI", "gh.exe"),
+      file.path(Sys.getenv("LOCALAPPDATA", ""), "GitHub CLI", "gh.exe"),
+      file.path(Sys.getenv("USERPROFILE", ""), "scoop", "shims", "gh.exe")
+    )
+    for (p in candidates) {
+      if (nzchar(p) && file.exists(p)) {
+        cached <<- normalizePath(p, winslash = "/", mustWork = TRUE)
+        return(cached)
+      }
+    }
+    cached <<- ""
+    cached
+  }
+})
+
 gh_cli_available <- function() {
-  nzchar(Sys.which("gh"))
+  nzchar(gh_cli_path())
+}
+
+# Windows system2 does not quote args with spaces; gh then treats extra words as globs.
+gh_quote_args <- function(args) {
+  if (.Platform$OS.type != "windows") {
+    return(as.character(args))
+  }
+  vapply(as.character(args), function(a) {
+    if (!nzchar(a) || !grepl("[[:space:]]", a)) {
+      return(a)
+    }
+    shQuote(a, type = "cmd")
+  }, character(1L), USE.NAMES = FALSE)
+}
+
+gh_exec <- function(args, ...) {
+  path <- gh_cli_path()
+  if (!nzchar(path)) {
+    stop("'gh' CLI not found", call. = FALSE)
+  }
+  system2(path, gh_quote_args(args), ...)
 }
 
 curl_cli <- function() {
@@ -1363,7 +1412,7 @@ github_api_get <- function(path, token) {
     args <- c("api", path, "-H", "Accept: application/vnd.github+json")
     err_file <- tempfile("gh-api-")
     on.exit(unlink(err_file), add = TRUE)
-    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
     status <- attr(out, "status")
     if (!is.null(status) && status != 0L) {
       err <- paste(readLines(err_file, warn = FALSE), collapse = "\n")
@@ -1421,7 +1470,7 @@ github_api_post_json <- function(path, payload, token) {
       "-H", "Content-Type: application/json",
       "--input", in_file
     )
-    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
     status <- attr(out, "status")
     if (!is.null(status) && status != 0L) {
       stop(
@@ -1503,7 +1552,7 @@ github_upload_release_asset <- function(slug, release, file_path, asset_name, to
     )
     err_file <- tempfile("gh-up-")
     on.exit(unlink(err_file), add = TRUE)
-    out <- system2("gh", args, stdout = TRUE, stderr = err_file)
+    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
     status <- attr(out, "status")
     if (!is.null(status) && status != 0L) {
       stop(
@@ -1547,6 +1596,79 @@ github_upload_release_asset <- function(slug, release, file_path, asset_name, to
   invisible(TRUE)
 }
 
+external_asset_release_notes <- function(a, tag) {
+  paste0(
+    "Content-addressed external clock pack.\n\n",
+    "- group_id: `", a$group_id %||% "", "`\n",
+    "- payload_hash (rlang::hash): `", tag, "`\n",
+    "- file_sha256: `", a$file_sha256 %||% "", "`\n",
+    "- encoding: `", a$encoding %||% "", "` v", a$encoding_version %||% "", "\n",
+    "\nRuntime resolves by payload_hash; package pin (source_git_sha) is separate.\n"
+  )
+}
+
+# gh release view exits 0 if the tag/release exists.
+gh_release_exists <- function(slug, tag) {
+  err_file <- tempfile("gh-view-")
+  on.exit(unlink(err_file), add = TRUE)
+  # system2(..., stdout = FALSE) returns the integer exit status.
+  status <- gh_exec(
+    c("release", "view", tag, "--repo", slug),
+    stdout = FALSE,
+    stderr = err_file
+  )
+  identical(as.integer(status %||% 1L), 0L)
+}
+
+# Preferred path: gh release create/upload (avoids brittle gh api argv on Windows).
+upload_one_external_asset_gh <- function(a, slug, target_commitish, tag, fpath) {
+  title <- sprintf("methylCIPHER external asset %s", a$group_id %||% tag)
+  notes <- external_asset_release_notes(a, tag)
+  notes_file <- tempfile("gh-notes-", fileext = ".md")
+  on.exit(unlink(notes_file), add = TRUE)
+  writeLines(notes, notes_file, useBytes = TRUE)
+  fpath_abs <- normalizePath(fpath, winslash = "/", mustWork = TRUE)
+  err_file <- tempfile("gh-rel-")
+  on.exit(unlink(err_file), add = TRUE)
+
+  if (!gh_release_exists(slug, tag)) {
+    message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
+    args <- c(
+      "release", "create", tag, fpath_abs,
+      "--repo", slug,
+      "--title", title,
+      "--notes-file", notes_file,
+      "--target", target_commitish
+    )
+    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
+    status <- attr(out, "status")
+    if (!is.null(status) && status != 0L) {
+      stop(
+        "gh release create failed:\n",
+        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+        call. = FALSE
+      )
+    }
+  } else {
+    message("sync: release tag ", tag, " already exists on ", slug, " -- uploading/clobbering asset")
+    args <- c(
+      "release", "upload", tag, fpath_abs,
+      "--repo", slug,
+      "--clobber"
+    )
+    out <- gh_exec(args, stdout = TRUE, stderr = err_file)
+    status <- attr(out, "status")
+    if (!is.null(status) && status != 0L) {
+      stop(
+        "gh release upload failed:\n",
+        paste(readLines(err_file, warn = FALSE), collapse = "\n"),
+        call. = FALSE
+      )
+    }
+  }
+  invisible(TRUE)
+}
+
 # Publish one content-addressed asset. Tag = payload_hash (stable identity).
 upload_one_external_asset <- function(a, repo, target_commitish, token) {
   tag <- as.character(a$payload_hash %||% "")
@@ -1574,6 +1696,13 @@ upload_one_external_asset <- function(a, repo, target_commitish, token) {
   }
 
   slug <- repo$slug
+  if (gh_cli_available()) {
+    upload_one_external_asset_gh(a, slug, target_commitish, tag, fpath)
+    message("sync: uploaded ", a$file, " -> ", slug, " @ tag ", tag)
+    return(invisible(TRUE))
+  }
+
+  # curl REST fallback when gh is unavailable
   rel <- github_release_by_tag(slug, tag, token)
   if (is.null(rel)) {
     message("sync: creating GitHub release tag ", tag, " on ", slug, " @ ", target_commitish)
@@ -1582,14 +1711,7 @@ upload_one_external_asset <- function(a, repo, target_commitish, token) {
       tag = tag,
       target_commitish = target_commitish,
       name = sprintf("methylCIPHER external asset %s", a$group_id %||% tag),
-      body = paste0(
-        "Content-addressed external clock pack.\n\n",
-        "- group_id: `", a$group_id %||% "", "`\n",
-        "- payload_hash (rlang::hash): `", tag, "`\n",
-        "- file_sha256: `", a$file_sha256 %||% "", "`\n",
-        "- encoding: `", a$encoding %||% "", "` v", a$encoding_version %||% "", "\n",
-        "\nRuntime resolves by payload_hash; package pin (source_git_sha) is separate.\n"
-      ),
+      body = external_asset_release_notes(a, tag),
       token = token
     )
   } else {
