@@ -16,7 +16,8 @@ Imports:
     DunedinPoAm38 (>= 0.1.0),
     methods,
     prcPhenoAge (>= 0.1.0),
-    qs2
+    qs2,
+    slideimp
 Suggests:
     devtools,
     duckdb,

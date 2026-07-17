@@ -12,10 +12,7 @@
 #                                    (+ mc_provenance$external_assets registry)
 #   data-raw/assets/*.qs2            SystemsAge / PCClocks / PCBrainAge (content-addressed)
 #   data-raw/lockfile.json           pin + manifest_key + external asset hashes
-#   inst/bibliography/clocks.bib     vendored paper library (overwritten each sync)
 #
-# External assets are identified by rlang::hash of the stable in-memory pack (not the
-# meta git SHA). Release tag on the package repo = that payload_hash.
 
 # --- setup -------------------------------------------------------------------
 
@@ -25,9 +22,11 @@ for (pkg in c("jsonlite", "qs2", "usethis", "digest", "rlang")) {
   }
 }
 
-# `%||%` <- function(x, y) {
-#   if (is.null(x) || (length(x) == 1L && is.na(x))) y else x
-# }
+if (getRversion() < '4.4.0') {
+  `%||%` <- function(x, y) {
+    if (is.null(x) || (length(x) == 1L && is.na(x))) y else x
+  }
+}
 
 lockfile_path <- file.path("data-raw", "lockfile.json")
 asset_dir <- file.path("data-raw", "assets")
@@ -64,39 +63,73 @@ WEIGHTS_REF_RE <- "^weights/.+\\.(csv\\.gz|csv|[Rr])$"
 # Top-level clock fields retained from each *.meta.json.
 FIELD_REGISTRY <- c(
   # identity / dispatch
-  "clock_id", "group_id", "weights_format", "computation_type",
+  "clock_id",
+  "group_id",
+  "weights_format",
+  "computation_type",
   # citation join key (clock_id -> pmid -> inst/bibliography/clocks.bib); not user fluff
   "pmid",
   # scoring
-  "output_transform", "normalization", "imputation", "intercept",
-  "covariates", "recipe", "components", "shared",
-  "external", "probe_sets", "code_ref", "definition",
-  "depends_on_clocks", "n_cpgs_normalization", "covers",
+  "output_transform",
+  "normalization",
+  "imputation",
+  "intercept",
+  "covariates",
+  "recipe",
+  "components",
+  "shared",
+  "external",
+  "probe_sets",
+  "code_ref",
+  "definition",
+  "depends_on_clocks",
+  "n_cpgs_normalization",
+  "covers",
   # user-facing (stripped to license only; n_cpgs/array_type/units/access dropped)
   "license"
 )
+
+# Kept in FIELD_REGISTRY only so the build-time resolver can read `covers` (resolve_scoring_cpgs);
+# stripped from every clock entry after resolution in build_sysdata(), never shipped.
+# Why not shipped: DECISIONS.md 2026-07-17 (covers/shared runtime-catalog trim).
+CATALOG_BUILD_ONLY_FIELDS <- c("covers", "shared")
 
 # Package-side BibTeX library path (overwritten every successful sync).
 BIB_INST_PATH <- file.path("inst", "bibliography", "clocks.bib")
 
 # Top-level group sidecar fields retained from each _group.meta.json.
 GROUP_FIELD_REGISTRY <- c(
-  "group_id", "members", "shared_tensors"
+  "group_id",
+  "members",
+  "shared_tensors"
 )
 
 # Nested allowlists inside kept objects.
 IMPUTATION_FIELDS <- c("policy", "ref")
 COMPONENT_FIELDS <- c(
-  "name", "file", "row_key", "col_key", "intercept", "covariates"
+  "name",
+  "file",
+  "row_key",
+  "col_key",
+  "intercept",
+  "covariates"
 )
 SHARED_FIELDS <- c("name", "file")
 PROBE_SET_FIELDS <- c("name", "role", "file", "n")
 EXTERNAL_FIELDS <- c(
-  "r_package", "github", "commit", "function", "model_key", "depends"
+  "r_package",
+  "github",
+  "commit",
+  "function",
+  "model_key",
+  "depends"
 )
 # Thin fixture stub for test wiring (not scoring). Full parity/server prose stays upstream.
 FIXTURE_FIELDS <- c(
-  "expected", "oracle", "parity_policy", "parity_metric"
+  "expected",
+  "oracle",
+  "parity_policy",
+  "parity_metric"
 )
 # recipe steps vary by op; drop free-text only.
 RECIPE_STEP_DROP <- c("note")
@@ -214,7 +247,11 @@ read_papers_csv <- function(repo_path) {
   if (!file.exists(path)) {
     stop("bibliography/papers.csv not found under ", repo_path, call. = FALSE)
   }
-  df <- utils::read.csv(path, stringsAsFactors = FALSE, colClasses = "character")
+  df <- utils::read.csv(
+    path,
+    stringsAsFactors = FALSE,
+    colClasses = "character"
+  )
   need <- c("pmid", "bib_key")
   missing <- setdiff(need, names(df))
   if (length(missing)) {
@@ -227,10 +264,16 @@ read_papers_csv <- function(repo_path) {
   df$pmid <- trimws(df$pmid)
   df$bib_key <- trimws(df$bib_key)
   if (any(!nzchar(df$pmid)) || anyDuplicated(df$pmid)) {
-    stop("bibliography/papers.csv: pmid must be unique non-empty", call. = FALSE)
+    stop(
+      "bibliography/papers.csv: pmid must be unique non-empty",
+      call. = FALSE
+    )
   }
   if (any(!nzchar(df$bib_key))) {
-    stop("bibliography/papers.csv: bib_key must be non-empty for every row", call. = FALSE)
+    stop(
+      "bibliography/papers.csv: bib_key must be non-empty for every row",
+      call. = FALSE
+    )
   }
   list(
     bib_key = stats::setNames(df$bib_key, df$pmid),
@@ -363,7 +406,11 @@ git_value <- function(..., dir = NULL) {
 # Always clone/fetch from GitHub into meta_dir, then checkout a commit.
 # source_git_sha = NULL means origin's default branch tip after fetch.
 resolve_source <- function(source_git_sha = NULL) {
-  if (!is.null(source_git_sha) && nzchar(source_git_sha) && nchar(source_git_sha) < 7L) {
+  if (
+    !is.null(source_git_sha) &&
+      nzchar(source_git_sha) &&
+      nchar(source_git_sha) < 7L
+  ) {
     stop(
       "source_git_sha must be a full or long commit SHA, got: ",
       source_git_sha,
@@ -381,7 +428,11 @@ resolve_source <- function(source_git_sha = NULL) {
   # discarded and re-cloned -- the mirror is gitignored and disposable.
   is_repo <- dir.exists(file.path(meta_dir, ".git"))
   if (dir.exists(meta_dir) && !is_repo) {
-    message("sync: ", meta_dir, " exists but is not a git repo -- removing and re-cloning")
+    message(
+      "sync: ",
+      meta_dir,
+      " exists but is not a git repo -- removing and re-cloning"
+    )
     unlink(meta_dir, recursive = TRUE, force = TRUE)
   }
 
@@ -409,7 +460,12 @@ resolve_source <- function(source_git_sha = NULL) {
   } else {
     # default branch tip (origin/HEAD -> e.g. origin/master)
     ref <- tryCatch(
-      git_value("symbolic-ref", "--short", "refs/remotes/origin/HEAD", dir = meta_dir),
+      git_value(
+        "symbolic-ref",
+        "--short",
+        "refs/remotes/origin/HEAD",
+        dir = meta_dir
+      ),
       error = function(e) NA_character_
     )
     if (is.na(ref) || !nzchar(ref)) {
@@ -432,7 +488,11 @@ resolve_source <- function(source_git_sha = NULL) {
 
   sha <- git_value("rev-parse", "HEAD", dir = path)
   if (!grepl("^[0-9a-f]{40}$", sha)) {
-    stop("git rev-parse HEAD did not return a full commit sha: ", sha, call. = FALSE)
+    stop(
+      "git rev-parse HEAD did not return a full commit sha: ",
+      sha,
+      call. = FALSE
+    )
   }
   list(path = path, source_git_sha = sha)
 }
@@ -454,9 +514,13 @@ warn_if_missing_fixture_duckdb <- function(repo_path) {
     file.path("data-raw", "methylCIPHER-meta", duckdb_rel),
     " (gitignored; regenerable; embeds beta + pheno).\n",
     "  Generate it:\n",
-    "    cd ", meta_fixtures, "\n",
+    "    cd ",
+    meta_fixtures,
+    "\n",
     "    Rscript build_cohort.R\n",
-    "  Or copy an existing beta.duckdb into ", cohort_dir, ".",
+    "  Or copy an existing beta.duckdb into ",
+    cohort_dir,
+    ".",
     call. = FALSE
   )
   invisible(FALSE)
@@ -681,17 +745,10 @@ build_catalog <- function(repo_path, manifest) {
       )
     }
 
-    # bundle_hash (release.py) replaced the old per-meta meta_hash: it is sha256 over the
-    # meta bytes PLUS the logical hashes of every artifact the meta declares. Faithfully
-    # recomputing it here would mean re-implementing release.py's logical_sha256 in R -- a
-    # fragile second copy that could silently drift on what "logical hash" means. Manifest
-    # freshness is instead an upstream guarantee: release.py --check runs in the meta repo's
-    # pre-commit gate, so a committed tree cannot carry a stale manifest. Here bundle_hash is
-    # retained only as provenance/identity, and it feeds manifest_key (the top-level skip
-    # key). Structural alignment -- every manifest clock has a meta and vice versa -- is
-    # still asserted (man_row lookup above; missing_meta check below).
-    bundle_hash <- as.character(man_row$bundle_hash %||% NA_character_)
-
+    # man_row is looked up only to assert structural alignment (every manifest clock has a meta
+    # and vice versa; see missing_meta check below) and to validate verification_status. The
+    # release.py identity keys (bundle_hash / out_sha256) are neither recomputed nor shipped --
+    # see DECISIONS.md 2026-07-17 (F1).
     vstatus <- as.character(man_row$verification_status %||% "")
     if (!vstatus %in% VERIFICATION_STATUS) {
       warning(
@@ -702,9 +759,6 @@ build_catalog <- function(repo_path, manifest) {
         call. = FALSE
       )
     }
-
-    # out_sha256 now lives only in the manifest (release-computed); metas no longer carry it.
-    out_sha256 <- man_row$out_sha256
 
     # derive from the *full* upstream meta before pruning
     wf <- as.character(meta$weights_format %||% NA_character_)
@@ -731,7 +785,10 @@ build_catalog <- function(repo_path, manifest) {
       entry$computation_type <- as.character(entry$computation_type)
     }
     if (!is.null(entry$depends_on_clocks)) {
-      entry$depends_on_clocks <- unlist(entry$depends_on_clocks, use.names = FALSE)
+      entry$depends_on_clocks <- unlist(
+        entry$depends_on_clocks,
+        use.names = FALSE
+      )
     }
     # pmid is the citation join key; normalize JSON number -> character digits
     if (!is.null(entry$pmid)) {
@@ -761,12 +818,13 @@ build_catalog <- function(repo_path, manifest) {
     entry$batch_ops <- batch_ops
     entry$batch_dependent <- length(batch_ops) > 0L
     entry$external_group <- gid %in% EXTERNAL_GROUPS
-    entry$bundle_hash <- bundle_hash
-    entry$out_sha256 <- out_sha256
-    entry$verification_status <- vstatus
+    # bundle_hash / out_sha256 / verification_status are intentionally absent from the catalog
+    # (validated maintainer-side only) -- DECISIONS.md 2026-07-17 (F1/F2, reconciliation).
     entry$fixture <- prune_fixture(meta$fixture)
     entry$meta_path <- rel_from_repo(mp, repo_path)
-    entry$coef_path <- if (identical(wf, "cpg_coefficient") && has_default_coef) {
+    entry$coef_path <- if (
+      identical(wf, "cpg_coefficient") && has_default_coef
+    ) {
       default_coef
     } else {
       NULL
@@ -970,7 +1028,11 @@ tensor_row_keys <- function(t) {
 # e.g. DunedinPACE's quantile_normalization_background entry materializes the same way, so a
 # future consumer never needs to open a tensor file itself either.
 materialize_probe_set <- function(ps, tensors) {
-  list(name = ps$name, role = ps$role, cpgs = tensor_row_keys(tensors[[ps$file]]))
+  list(
+    name = ps$name,
+    role = ps$role,
+    cpgs = tensor_row_keys(tensors[[ps$file]])
+  )
 }
 
 # Tier 3: union of a clock's OWN cpg-keyed components. Covers single-tensor clocks (EpiTOC2),
@@ -1008,7 +1070,13 @@ group_shared_cpg_list <- function(gside, tensors) {
 # declaration always wins untouched. `seen` guards a covers-list cycle (a composite always lists
 # itself in its own `covers`); in practice recursion never runs deep here because every member a
 # composite covers resolves via tier 2/3 before it would ever need its own covers list.
-resolve_scoring_cpgs <- function(cid, catalog, tensors, gside, seen = character()) {
+resolve_scoring_cpgs <- function(
+  cid,
+  catalog,
+  tensors,
+  gside,
+  seen = character()
+) {
   entry <- catalog$clocks[[cid]]
   if (is.null(entry) || cid %in% seen) {
     return(character())
@@ -1073,8 +1141,10 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
     for (cid in member_ids) {
       entry <- catalog$clocks[[cid]]
       has_scoring <- length(Filter(
-        function(p) identical(p$role, "scoring"), entry$probe_sets %||% list()
-      )) > 0L
+        function(p) identical(p$role, "scoring"),
+        entry$probe_sets %||% list()
+      )) >
+        0L
       if (has_scoring) {
         next
       }
@@ -1082,7 +1152,11 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
       if (length(cpgs)) {
         catalog$clocks[[cid]]$probe_sets <- c(
           entry$probe_sets %||% list(),
-          list(list(name = "scoring_derived", role = "scoring", cpgs = unique(cpgs)))
+          list(list(
+            name = "scoring_derived",
+            role = "scoring",
+            cpgs = unique(cpgs)
+          ))
         )
       }
     }
@@ -1134,7 +1208,13 @@ cbind_aligned <- function(tensors, rels, cpgs, col_names) {
   for (i in seq_along(rels)) {
     rel <- rels[[i]]
     if (is.null(tensors[[rel]])) {
-      stop("Missing tensor for matrix column ", col_names[[i]], ": ", rel, call. = FALSE)
+      stop(
+        "Missing tensor for matrix column ",
+        col_names[[i]],
+        ": ",
+        rel,
+        call. = FALSE
+      )
     }
     cols[[i]] <- align_double(tensors[[rel]], cpgs, rel)
   }
@@ -1162,13 +1242,23 @@ resolve_cpgs <- function(tensors, group_id) {
   named_rels <- names(tensors)[is_named_num]
   probe_list_rels <- names(tensors)[is_probe_list]
   if (!length(named_rels)) {
-    stop(group_id, ": no named numeric tensors to resolve cpgs from", call. = FALSE)
+    stop(
+      group_id,
+      ": no named numeric tensors to resolve cpgs from",
+      call. = FALSE
+    )
   }
   lens <- vapply(named_rels, function(r) length(tensors[[r]]), integer(1L))
   ref <- names(tensors[[named_rels[which.max(lens)]]])
   for (r in named_rels[lens == max(lens)]) {
     if (!setequal(names(tensors[[r]]), ref)) {
-      stop(group_id, ": probe set mismatch among cpg-aligned tensors (", r, ")", call. = FALSE)
+      stop(
+        group_id,
+        ": probe set mismatch among cpg-aligned tensors (",
+        r,
+        ")",
+        call. = FALSE
+      )
     }
   }
   cpgs <- ref
@@ -1219,7 +1309,12 @@ encode_pcclocks <- function(bundle) {
 
   used <- c(coef_rels, impute_rel, resolved$drop_lists)
   bundle$cpgs <- cpgs
-  bundle$coefficient_matrix <- cbind_aligned(tensors, coef_rels, cpgs, col_names)
+  bundle$coefficient_matrix <- cbind_aligned(
+    tensors,
+    coef_rels,
+    cpgs,
+    col_names
+  )
   bundle$impute <- align_double(tensors[[impute_rel]], cpgs, impute_rel)
   bundle$tensors <- residual_tensors(tensors, used)
   bundle$encoding <- "canonical_matrices"
@@ -1228,8 +1323,17 @@ encode_pcclocks <- function(bundle) {
 
 # 11 organ/system columns shared by organs + systems matrices
 SYSTEMSAGE_ORGANS <- c(
-  "Blood", "Brain", "Heart", "Hormone", "Immune", "Inflammation",
-  "Kidney", "Liver", "Lung", "Metabolic", "MusculoSkeletal"
+  "Blood",
+  "Brain",
+  "Heart",
+  "Hormone",
+  "Immune",
+  "Inflammation",
+  "Kidney",
+  "Liver",
+  "Lung",
+  "Metabolic",
+  "MusculoSkeletal"
 )
 
 encode_systemsage <- function(bundle) {
@@ -1238,9 +1342,16 @@ encode_systemsage <- function(bundle) {
   resolved <- resolve_cpgs(tensors, gid)
   cpgs <- resolved$cpgs
 
-  organ_rels <- file.path("weights", "SystemsAge", paste0(SYSTEMSAGE_ORGANS, ".csv.gz"))
+  organ_rels <- file.path(
+    "weights",
+    "SystemsAge",
+    paste0(SYSTEMSAGE_ORGANS, ".csv.gz")
+  )
   system_rels <- file.path(
-    "weights", "SystemsAge", "systems", paste0(SYSTEMSAGE_ORGANS, ".csv.gz")
+    "weights",
+    "SystemsAge",
+    "systems",
+    paste0(SYSTEMSAGE_ORGANS, ".csv.gz")
   )
   # normalize separators
   organ_rels <- gsub("\\\\", "/", organ_rels)
@@ -1256,7 +1367,12 @@ encode_systemsage <- function(bundle) {
   }
 
   used <- c(
-    organ_rels, system_rels, age_rel, impute_rel, cpgs_rel, resolved$drop_lists
+    organ_rels,
+    system_rels,
+    age_rel,
+    impute_rel,
+    cpgs_rel,
+    resolved$drop_lists
   )
   bundle$cpgs <- cpgs
   bundle$organs <- cbind_aligned(tensors, organ_rels, cpgs, SYSTEMSAGE_ORGANS)
@@ -1287,7 +1403,10 @@ encode_pcbrainage <- function(bundle) {
   bundle$cpgs <- cpgs
   # 1-column matrix: same as a vector plus dim; colnames keep the clock id
   bundle$coefficient_matrix <- cbind_aligned(
-    tensors, coef_rel, cpgs, "PCBrainAge"
+    tensors,
+    coef_rel,
+    cpgs,
+    "PCBrainAge"
   )
   bundle$impute <- align_double(tensors[[impute_rel]], cpgs, impute_rel)
   bundle$tensors <- residual_tensors(tensors, used)
@@ -1357,19 +1476,18 @@ build_index <- function(catalog) {
   }
 
   idx <- data.frame(
-    clock_id            = ids,
-    group_id            = scal("group_id"),
-    weights_format      = scal("weights_format"),
-    computation_type    = scal("computation_type"),
-    output_transform    = scal("output_transform", "identity"),
-    imputation_policy   = scal("imputation_policy"),
-    verification_status = scal("verification_status", ""),
-    batch_dependent     = lgl("batch_dependent"),
-    external_group      = lgl("external_group"),
-    bib_key             = scal("bib_key"),
-    pmid                = scal("pmid"),
-    stringsAsFactors    = FALSE,
-    row.names           = NULL
+    clock_id = ids,
+    group_id = scal("group_id"),
+    weights_format = scal("weights_format"),
+    computation_type = scal("computation_type"),
+    output_transform = scal("output_transform", "identity"),
+    imputation_policy = scal("imputation_policy"),
+    batch_dependent = lgl("batch_dependent"),
+    external_group = lgl("external_group"),
+    bib_key = scal("bib_key"),
+    pmid = scal("pmid"),
+    stringsAsFactors = FALSE,
+    row.names = NULL
   )
   # variable-length per clock -> list-col; empty character() means "no covariates"
   idx$covariates_required <- unname(lapply(clocks, function(e) {
@@ -1380,7 +1498,12 @@ build_index <- function(catalog) {
   idx
 }
 
-build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NULL) {
+build_sysdata <- function(
+  repo_path,
+  catalog,
+  ship_groups,
+  external_assets = NULL
+) {
   message(
     "sync: building shipped bundles for ",
     length(ship_groups),
@@ -1388,6 +1511,12 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
   )
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
+
+  # Drop the build-only fields (see CATALOG_BUILD_ONLY_FIELDS) before packaging.
+  catalog$clocks <- lapply(catalog$clocks, function(e) {
+    e[CATALOG_BUILD_ONLY_FIELDS] <- NULL
+    e
+  })
 
   mc_catalog <- catalog$clocks
   mc_groups <- catalog$groups
@@ -1398,11 +1527,11 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
     ext_reg <- lapply(external_assets, external_asset_registry_row)
   }
   mc_provenance <- list(
-    # identity of the tree these bytes came from
+    # Build provenance: which meta commit produced these bytes (honest, written only on rebuild).
+    # manifest_key is NOT shipped here -- lockfile only. See DECISIONS.md 2026-07-17 (F2).
     source_git_sha = catalog$source_git_sha,
     # manifest.json's own stamp (parent commit) -- provenance, never an identity
     manifest_generated_at_sha = catalog$manifest_generated_at_sha,
-    manifest_key = catalog$manifest_key,
     schema_version = catalog$schema_version,
     n_clocks = catalog$n_clocks,
     n_ship_groups = length(ship_groups),
@@ -1427,12 +1556,20 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
   sz <- file.info(path)$size
   message(sprintf(
     "sync: wrote %s (%.1f KB; %d clocks indexed)",
-    path, sz / 1024, nrow(mc_index)
+    path,
+    sz / 1024,
+    nrow(mc_index)
   ))
   invisible(list(
     path = path,
     size_bytes = sz,
-    objects = c("mc_catalog", "mc_groups", "mc_bundles", "mc_index", "mc_provenance")
+    objects = c(
+      "mc_catalog",
+      "mc_groups",
+      "mc_bundles",
+      "mc_index",
+      "mc_provenance"
+    )
   ))
 }
 
@@ -1441,9 +1578,9 @@ build_sysdata <- function(repo_path, catalog, ship_groups, external_assets = NUL
 QS2_COMPRESS_LEVEL <- 1L
 QS2_SHUFFLE <- FALSE
 
-# Canonical in-memory pack for hash + qs_save. Includes catalog (intercepts, out_sha256,
-# …) so scoring contract and tensors move together. Excludes pin-only fields so a new
-# meta checkout with identical packs does not force a new release.
+# Canonical in-memory pack for hash + qs_save. Includes catalog (intercepts, ...) so scoring
+# contract and tensors move together. Excludes pin-only fields so a new meta checkout with
+# identical packs does not force a new release.
 stable_external_payload <- function(bundle) {
   for (f in EXTERNAL_PIN_FIELDS) {
     bundle[[f]] <- NULL
@@ -1466,7 +1603,9 @@ stable_external_payload <- function(bundle) {
 
   # Fixed field order; drop pure-nulls so PC* and SystemsAge share one schema.
   out <- list(
-    encoding_version = as.integer(bundle$encoding_version %||% EXTERNAL_ENCODING_VERSION),
+    encoding_version = as.integer(
+      bundle$encoding_version %||% EXTERNAL_ENCODING_VERSION
+    ),
     encoding = as.character(bundle$encoding %||% "canonical_matrices"),
     group_id = as.character(bundle$group_id %||% NA_character_),
     clocks = clocks,
@@ -1512,7 +1651,11 @@ parse_github_owner_repo <- function(url) {
   if (length(parts) != 3L) {
     return(NULL)
   }
-  list(owner = parts[[2L]], repo = parts[[3L]], slug = paste0(parts[[2L]], "/", parts[[3L]]))
+  list(
+    owner = parts[[2L]],
+    repo = parts[[3L]],
+    slug = paste0(parts[[2L]], "/", parts[[3L]])
+  )
 }
 
 # Release target: env METHYLCIPHER_RELEASE_REPO, else package origin remote.
@@ -1520,7 +1663,11 @@ package_release_repo <- function() {
   env <- Sys.getenv("METHYLCIPHER_RELEASE_REPO", unset = "")
   if (nzchar(env)) {
     if (grepl("/", env) && !grepl("github\\.com", env)) {
-      return(list(owner = sub("/.*", "", env), repo = sub(".*/", "", env), slug = env))
+      return(list(
+        owner = sub("/.*", "", env),
+        repo = sub(".*/", "", env),
+        slug = env
+      ))
     }
     parsed <- parse_github_owner_repo(env)
     if (!is.null(parsed)) {
@@ -1567,7 +1714,9 @@ uv_bin <- function() {
   w <- Sys.which("uv")
   if (!nzchar(w)) {
     stop(
-      "`uv` not found on PATH (needed to run ", GH_UPLOAD_PY, " for uploads).",
+      "`uv` not found on PATH (needed to run ",
+      GH_UPLOAD_PY,
+      " for uploads).",
       call. = FALSE
     )
   }
@@ -1606,7 +1755,10 @@ upload_external_assets <- function(assets) {
     fpath <- a$path %||% file.path(asset_dir, a$file)
     if (!file.exists(fpath)) {
       stop(
-        "Staged asset missing for ", a$group_id, ": ", fpath,
+        "Staged asset missing for ",
+        a$group_id,
+        ": ",
+        fpath,
         "\nRe-run sync() to rebuild before upload.",
         call. = FALSE
       )
@@ -1615,8 +1767,12 @@ upload_external_assets <- function(assets) {
       actual <- file_sha256_of(fpath)
       if (!identical(actual, a$file_sha256)) {
         stop(
-          "Staged file sha256 mismatch for ", a$group_id, ":\n  expected ", a$file_sha256,
-          "\n  actual   ", actual,
+          "Staged file sha256 mismatch for ",
+          a$group_id,
+          ":\n  expected ",
+          a$file_sha256,
+          "\n  actual   ",
+          actual,
           call. = FALSE
         )
       }
@@ -1638,8 +1794,13 @@ upload_external_assets <- function(assets) {
   json <- jsonlite::toJSON(req, auto_unbox = TRUE, null = "null")
 
   message(
-    "sync: uploading ", length(items), " external asset(s) to ", repo$slug,
-    " (target_commitish=", target, ") via PyGithub"
+    "sync: uploading ",
+    length(items),
+    " external asset(s) to ",
+    repo$slug,
+    " (target_commitish=",
+    target,
+    ") via PyGithub"
   )
   err_file <- tempfile("uv-gh-")
   on.exit(unlink(err_file), add = TRUE)
@@ -1653,7 +1814,8 @@ upload_external_assets <- function(assets) {
   status <- attr(out, "status")
   if (!is.null(status) && status != 0L) {
     stop(
-      GH_UPLOAD_PY, " failed:\n",
+      GH_UPLOAD_PY,
+      " failed:\n",
       paste(readLines(err_file, warn = FALSE), collapse = "\n"),
       call. = FALSE
     )
@@ -1665,7 +1827,16 @@ upload_external_assets <- function(assets) {
     error = function(e) NULL
   )
   for (r in res$results %||% list()) {
-    message("sync: ", r$action, " ", r$name, " -> ", repo$slug, " @ tag ", r$tag)
+    message(
+      "sync: ",
+      r$action,
+      " ",
+      r$name,
+      " -> ",
+      repo$slug,
+      " @ tag ",
+      r$tag
+    )
   }
   invisible(assets)
 }
@@ -1705,13 +1876,21 @@ lockfile_external_assets_list <- function(lock) {
   }
   for (gid in names(out)) {
     if (is.null(out[[gid]]$path) || !nzchar(out[[gid]]$path %||% "")) {
-      out[[gid]]$path <- file.path(asset_dir, as.character(out[[gid]]$file %||% ""))
+      out[[gid]]$path <- file.path(
+        asset_dir,
+        as.character(out[[gid]]$file %||% "")
+      )
     }
   }
   out
 }
 
-build_external_assets <- function(repo_path, catalog, external_groups, prior_assets = NULL) {
+build_external_assets <- function(
+  repo_path,
+  catalog,
+  external_groups,
+  prior_assets = NULL
+) {
   if (!dir.exists(asset_dir)) {
     dir.create(asset_dir, recursive = TRUE, showWarnings = FALSE)
   }
@@ -1744,7 +1923,12 @@ build_external_assets <- function(repo_path, catalog, external_groups, prior_ass
       if (identical(as.character(prev$file_sha256 %||% ""), actual_sha)) {
         reuse <- TRUE
         message(
-          "sync: ", gid, " payload_hash unchanged (", phash, ") -- reusing staged ", fname
+          "sync: ",
+          gid,
+          " payload_hash unchanged (",
+          phash,
+          ") -- reusing staged ",
+          fname
         )
       }
     }
@@ -1765,7 +1949,10 @@ build_external_assets <- function(repo_path, catalog, external_groups, prior_ass
     if (!is.null(payload$coefficient_matrix)) {
       shape_bits <- c(
         shape_bits,
-        sprintf("coef=%s", paste(dim(payload$coefficient_matrix), collapse = "x"))
+        sprintf(
+          "coef=%s",
+          paste(dim(payload$coefficient_matrix), collapse = "x")
+        )
       )
     }
     if (!is.null(payload$organs)) {
@@ -1784,7 +1971,11 @@ build_external_assets <- function(repo_path, catalog, external_groups, prior_ass
         phash,
         fsha,
         n_cpgs,
-        if (length(shape_bits)) paste0("; ", paste(shape_bits, collapse = "; ")) else ""
+        if (length(shape_bits)) {
+          paste0("; ", paste(shape_bits, collapse = "; "))
+        } else {
+          ""
+        }
       )
     )
     assets[[gid]] <- list(
@@ -1798,7 +1989,9 @@ build_external_assets <- function(repo_path, catalog, external_groups, prior_ass
       n_clocks = length(payload$clocks %||% character()),
       n_cpgs = n_cpgs,
       encoding = payload$encoding %||% "canonical_matrices",
-      encoding_version = as.integer(payload$encoding_version %||% EXTERNAL_ENCODING_VERSION)
+      encoding_version = as.integer(
+        payload$encoding_version %||% EXTERNAL_ENCODING_VERSION
+      )
     )
   }
   assets
@@ -1838,7 +2031,10 @@ sync <- function(
       "would REBUILD (manifest changed)"
     }
     if (isTRUE(upload)) {
-      verdict <- paste0(verdict, "; would UPLOAD external assets (tag = payload_hash)")
+      verdict <- paste0(
+        verdict,
+        "; would UPLOAD external assets (tag = payload_hash)"
+      )
     }
     message(
       "sync: ",
@@ -1870,7 +2066,11 @@ sync <- function(
   }
 
   if (!isTRUE(force) && up_to_date) {
-    message("sync: manifest unchanged since lockfile (", current_sha, ") -- skip rebuild")
+    message(
+      "sync: manifest unchanged since lockfile (",
+      current_sha,
+      ") -- skip rebuild"
+    )
     assets <- lockfile_external_assets_list(lock)
     if (isTRUE(upload)) {
       if (!length(assets)) {
@@ -1894,7 +2094,8 @@ sync <- function(
   catalog <- build_catalog(src$path, man)
   catalog$source_git_sha <- current_sha
   catalog$manifest_generated_at_sha <- stamped_sha
-  catalog$manifest_key <- mkey
+  # manifest_key stays maintainer-side (mkey -> write_lockfile below); not stamped onto the
+  # shipped catalog / mc_provenance -- see F2, DECISIONS 2026-07-17 (plan sec 9.1).
 
   gids <- unique(vapply(catalog$clocks, function(c) c$group_id, character(1L)))
   external <- sort(intersect(gids, EXTERNAL_GROUPS))
@@ -1910,7 +2111,9 @@ sync <- function(
 
   prior_assets <- lockfile_external_assets_list(lock)
   assets <- build_external_assets(
-    src$path, catalog, external,
+    src$path,
+    catalog,
+    external,
     prior_assets = prior_assets
   )
   # sysdata after assets so mc_provenance carries the runtime registry
@@ -1930,7 +2133,8 @@ sync <- function(
     upload_external_assets(assets)
   } else {
     message(
-      "sync: staged ", length(assets),
+      "sync: staged ",
+      length(assets),
       " external asset(s) under data-raw/assets/ (upload=FALSE; content-addressed by payload_hash)"
     )
   }
@@ -1954,7 +2158,9 @@ sync <- function(
 
 if (interactive()) {
   message(
-    "sync.R loaded. Clones/fetches ", META_REMOTE, "\n",
+    "sync.R loaded. Clones/fetches ",
+    META_REMOTE,
+    "\n",
     "  into data-raw/methylCIPHER-meta, then materializes package data.\n",
     "  sync(dry_run = TRUE)\n",
     "  sync()\n",
