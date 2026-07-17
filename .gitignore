@@ -1,20 +1,29 @@
+# R / RStudio
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
+
+# dev folder
 dev/
 
-# uv local environment (keep pyproject.toml + uv.lock tracked for uv sync)
+# Python / uv
 .venv/
-# Sync staging: large external family assets and optional vendor clone
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large external/sync assets (intentional)
 data-raw/assets/
 data-raw/methylCIPHER-meta/
+
+# Large test fixtures (binary/generated data)
 tests/testthat/fixtures/*.gz
 tests/testthat/fixtures/*.qs2
 tests/testthat/fixtures/*.csv
 tests/testthat/fixtures/*.rds
 
-# macOS system files
+# macOS
 .DS_Store
 .DS_Store?
 ._*
@@ -22,7 +31,7 @@ tests/testthat/fixtures/*.rds
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# macOS zip artifact folder
 __MACOSX/
-.positai
+
+# Posit / other
+.posit*
