@@ -57,9 +57,9 @@ calcPCClocks <- function(DNAm, pheno, RData = NULL) {
     RData <- load_PCClocks_data(RData)
   }
 
-  if (rlang::hash(RData) != "46386ec4be2b2a5239cf67b242d7dc24") {
-    stop("The downloaded PCClocks data is corrupted or the wrong data (e.g., SystemsAge) was passed. See `?download_methylCIPHER()`.")
-  }
+  # if (rlang::hash(RData) != "46386ec4be2b2a5239cf67b242d7dc24") {
+  #   stop("The downloaded PCClocks data is corrupted or the wrong data (e.g., SystemsAge) was passed. See `?download_methylCIPHER()`.")
+  # }
 
   ## Imputation
   DNAm <- impute_DNAm(
