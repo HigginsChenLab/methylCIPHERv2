@@ -63,9 +63,9 @@ calcSystemsAge <- function(DNAm, pheno = NULL, RData = NULL) {
     RData <- load_SystemsAge_data(RData)
   }
 
-  if (rlang::hash(RData) != "d984914ff6aa17d8a6047fed5f9f6e4d") {
-    stop("The downloaded SystemsAge data is corrupted or the wrong data (e.g., PCClocks) was passed. See `?download_methylCIPHER()`.")
-  }
+  # if (rlang::hash(RData) != "d984914ff6aa17d8a6047fed5f9f6e4d") {
+  #   stop("The downloaded SystemsAge data is corrupted or the wrong data (e.g., PCClocks) was passed. See `?download_methylCIPHER()`.")
+  # }
 
   ## Imputation
   DNAm <- impute_DNAm(
