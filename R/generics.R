@@ -64,13 +64,17 @@
 #' @param deparse.level passed through for `cbind` signature compatibility.
 #' @return a `methylCIPHER` record.
 #' @export
-cbind.methylCIPHER <- function(..., deparse.level = 1) {
-  # TODO (per contract above + detail-plan §1.3/§5/§7):
-  #   0. positional-id guard: throw if any record has $provenance$positional_ids = TRUE.
-  #   1. collect records from `...`; validate all are methylCIPHER.
-  #   2. sample_id gate: throw on set mismatch; reorder+recheck on order-only diff.
-  #   3. batch_set_id gate (§6) for batch-dependent columns.
-  #   4. cbind $scores; row-append $coverage; union clock provenance.
-  #   5. reassemble -> methylCIPHER record.
-  stop("cbind.methylCIPHER: not yet implemented")
+# cbind.methylCIPHER <- function(..., deparse.level = 1) {
+#   # TODO (per contract above + detail-plan §1.3/§5/§7):
+#   #   0. positional-id guard: throw if any record has $provenance$positional_ids = TRUE.
+#   #   1. collect records from `...`; validate all are methylCIPHER.
+#   #   2. sample_id gate: throw on set mismatch; reorder+recheck on order-only diff.
+#   #   3. batch_set_id gate (§6) for batch-dependent columns.
+#   #   4. cbind $scores; row-append $coverage; union clock provenance.
+#   #   5. reassemble -> methylCIPHER record.
+#   stop("cbind.methylCIPHER: not yet implemented")
+# }
+
+rbind.methylCIPHER <- function(...) {
+  # TODO some zscore clocks needs to be recalculated.
 }

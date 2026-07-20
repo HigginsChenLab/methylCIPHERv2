@@ -3,7 +3,11 @@ sim_DNAm <- function(clocks, n = 10, Age = FALSE, Female = FALSE, remove = 0) {
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
 
-  cpgs <- clock_cpgs(resolve_clocks(clocks))
+  # Must mirror calc_clocks' plan, not just its namespace resolution: the simulated panel has to
+  # cover the transitive deps too, or e.g. sim_DNAm("DNAmFitAge") emits the group's 627 CpGs while
+  # calc_clocks needs 1643 (GrimAgeV1 + its 8 surrogates). Those surrogates are policy 'omit', so
+  # they would score intercept-only and DNAmFitAge would come back plausible-looking but meaningless.
+  cpgs <- clock_cpgs(resolve_clocks_sequence(resolve_clocks(clocks)))
   if (remove > 0) {
     n_drop <- min(remove, length(cpgs))
     cpgs <- cpgs[-sample.int(length(cpgs), n_drop)]
@@ -20,7 +24,7 @@ sim_DNAm <- function(clocks, n = 10, Age = FALSE, Female = FALSE, remove = 0) {
   }
   if (Female) {
     pheno$Female <- numeric(n)
-    pheno$Female[sample.int(n, floor(n/2))] <- 1
+    pheno$Female[sample.int(n, floor(n / 2))] <- 1
   }
   out <- list(
     DNAm = DNAm,
@@ -46,7 +50,11 @@ print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
     cat(sprintf("... %d more row(s), %d more col(s)\n", nr - ni, nc - pi))
   }
 
-  cat(sprintf("\npheno [showing %d of %d row(s)]:\n", min(n, nrow(pheno)), nrow(pheno)))
+  cat(sprintf(
+    "\npheno [showing %d of %d row(s)]:\n",
+    min(n, nrow(pheno)),
+    nrow(pheno)
+  ))
   print(utils::head(pheno, n))
 
   invisible(x)

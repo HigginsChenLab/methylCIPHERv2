@@ -22,7 +22,7 @@ for (pkg in c("jsonlite", "qs2", "usethis", "digest", "rlang")) {
   }
 }
 
-if (getRversion() < '4.4.0') {
+if (getRversion() < "4.4.0") {
   `%||%` <- function(x, y) {
     if (is.null(x) || (length(x) == 1L && is.na(x))) y else x
   }
@@ -31,6 +31,9 @@ if (getRversion() < '4.4.0') {
 lockfile_path <- file.path("data-raw", "lockfile.json")
 asset_dir <- file.path("data-raw", "assets")
 meta_dir <- file.path("data-raw", "methylCIPHER-meta")
+sysdata_path <- file.path("R", "sysdata.rda")
+# Hashed into build_key(): this script is an input to the artifacts it produces.
+SYNC_SCRIPT_PATH <- file.path("data-raw", "sync.R")
 
 # Canonical remote. Local cache is always data-raw/methylCIPHER-meta
 META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
@@ -39,7 +42,9 @@ META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
 EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
 
 # Bump when the in-memory pack layout changes (forces new payload_hash).
-EXTERNAL_ENCODING_VERSION <- 1L
+# v2 (2026-07-18): embedded catalog trimmed to the scoring contract -- build-only fields
+# (covers/shared) and provenance/identity/path fields no longer ride into the hashed pack.
+EXTERNAL_ENCODING_VERSION <- 2L
 
 # Pin-only fields: never part of the hashed / published pack (would defeat content-addressing).
 EXTERNAL_PIN_FIELDS <- c("source_git_sha", "manifest_generated_at_sha")
@@ -93,6 +98,30 @@ FIELD_REGISTRY <- c(
 # stripped from every clock entry after resolution in build_sysdata(), never shipped.
 # Why not shipped: DECISIONS.md 2026-07-17 (covers/shared runtime-catalog trim).
 CATALOG_BUILD_ONLY_FIELDS <- c("covers", "shared")
+
+# Additional fields stripped from the catalog *embedded in a content-addressed external
+# pack* (stable_external_payload): maintainer-side release identity + status keys and local
+# provenance paths. They are volatile or path-like, so leaving them in the hashed payload
+# defeats content-addressing -- a no-op meta commit whose scoring tensors are byte-identical
+# must reuse the same qs2. The shipped mc_catalog keeps coef_path (accessor reads it at
+# R/accessors.R), so this extra trim is asset-only, layered on the shared build-only trim.
+CATALOG_PACK_DROP_FIELDS <- c(
+  "bundle_hash",
+  "out_sha256",
+  "verification_status",
+  "meta_path",
+  "coef_path"
+)
+
+# Single source of truth for the build-only catalog trim. Applied to BOTH the shipped
+# mc_catalog (build_sysdata) and the catalog embedded in each external pack
+# (stable_external_payload) so the two can never drift apart.
+trim_build_only_fields <- function(clocks) {
+  lapply(clocks, function(e) {
+    e[CATALOG_BUILD_ONLY_FIELDS] <- NULL
+    e
+  })
+}
 
 # Package-side BibTeX library path (overwritten every successful sync).
 BIB_INST_PATH <- file.path("inst", "bibliography", "clocks.bib")
@@ -304,7 +333,11 @@ vendor_bibliography <- function(repo_path) {
 # --- lockfile ----------------------------------------------------------------
 
 read_lockfile <- function(path = lockfile_path) {
-  empty <- list(source_git_sha = NA_character_, manifest_key = NA_character_)
+  empty <- list(
+    source_git_sha = NA_character_,
+    manifest_key = NA_character_,
+    build_key = NA_character_
+  )
   if (!file.exists(path)) {
     return(empty)
   }
@@ -312,11 +345,15 @@ read_lockfile <- function(path = lockfile_path) {
   if (is.null(lock$source_git_sha) || !nzchar(lock$source_git_sha)) {
     stop("Lockfile exists but source_git_sha is missing: ", path, call. = FALSE)
   }
-  # Lockfiles written before the manifest_key scheme cannot answer the skip question;
-  # treat them as unknown rather than guessing from the old SHA-compare semantics.
   if (is.null(lock$manifest_key) || !nzchar(lock$manifest_key)) {
-    message("sync: lockfile predates manifest_key -- treating as out of date")
     lock$manifest_key <- NA_character_
+  }
+  # Lockfiles written before the build_key scheme cannot answer the skip question (their
+  # manifest_key covered too few inputs); treat them as unknown rather than trusting a key
+  # that never saw the bibliography, the group metas, or this script.
+  if (is.null(lock$build_key) || !nzchar(lock$build_key)) {
+    message("sync: lockfile predates build_key -- treating as out of date")
+    lock$build_key <- NA_character_
   }
   lock
 }
@@ -324,6 +361,7 @@ read_lockfile <- function(path = lockfile_path) {
 write_lockfile <- function(
   source_git_sha,
   manifest_key,
+  build_key = NULL,
   manifest_generated_at_sha = NULL,
   schema_version = NULL,
   external_assets = NULL,
@@ -336,7 +374,10 @@ write_lockfile <- function(
   payload <- list(
     # the commit we actually read and bundled -- the consumer pin
     source_git_sha = source_git_sha,
-    # skip key: sha256 over schema_version + clocks[] (release.py `_substantive`)
+    # THE skip key: sha256 over every build input (see build_key())
+    build_key = build_key,
+    # informational: sha256 over schema_version + clocks[] (release.py `_substantive`),
+    # i.e. "did the weights change" -- a component of build_key, not the decision itself
     manifest_key = manifest_key,
     # provenance only: manifest.json's own stamp, which lags one commit by design
     manifest_generated_at_sha = manifest_generated_at_sha,
@@ -586,6 +627,47 @@ manifest_key <- function(man) {
   digest::digest(payload, algo = "sha256", serialize = FALSE)
 }
 
+# Bump when the SHIPPED layout changes in a way the inputs below cannot see -- a new
+# sysdata object, a changed catalog field set, a different index column. Forces one rebuild.
+BUILD_SCHEMA_VERSION <- 1L
+
+# The actual skip key. manifest_key() above covers only four fields per clock (clock_id,
+# bundle_hash, out_sha256, verification_status), which is the right notion of "did the WEIGHTS
+# change" but far too narrow to decide "can we skip the build": a bibliography correction, a
+# group-meta edit, an encoder-version bump, or an edit to this script all change the artifacts
+# while leaving the manifest key identical. Hashing git TREE ids (not commit shas) keeps the
+# property that a no-op commit -- one that touches nothing we read -- still skips.
+build_key <- function(repo_path, man, source_git_sha) {
+  # A tree/blob id for a path in the snapshot; NA when the path is absent at that commit.
+  tree_id <- function(path) {
+    tryCatch(
+      git_value("rev-parse", paste0(source_git_sha, ":", path), dir = repo_path),
+      error = function(e) NA_character_
+    )
+  }
+  parts <- c(
+    build_schema = as.character(BUILD_SCHEMA_VERSION),
+    external_encoding = as.character(EXTERNAL_ENCODING_VERSION),
+    # the weights themselves, via the manifest's own substantive key
+    manifest = manifest_key(man),
+    # everything the manifest key does NOT see: group metas live under weights/, and the
+    # bibliography feeds both bib_key in the catalog and the vendored clocks.bib
+    weights_tree = tree_id("weights"),
+    bibliography_tree = tree_id("bibliography"),
+    manifest_blob = tree_id("manifest.json"),
+    # the build implementation is an input to its own outputs
+    sync_sha256 = tryCatch(
+      file_sha256_of(SYNC_SCRIPT_PATH),
+      error = function(e) NA_character_
+    )
+  )
+  digest::digest(
+    paste(names(parts), parts, sep = "=", collapse = "\x1e"),
+    algo = "sha256",
+    serialize = FALSE
+  )
+}
+
 # --- catalog crawl -----------------------------------------------------------
 
 # recurse weights/; discriminate clock vs group meta by basename, never depth
@@ -688,12 +770,55 @@ rel_from_repo <- function(abs_path, repo_path) {
   }
 }
 
-# meta-declared repo-relative path (weights/...) -> absolute
+# Lexical validation of a meta-declared repo-relative path. The upstream repo is trusted, but
+# these strings come out of JSON and are pasted onto a filesystem root, so containment is
+# asserted here rather than assumed: a "weights/../../etc/passwd" would otherwise sail through
+# WEIGHTS_REF_RE (which only anchors the prefix and the extension) and be read.
+assert_repo_rel <- function(rel) {
+  if (grepl("\\\\", rel)) {
+    stop(
+      "Repo-relative path must use forward slashes: ",
+      rel,
+      call. = FALSE
+    )
+  }
+  if (grepl("^([A-Za-z]:|[/~])", rel)) {
+    stop("Repo-relative path must not be absolute: ", rel, call. = FALSE)
+  }
+  parts <- strsplit(rel, "/", fixed = TRUE)[[1L]]
+  if (any(parts %in% c("", ".", ".."))) {
+    stop(
+      "Repo-relative path must not contain empty, '.' or '..' segments: ",
+      rel,
+      call. = FALSE
+    )
+  }
+  invisible(rel)
+}
+
+# meta-declared repo-relative path (weights/...) -> absolute, verified to stay inside the
+# checked-out snapshot. The normalized comparison is what catches a SYMLINK pointing out of
+# the repo, which the lexical check above cannot see.
 resolve_repo_rel <- function(repo_path, rel) {
   if (is.null(rel) || !nzchar(rel)) {
     return(NA_character_)
   }
-  file.path(repo_path, rel)
+  assert_repo_rel(rel)
+  abs <- file.path(repo_path, rel)
+  root <- normalizePath(repo_path, winslash = "/", mustWork = TRUE)
+  real <- normalizePath(abs, winslash = "/", mustWork = FALSE)
+  if (!startsWith(real, paste0(root, "/"))) {
+    stop(
+      "Repo-relative path escapes the snapshot root:\n  rel:  ",
+      rel,
+      "\n  root: ",
+      root,
+      "\n  real: ",
+      real,
+      call. = FALSE
+    )
+  }
+  abs
 }
 
 build_catalog <- function(repo_path, manifest) {
@@ -1027,12 +1152,61 @@ tensor_row_keys <- function(t) {
 # the file it points at out of the already-loaded bundle tensors. Any role, not just scoring --
 # e.g. DunedinPACE's quantile_normalization_background entry materializes the same way, so a
 # future consumer never needs to open a tensor file itself either.
-materialize_probe_set <- function(ps, tensors) {
-  list(
-    name = ps$name,
-    role = ps$role,
-    cpgs = tensor_row_keys(tensors[[ps$file]])
+# Validated at build time, because every failure here is silent at runtime: an unresolvable
+# file pointer used to yield cpgs = character(0), which still counts as a role=="scoring"
+# entry downstream and therefore SUPPRESSES the tiered fallback -- shipping a clock that
+# scores nothing. Better to break the maintainer's sync than the user's scores.
+materialize_probe_set <- function(ps, tensors, cid = NA_character_) {
+  where <- paste0(
+    "probe_set '",
+    ps$name %||% "?",
+    "' (role ",
+    ps$role %||% "?",
+    ") of clock ",
+    cid
   )
+  if (is.null(ps$file) || !nzchar(as.character(ps$file))) {
+    stop(where, " has no `file` pointer.", call. = FALSE)
+  }
+  if (is.null(tensors[[ps$file]])) {
+    stop(where, " points at a tensor absent from the bundle: ", ps$file, call. = FALSE)
+  }
+  cpgs <- tensor_row_keys(tensors[[ps$file]])
+  if (!length(cpgs)) {
+    stop(where, " resolved to zero CpGs from ", ps$file, call. = FALSE)
+  }
+  if (anyNA(cpgs) || any(!nzchar(cpgs))) {
+    stop(where, " contains missing or empty CpG ids: ", ps$file, call. = FALSE)
+  }
+  if (anyDuplicated(cpgs)) {
+    stop(
+      where,
+      " contains ",
+      sum(duplicated(cpgs)),
+      " duplicate CpG id(s): ",
+      ps$file,
+      call. = FALSE
+    )
+  }
+  # Upstream declares the expected count; a mismatch means the meta and the tensor have
+  # drifted apart, which no downstream consumer could detect.
+  if (!is.null(ps$n) && !is.na(suppressWarnings(as.integer(ps$n)))) {
+    n <- as.integer(ps$n)
+    if (n != length(cpgs)) {
+      stop(
+        where,
+        " declares n = ",
+        n,
+        " but ",
+        ps$file,
+        " has ",
+        length(cpgs),
+        " CpGs.",
+        call. = FALSE
+      )
+    }
+  }
+  list(name = ps$name, role = ps$role, cpgs = cpgs)
 }
 
 # Tier 3: union of a clock's OWN cpg-keyed components. Covers single-tensor clocks (EpiTOC2),
@@ -1133,15 +1307,23 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
     for (cid in member_ids) {
       entry <- catalog$clocks[[cid]]
       if (length(entry$probe_sets)) {
-        catalog$clocks[[cid]]$probe_sets <-
-          lapply(entry$probe_sets, materialize_probe_set, tensors = tensors)
+        catalog$clocks[[cid]]$probe_sets <- lapply(
+          entry$probe_sets,
+          materialize_probe_set,
+          tensors = tensors,
+          cid = cid
+        )
       }
     }
 
     for (cid in member_ids) {
       entry <- catalog$clocks[[cid]]
+      # NON-EMPTY is the test, not merely present: an upstream scoring entry that resolved
+      # to nothing must fall through to the tiered resolver rather than block it. (With the
+      # validation in materialize_probe_set() that state is now unreachable from a file
+      # pointer; this keeps the invariant true for any future synthesized entry too.)
       has_scoring <- length(Filter(
-        function(p) identical(p$role, "scoring"),
+        function(p) identical(p$role, "scoring") && length(p$cpgs) > 0L,
         entry$probe_sets %||% list()
       )) >
         0L
@@ -1513,10 +1695,7 @@ build_sysdata <- function(
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
 
   # Drop the build-only fields (see CATALOG_BUILD_ONLY_FIELDS) before packaging.
-  catalog$clocks <- lapply(catalog$clocks, function(e) {
-    e[CATALOG_BUILD_ONLY_FIELDS] <- NULL
-    e
-  })
+  catalog$clocks <- trim_build_only_fields(catalog$clocks)
 
   mc_catalog <- catalog$clocks
   mc_groups <- catalog$groups
@@ -1591,7 +1770,17 @@ stable_external_payload <- function(bundle) {
     tensors <- tensors[sort(names(tensors))]
   }
 
+  # Embed only the scoring contract: the shared build-only trim (identical to the shipped
+  # mc_catalog) plus the asset-only provenance/identity/path drop, so a no-op meta commit
+  # cannot perturb the pack hash. See CATALOG_BUILD_ONLY_FIELDS / CATALOG_PACK_DROP_FIELDS.
   catalog <- bundle$catalog %||% list()
+  if (length(catalog)) {
+    catalog <- trim_build_only_fields(catalog)
+    catalog <- lapply(catalog, function(e) {
+      e[CATALOG_PACK_DROP_FIELDS] <- NULL
+      e
+    })
+  }
   if (length(catalog) && !is.null(names(catalog))) {
     catalog <- catalog[sort(names(catalog))]
   }
@@ -1885,6 +2074,65 @@ lockfile_external_assets_list <- function(lock) {
   out
 }
 
+# Why a matching key is NOT sufficient to skip: the key describes the INPUTS, while the
+# things a skip preserves are the OUTPUTS -- and those live partly outside git.
+# data-raw/assets/ is gitignored, so a fresh clone has a matching lockfile and no packs at
+# all; deleting R/sysdata.rda or inst/bibliography/clocks.bib is likewise invisible to any
+# input hash. Verify the artifacts exist and still match what the lockfile recorded, and
+# report exactly which one forced the rebuild.
+missing_outputs <- function(lock) {
+  problems <- character()
+
+  if (!file.exists(sysdata_path)) {
+    problems <- c(problems, paste0(sysdata_path, " missing"))
+  } else {
+    # Cheap structural read: a truncated or hand-edited sysdata must not pass as current.
+    prov <- tryCatch(
+      {
+        env <- new.env(parent = emptyenv())
+        load(sysdata_path, envir = env)
+        env$mc_provenance
+      },
+      error = function(e) NULL
+    )
+    if (is.null(prov)) {
+      problems <- c(problems, paste0(sysdata_path, " unreadable or has no mc_provenance"))
+    } else if (
+      !is.na(lock$source_git_sha) &&
+        !identical(as.character(prov$source_git_sha), as.character(lock$source_git_sha))
+    ) {
+      problems <- c(
+        problems,
+        sprintf(
+          "%s was built from %s, lockfile says %s",
+          sysdata_path,
+          prov$source_git_sha,
+          lock$source_git_sha
+        )
+      )
+    }
+  }
+
+  if (!file.exists(BIB_INST_PATH)) {
+    problems <- c(problems, paste0(BIB_INST_PATH, " missing"))
+  }
+
+  for (a in lockfile_external_assets_list(lock)) {
+    gid <- as.character(a$group_id %||% "?")
+    p <- as.character(a$path %||% "")
+    if (!nzchar(p) || !file.exists(p)) {
+      problems <- c(problems, paste0("external asset missing: ", gid, " (", p, ")"))
+      next
+    }
+    want <- as.character(a$file_sha256 %||% "")
+    if (nzchar(want) && !identical(file_sha256_of(p), want)) {
+      problems <- c(problems, paste0("external asset sha256 mismatch: ", gid, " (", p, ")"))
+    }
+  }
+
+  problems
+}
+
 build_external_assets <- function(
   repo_path,
   catalog,
@@ -1899,8 +2147,19 @@ build_external_assets <- function(
 
   for (gid in external_groups) {
     message("sync: building external asset for ", gid, "...")
-    bundle <- build_group_bundles(repo_path, catalog, gid)[[gid]]
-    bundle <- encode_external_asset(bundle)
+    raw_bundle <- build_group_bundles(repo_path, catalog, gid)[[gid]]
+    # Resolve scoring probe sets BEFORE encoding: encode_external_asset() restructures the
+    # group's tensors into canonical matrices, after which the file pointers the resolver
+    # reads are gone. Skipping this used to leave every external clock with NO probe_sets at
+    # all -- so clock_scoring_cpgs() returned character(0) for all 28 of them, and the
+    # catalog-only needed_cpgs_union() step in calc_clocks() silently contributed nothing for
+    # an external clock. The resolved catalog is threaded back out of this function so the
+    # shipped mc_catalog and the pack's embedded catalog are the same object.
+    catalog <- resolve_group_scoring_probe_sets(
+      catalog,
+      stats::setNames(list(raw_bundle), gid)
+    )
+    bundle <- encode_external_asset(raw_bundle)
     bundle$schema_version <- catalog$schema_version
     bundle$encoding_version <- EXTERNAL_ENCODING_VERSION
     bundle$catalog <- catalog$clocks[bundle$clocks]
@@ -1994,7 +2253,27 @@ build_external_assets <- function(
       )
     )
   }
-  assets
+
+  # Drop superseded local staging files: for every group we just built, remove sibling
+  # {group}-*.qs2 whose hash isn't the current payload_hash. Only the local asset_dir is
+  # pruned -- published releases (tag = payload_hash) are never touched, so older package
+  # versions can still fetch their pinned asset. Scoped per built group, so a group not
+  # built this run keeps all its files.
+  for (gid in external_groups) {
+    keep <- as.character(assets[[gid]]$file %||% "")
+    siblings <- list.files(
+      asset_dir,
+      pattern = paste0("^", tolower(gid), "-[0-9a-f]+\\.qs2$")
+    )
+    for (f in setdiff(siblings, keep)) {
+      unlink(file.path(asset_dir, f))
+      message("sync: pruned superseded staging asset ", f)
+    }
+  }
+
+  # `catalog` carries the probe sets resolved for every external group above; the caller
+  # must build sysdata from THIS copy, not the one it passed in.
+  list(assets = assets, catalog = catalog)
 }
 
 # --- main --------------------------------------------------------------------
@@ -2015,20 +2294,36 @@ sync <- function(
   current_sha <- src$source_git_sha
   stamped_sha <- as.character(man$source_git_sha %||% NA_character_)
   mkey <- manifest_key(man)
+  bkey <- build_key(src$path, man, current_sha)
 
   lock <- read_lockfile()
-  up_to_date <- !is.na(lock$manifest_key) && identical(lock$manifest_key, mkey)
+  # Two independent conditions: the inputs are unchanged AND the outputs are still there.
+  inputs_same <- !is.na(lock$build_key) && identical(lock$build_key, bkey)
+  gaps <- if (inputs_same) missing_outputs(lock) else character()
+  up_to_date <- inputs_same && !length(gaps)
+  if (inputs_same && length(gaps)) {
+    message(
+      "sync: build inputs unchanged but artifacts are missing/stale -- rebuilding:\n  - ",
+      paste(gaps, collapse = "\n  - ")
+    )
+  }
 
   if (isTRUE(dry_run)) {
     files <- list_meta_files(src$path)
     verdict <- if (up_to_date && !isTRUE(force)) {
-      "would SKIP rebuild (manifest unchanged)"
+      "would SKIP rebuild (build inputs unchanged, artifacts present)"
     } else if (up_to_date) {
       "would REBUILD (up to date, but force = TRUE)"
-    } else if (is.na(lock$manifest_key)) {
+    } else if (is.na(lock$build_key)) {
       "would BUILD (no usable lockfile)"
+    } else if (inputs_same) {
+      paste0(
+        "would REBUILD (inputs unchanged, artifacts missing/stale: ",
+        paste(gaps, collapse = "; "),
+        ")"
+      )
     } else {
-      "would REBUILD (manifest changed)"
+      "would REBUILD (build inputs changed)"
     }
     if (isTRUE(upload)) {
       verdict <- paste0(
@@ -2041,10 +2336,12 @@ sync <- function(
       verdict,
       " @ ",
       current_sha,
+      "\n  build_key    = ",
+      bkey,
+      "\n  lockfile key = ",
+      if (is.na(lock$build_key)) "<none>" else lock$build_key,
       "\n  manifest_key = ",
       mkey,
-      "\n  lockfile key = ",
-      if (is.na(lock$manifest_key)) "<none>" else lock$manifest_key,
       "\n  clock metas=",
       length(files$clock),
       ", group metas=",
@@ -2057,6 +2354,7 @@ sync <- function(
       dry_run = TRUE,
       upload = isTRUE(upload),
       source_git_sha = current_sha,
+      build_key = bkey,
       manifest_key = mkey,
       manifest_generated_at_sha = stamped_sha,
       n_clock_metas = length(files$clock),
@@ -2067,7 +2365,7 @@ sync <- function(
 
   if (!isTRUE(force) && up_to_date) {
     message(
-      "sync: manifest unchanged since lockfile (",
+      "sync: build inputs unchanged and artifacts present (",
       current_sha,
       ") -- skip rebuild"
     )
@@ -2084,6 +2382,7 @@ sync <- function(
     return(invisible(list(
       skipped = TRUE,
       source_git_sha = as.character(lock$source_git_sha %||% current_sha),
+      build_key = bkey,
       manifest_key = mkey,
       assets = assets,
       uploaded = isTRUE(upload)
@@ -2110,12 +2409,17 @@ sync <- function(
   )
 
   prior_assets <- lockfile_external_assets_list(lock)
-  assets <- build_external_assets(
+  ext <- build_external_assets(
     src$path,
     catalog,
     external,
     prior_assets = prior_assets
   )
+  assets <- ext$assets
+  # External groups resolve their scoring probe sets inside build_external_assets() (their
+  # tensors are gone after encoding), so adopt the catalog it returns -- otherwise the
+  # shipped mc_catalog would disagree with the catalog embedded in the packs.
+  catalog <- ext$catalog
   # sysdata after assets so mc_provenance carries the runtime registry
   sys <- build_sysdata(src$path, catalog, ship, external_assets = assets)
   bib <- vendor_bibliography(src$path)
@@ -2123,6 +2427,7 @@ sync <- function(
   write_lockfile(
     source_git_sha = current_sha,
     manifest_key = mkey,
+    build_key = bkey,
     manifest_generated_at_sha = stamped_sha,
     schema_version = catalog$schema_version,
     n_clocks = catalog$n_clocks,
@@ -2143,6 +2448,7 @@ sync <- function(
   invisible(list(
     skipped = FALSE,
     source_git_sha = current_sha,
+    build_key = bkey,
     manifest_key = mkey,
     manifest_generated_at_sha = stamped_sha,
     n_clocks = catalog$n_clocks,

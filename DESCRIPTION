@@ -9,25 +9,28 @@ Maintainer: Kyra Thrush <kyra.thrush@yale.edu>
 Description: Code to easily calculate nearly all of the CpG-based
     epigenetic clocks currently in circulation locally, in just one place.
 License: What license is it under?
-Depends: 
-    R (>= 3.5)
+Depends:
+    R (>= 4.4)
 Imports:
     checkmate,
+    digest,
     DunedinPoAm38 (>= 0.1.0),
+    fs,
+    matrixStats,
     methods,
     prcPhenoAge (>= 0.1.0),
     qs2,
-    slideimp
+    slideimp,
+    stats,
+    tools,
+    utils,
+    withr
 Suggests:
     devtools,
     duckdb,
-    fs,
-    googledrive,
     gradethis (>= 0.2.10.9000),
     learnr,
-    rlang,
-    testthat (>= 3.0.0),
-    zen4R
+    testthat (>= 3.0.0)
 Remotes: 
     danbelsky/DunedinPoAm38,
     MorganLevineLab/prcPhenoAge
