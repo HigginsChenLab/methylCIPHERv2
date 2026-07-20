@@ -261,7 +261,7 @@ construct_methylCIPHER <- function(
         requested = requested_ids,
         dependencies = setdiff(output_ids, requested_ids),
         covariates_used = covariates_used,
-        batch_set_id = NULL # §6: no batch-dependent clock in the linear path yet
+        batch_set_id = NULL
       )
     ),
     class = "methylCIPHER_result"
