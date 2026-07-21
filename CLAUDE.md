@@ -22,7 +22,7 @@ without the `methylCIPHER-meta` repo or any downloads. Only regenerating the cat
 install.packages("pak")
 pak::local_install_deps(dependencies = TRUE)  # reads DESCRIPTION incl. GitHub-only Remotes
 devtools::load_all()      # attach the package for interactive work
-devtools::document()      # regenerate NAMESPACE + man/ from roxygen; run after any export/doc change
+# no devtools::document() yet -- roxygen is deferred until the alpha (see invariants)
 devtools::test()          # always-on test tiers (cohort parity auto-skips if not staged)
 devtools::check()         # full R CMD check
 ```
@@ -48,8 +48,10 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   (`get_clock`, `clock_coefs`, ...), never raw nested catalog lists. No hand-written `schema.md`.
 - **No network at install / build / check / CRAN test.** Double-precision coefficients only.
 - **No commit SHA / pin as result provenance.** Correctness is proven by fixtures.
-- **`NAMESPACE` and `man/*.Rd` are generated, never hand-edited.** Edit the roxygen comments in
-  `R/*.R` and run `devtools::document()` after any change to exports or docs (roxygen2 8.0.0).
+- **No roxygen yet.** Do **not** write roxygen blocks or run `devtools::document()`. Document code
+  with short `#` comments only (see "Comments" below). Turning roxygen on is a **human-decided
+  override** tied to the alpha release -- there is no automatic trigger; do not add it on your own.
+  `NAMESPACE` and `man/*.Rd` are still hand-managed leftovers until then; do not regenerate them.
 
 ## sync.R workflow (`data-raw/sync.R`)
 
@@ -103,6 +105,8 @@ Write **plain ASCII** in every file you create or edit -- no "smart" punctuation
 
 ## Comments
 
+- Plain `#` comments are the **only** in-source documentation right now -- no roxygen (see the
+  "No roxygen yet" invariant).
 - Code comments are **short**: 1-2 sentences saying *what* the code does, not a rationale essay.
 - The *why* behind a design, and every decision or reversal, goes **only** in `dev/DECISIONS.md` --
   never as a long explanatory comment in the source.
@@ -128,7 +132,7 @@ Local-only (gitignored, not on a fresh clone): `dev/legacy/` (frozen pre-rewrite
 ## Contributing
 
 - Branch off `main` and open a PR; do not push directly to `main`.
-- Run `devtools::document()` and `devtools::test()` before pushing.
+- Run `devtools::test()` before pushing. Do **not** run `devtools::document()` (no roxygen yet).
 - Reversing or second-guessing a design? Add a dated, newest-first entry to `dev/DECISIONS.md`.
 - Keep new or edited content ASCII (see above).
 
