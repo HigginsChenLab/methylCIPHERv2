@@ -1,5 +1,4 @@
-# Executable schema: scorers read clocks only through these accessors, never raw mc_catalog lists.
-# Coefs resolve via mc_catalog[[id]]$coef_path -> mc_bundles[[group_id]]$tensors.
+# Catalog/bundle accessors: scorers read clocks only through these, never raw mc_catalog lists.
 
 # One catalog entry, or a clear error.
 clock_entry <- function(id) {
@@ -17,7 +16,7 @@ clock_entry <- function(id) {
   entry
 }
 
-# Map a weights/ path to its named numeric tensor (single lookup site for all scorers).
+# Map a weights/ path to its named numeric tensor.
 bundle_tensor <- function(group_id, path) {
   bundle <- mc_bundles[[group_id]]
   if (is.null(bundle)) {
@@ -43,17 +42,17 @@ probe_sets_cpgs <- function(entry, role) {
   unique(unlist(lapply(hits, function(p) p$cpgs), use.names = FALSE))
 }
 
-# Scoring CpGs for one clock (terms that enter the weighted sum).
+# Scoring CpGs for one clock.
 clock_scoring_cpgs <- function(id) {
   probe_sets_cpgs(clock_entry(id), "scoring")
 }
 
-# Normalization / background panel; character(0) when none.
+# Normalization/background panel; character(0) when none.
 clock_norm_cpgs <- function(id) {
   probe_sets_cpgs(clock_entry(id), "quantile_normalization_background")
 }
 
-# Array-normalization scheme the paper assumed (none/BMIQ/quantile/noob). Annotation only; never executed.
+# Paper-assumed array-normalization scheme (annotation only; never executed).
 clock_norm_scheme <- function(id) {
   scheme <- clock_entry(id)$normalization
   if (is.null(scheme)) {
@@ -62,22 +61,17 @@ clock_norm_scheme <- function(id) {
   as.character(scheme)
 }
 
-# Parity fixture stub: list(expected, oracle, parity_policy, parity_metric), or NULL when the
-# clock has no committed golden. `expected` is a path relative to the methylCIPHER-meta clone
-# root ("fixtures/expected/{id}.csv.gz"); the cohort-gated parity tests resolve it there. Test
-# metadata only -- scorers never read it; kept here so the fixture surface stays part of the
-# executable schema (helper-fixtures.R / test-fixtures-parity.R read clocks only through this).
+# Parity fixture stub for tests, or NULL if none. Scorers never read this.
 clock_fixture <- function(id) {
   clock_entry(id)$fixture
 }
 
-# Imputation policy + ref: list(policy, ref). Sex-keyed refs need Female at score time.
+# Imputation policy + ref. Sex-keyed refs need Female at score time.
 clock_impute <- function(id) {
   clock_entry(id)$imputation
 }
 
-# Vendor-mean reference vector (named cpg->mean) for absent-CpG fill under policy vendor_mean.
-# Only for a scalar `ref` path (the common case); sex-keyed FitAge refs use fitage_sex_medians().
+# Vendor-mean ref vector for absent-CpG fill (scalar path only; FitAge uses fitage_sex_medians).
 clock_impute_ref <- function(id) {
   imp <- clock_impute(id)
   ref <- imp$ref
@@ -94,23 +88,18 @@ clock_impute_ref <- function(id) {
   bundle_tensor(clock_entry(id)$group_id, ref)
 }
 
-# CpG reduction for a linear work unit: "sum" (intercept + X %*% coef) or "mean"
-# (intercept + rowMeans of X*coef). Recipe op `linear_mean` -> mean (EpiTOC, HypoClock,
-# PhysAge surrogates); everything else reduces by sum. Read via a narrow recipe scan, same
-# pattern as the fitage_/grimage_ recipe accessors -- not a general interpreter.
+# Linear reduction: "mean" if recipe has linear_mean, else "sum".
 clock_reduction <- function(id) {
   ops <- vapply(clock_entry(id)$recipe, function(s) as.character(s$op), character(1))
   if ("linear_mean" %in% ops) "mean" else "sum"
 }
 
-# TRUE for cohort/sample batch-dependent clocks (PhysAge cohort_zscore, Zhang sample_scale):
-# scores depend on which samples are scored together, so results carry a frozen batch_set_id.
+# TRUE when scores depend on which samples are scored together.
 clock_batch_dependent <- function(id) {
   isTRUE(clock_entry(id)$batch_dependent)
 }
 
-# Named cpg->coef vector for clocks that reduce to one linear weight vector.
-# Also covers single-cpg-component GrimAge surrogates; composites use their orchestrator.
+# Named cpg->coef for single-vector clocks (and single-cpg GrimAge surrogates).
 clock_coefs <- function(id) {
   entry <- clock_entry(id)
   wf <- entry$weights_format
@@ -159,18 +148,18 @@ covariate_coefs_from <- function(cov) {
   stats::setNames(vapply(cov, as.numeric, numeric(1)), nms)
 }
 
-# Covariate weights (named numeric); numeric(0) when none.
+# Covariate weights; numeric(0) when none.
 clock_covariate_coefs <- function(id) {
   covariate_coefs_from(clock_entry(id)$covariates)
 }
 
-# Covariate names required for prepare/pheno checks (not the weights).
+# Covariate names required for prepare/pheno checks.
 clock_covariates_required <- function(id) {
   covs <- clock_entry(id)$covariates_required
   if (is.null(covs) || length(covs) == 0) character(0) else as.character(covs)
 }
 
-# Clock ids this clock consumes as compute inputs (deps for resolve_clocks_sequence).
+# Clock ids this clock consumes as compute inputs.
 clock_depends_on <- function(id) {
   deps <- clock_entry(id)$depends_on_clocks
   if (is.null(deps) || length(deps) == 0) character(0) else as.character(deps)
@@ -191,7 +180,7 @@ clock_type <- function(id) {
   }
 }
 
-# Catalog output_transform name ("identity" or "anti.trafo"); defaults to "identity".
+# Catalog output_transform name; defaults to "identity".
 clock_output_transform <- function(id) {
   ot <- clock_entry(id)$output_transform
   if (is.null(ot)) "identity" else as.character(ot)
@@ -207,7 +196,7 @@ clock_weights_format <- function(id) {
   }
 }
 
-# TRUE for external groups (SystemsAge, PCClocks, PCBrainAge) whose weights are not in mc_bundles.
+# TRUE for external groups whose weights are not in mc_bundles.
 clock_is_external <- function(id) {
   isTRUE(clock_entry(id)$external_group)
 }
@@ -222,7 +211,7 @@ clock_group_bundle <- function(id) {
   bundle
 }
 
-# Family label used for pack dispatch (e.g. "GrimAge" -> score_grimage).
+# Family label used for pack dispatch.
 clock_group_id <- function(id) {
   gid <- clock_entry(id)$group_id
   if (is.null(gid)) {
@@ -231,14 +220,14 @@ clock_group_id <- function(id) {
   gid
 }
 
-# GrimAge pack accessors -- pieces score_grimage() needs from $components / rescale params.
+# GrimAge: component list and Cox/rescale pieces for score_grimage().
 
 clock_components <- function(id) {
   comps <- clock_entry(id)$components
   if (is.null(comps)) list() else comps
 }
 
-# GrimAge Cox coef vector; names drive the surrogate stack (Age/Female/deps/_internal_*).
+# GrimAge Cox coef vector; names drive the surrogate stack.
 grimage_cox_coef <- function(id) {
   entry <- clock_entry(id)
   model <- Filter(function(c) identical(c$row_key, "component"), entry$components)
@@ -286,9 +275,9 @@ grimage_rescale_params <- function(id) {
   vapply(p[need], as.numeric, numeric(1))
 }
 
-# DNAmFitAge pack accessors -- pieces score_fitage_*() needs (sex-split + KDM params).
+# FitAge: sex-split scoring op, components, KDM params, and sex medians.
 
-# FitAge member scoring op (out == "score"): linear or linear_sex with intercepts/covariates.
+# FitAge member scoring op (out == "score").
 fitage_score_op <- function(id) {
   recipe <- clock_entry(id)$recipe
   step <- Filter(function(s) identical(s$out, "score"), recipe)
@@ -324,7 +313,7 @@ fitage_component_tensor <- function(id, comp_name) {
   bundle_tensor(entry$group_id, comp[[1]]$file)
 }
 
-# KDM params table (sex, component, weight, center, scale) for the FitAge composite.
+# KDM params table for the FitAge composite.
 fitage_kdm_params <- function(id) {
   entry <- clock_entry(id)
   comp <- Filter(function(c) identical(c$row_key, "sex"), entry$components)
@@ -357,7 +346,7 @@ fitage_grim_dep <- function(id) {
   dep
 }
 
-# Sex-specific vendor medians for absent-CpG fill: list(female=, male=).
+# Sex-specific vendor medians for absent-CpG fill.
 fitage_sex_medians <- function(id) {
   entry <- clock_entry(id)
   ref <- entry$imputation$ref
@@ -375,11 +364,9 @@ fitage_sex_medians <- function(id) {
   )
 }
 
-# DNAmPhysAge pack accessors -- pieces score_physage() needs (surrogate coefs + zscore/poly recipe).
+# PhysAge: ordered surrogates and optional poly years rescale.
 
-# Ordered surrogate list for the PhysAge composite: each is {name (raw_*), coef (named cpg->weight),
-# negate (reverse-code before cohort z-score)}. Order follows the recipe's `stack` inputs so the
-# raws matrix column order is stable and reproducible.
+# Ordered surrogate list: each {name, coef, negate}; stack order is stable.
 physage_surrogates <- function(id) {
   entry <- clock_entry(id)
   recipe <- entry$recipe
@@ -413,7 +400,7 @@ physage_surrogates <- function(id) {
   }
   negate_set <- as.character(unlist(zs[[1]]$negate))
 
-  # Each linear_mean op names its coef component and its `out` (raw_*); map out -> component tensor.
+  # Map each linear_mean `out` (raw_*) to its coef component tensor.
   lm_ops <- Filter(function(s) identical(s$op, "linear_mean"), recipe)
   by_out <- stats::setNames(lm_ops, vapply(lm_ops, function(s) s$out, character(1)))
 
@@ -450,8 +437,7 @@ physage_surrogates <- function(id) {
   })
 }
 
-# The DNAmPhysAge_years rescale: poly coef [c0, c1, ...] applied to the z-scored composite
-# (years = c0 + c1*z for the length-2 author coef). NULL when the clock has no poly step.
+# Poly coef for DNAmPhysAge_years rescale, or NULL if none.
 physage_poly_coef <- function(id) {
   step <- Filter(function(s) identical(s$op, "poly"), clock_entry(id)$recipe)
   if (!length(step)) {

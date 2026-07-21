@@ -1,7 +1,5 @@
-# DNAmPhysAge pack: 8 surrogate biomarker means -> reverse-code -> cohort z-score -> row sum.
-# Batch-dependent (cohort_zscore over the samples scored together), so results carry a frozen
-# batch_set_id (see calc_clocks). DNAmPhysAge_years rescales the z-scored composite to years via
-# the author poly. Partial NA uses the shared cohort cache; absent CpGs use the shared vendor means.
+# DNAmPhysAge: surrogate means -> reverse-code -> cohort z-score -> row sum.
+# Batch-dependent; years variant rescales via author poly. Absent CpGs use vendor means.
 
 score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
   sample_id <- rownames(DNAm)
@@ -20,9 +18,7 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
   surrogates <- physage_surrogates(id)
   ref <- clock_impute_ref(id)
 
-  # Each surrogate: raw = mean_j(beta_j * w_j) over its FULL coef set (present from DNAm/cache,
-  # absent from the shared vendor means), reverse-coded where the recipe negates. vapply over a
-  # length-n result yields an n x length(surrogates) matrix (surrogates in columns).
+  # Each surrogate: mean of coef*beta over full coef set (present + vendor-filled absent).
   raws <- vapply(
     surrogates,
     function(s) {
@@ -57,12 +53,9 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
     numeric(n)
   )
 
-  # cohort z-score each surrogate column (R scale(): center by column mean, divide by sample sd),
-  # then row-sum the standardized surrogates -> DNAmPhysAge (unitless z-score sum). Batch-dependent.
   z <- scale(raws)
   phys <- rowSums(z)
 
-  # DNAmPhysAge_years: z-score the composite again, then rescale to years via the author poly.
   poly <- physage_poly_coef(id)
   score_vec <- if (is.null(poly)) {
     phys
@@ -77,8 +70,6 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
     dimnames = list(sample_id, id)
   )
 
-  # Coverage over the composite's scoring CpG union (same convention as score_grimage): the
-  # per-sample partial count is over whichever present CpGs were cohort-cached.
   cached <- if (is.null(partial_cache)) {
     character(0)
   } else {
@@ -96,10 +87,10 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
     policy = clock_impute(id)$policy,
     score_needed = length(cpgs$score_needed),
     score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_needed), # present scored + absent vendor-filled
+    score_used = length(cpgs$score_needed),
     score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(cpgs$score_absent), # absent -> vendor-mean fill
-    score_dropped = 0L, # vendor policy fills, never drops
+    score_imputed_full = length(cpgs$score_absent),
+    score_dropped = 0L,
     norm_needed = length(cpgs$norm_needed),
     norm_present = length(cpgs$norm_present),
     missing_cpgs = cpgs$score_absent
@@ -108,7 +99,7 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
   list(score = score, coverage = coverage, sample_miss = sample_miss)
 }
 
-# Elementwise polynomial y = sum_k coef[k+1] * x^k (coef lowest-degree-first: c0, c1, c2, ...).
+# y = sum_k coef[k+1] * x^k (lowest degree first).
 poly_eval <- function(x, coef) {
   powers <- vapply(seq_along(coef) - 1L, function(k) x^k, numeric(length(x)))
   as.numeric(powers %*% coef)

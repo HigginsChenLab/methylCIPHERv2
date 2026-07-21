@@ -1,4 +1,5 @@
-# Universal DNAm invariants only (no clock knowledge). Identity is settled upstream in calc_clocks().
+# DNAm/pheno validation and clock-id resolution (identity settled in calc_clocks).
+
 check_DNAm <- function(DNAm) {
   checkmate::assert_matrix(
     DNAm,
@@ -8,7 +9,7 @@ check_DNAm <- function(DNAm) {
   )
   checkmate::assert_character(colnames(DNAm), unique = TRUE, null.ok = FALSE)
   checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
-  # orientation heuristics (samples x CpGs); skip on wide panels where orientation is unambiguous
+  # Orientation heuristics; skip on wide panels where orientation is unambiguous.
   if (ncol(DNAm) < 2e5) {
     if (nrow(DNAm) > ncol(DNAm)) {
       warning(
@@ -24,7 +25,7 @@ check_DNAm <- function(DNAm) {
   invisible(TRUE)
 }
 
-# Zhang2019 full-panel notice only (sample_scale moments need a wide panel). Side effect only.
+# Zhang2019 full-panel notice only (side effect).
 resolve_DNAm_extra <- function(clock_ids) {
   if ("Zhang2019" %in% clock_ids) {
     message(
@@ -35,7 +36,7 @@ resolve_DNAm_extra <- function(clock_ids) {
   invisible(TRUE)
 }
 
-# Structure/dtype validation only; identity alignment is resolve_pheno()'s job.
+# Structure/dtype validation; identity alignment is resolve_pheno()'s job.
 check_pheno <- function(
   pheno,
   ID = NULL,
@@ -76,8 +77,7 @@ check_pheno <- function(
   invisible(TRUE)
 }
 
-# Align pheno onto sample_id: id-join when DNAm has real rownames, row-order when positional.
-# Returns pheno in sample_id order, or NULL.
+# Align pheno onto sample_id (id-join, or row-order when positional). Returns ordered pheno or NULL.
 resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
   if (is.null(pheno)) {
     return(NULL)
@@ -96,7 +96,6 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
         call. = FALSE
       )
     }
-    # row-order align; stamp positional sample_id into the id column
     pheno[[pheno_id]] <- sample_id
     return(pheno)
   }
@@ -115,8 +114,7 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
   pheno
 }
 
-# User tokens -> catalog clock_ids. Precedence: "all" > group_id > clock_id (group wins on clash).
-# No dependency expansion -- that is resolve_clocks_sequence().
+# User tokens -> catalog clock_ids. Precedence: "all" > group_id > clock_id.
 resolve_clocks <- function(clocks) {
   checkmate::assert_character(
     clocks,
@@ -126,7 +124,7 @@ resolve_clocks <- function(clocks) {
     .var.name = "clocks"
   )
 
-  members <- split(mc_index$clock_id, mc_index$group_id) # group_id -> member clock_ids
+  members <- split(mc_index$clock_id, mc_index$group_id)
   clock_ids <- mc_index$clock_id
 
   resolve_one <- function(tok) {
@@ -139,7 +137,7 @@ resolve_clocks <- function(clocks) {
     if (tok %in% clock_ids) {
       return(tok)
     }
-    NULL # unknown -> flagged below
+    NULL
   }
 
   resolved <- lapply(clocks, resolve_one)
@@ -157,8 +155,7 @@ resolve_clocks <- function(clocks) {
   out[!duplicated(out)]
 }
 
-# Transitive depends_on_clocks closure, topologically sorted (deps before dependents).
-# `clocks` must already be catalog ids from resolve_clocks().
+# Transitive depends_on_clocks closure, deps before dependents. Input must be catalog ids.
 resolve_clocks_sequence <- function(clocks) {
   st <- new.env(parent = emptyenv())
   st$out <- character(length(mc_index$clock_id))
@@ -191,7 +188,7 @@ resolve_clocks_sequence <- function(clocks) {
   st$out[seq_len(st$n)]
 }
 
-# Catalog-only union of scoring + norm CpGs across the compute sequence (bounds the NA scan).
+# Union of scoring + norm CpGs across the compute sequence.
 needed_cpgs_union <- function(clock_sequence) {
   unique(unlist(
     lapply(clock_sequence, function(id) {
@@ -201,7 +198,7 @@ needed_cpgs_union <- function(clock_sequence) {
   ))
 }
 
-# Per-clock present/absent CpG sets over usable_cols. Pure set math; no numerics or pheno.
+# Per-clock present/absent CpG sets over usable_cols (pure set math).
 resolve_cpgs <- function(usable_cols, clock_sequence) {
   usable <- unique(usable_cols)
 
@@ -231,7 +228,7 @@ resolve_cpgs <- function(usable_cols, clock_sequence) {
   list(per_clock = per_clock, present_needed_union = present_needed_union)
 }
 
-# Warn when a clock's present/needed scoring ratio falls below threshold (panel mismatch, not per-sample NA).
+# Warn when a clock's present/needed scoring ratio falls below threshold.
 warn_low_coverage <- function(cpg_list, threshold = 0.8) {
   checkmate::assert_number(threshold, lower = 0, upper = 1)
   if (threshold <= 0) {

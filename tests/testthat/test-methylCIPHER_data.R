@@ -1,12 +1,4 @@
-# Tests for R/methylCIPHER_data.R -- the external clock-data cache.
-#
-# No test here touches the network by default. The download path is exercised against real
-# bytes over file:// (see helper-external-data.R); the one live test is opt-in via
-# METHYLCIPHER_TEST_NETWORK, so CRAN and offline runs skip it.
-
-# ---------------------------------------------------------------------------
-# cache location
-# ---------------------------------------------------------------------------
+# External clock-data cache. Download path uses file://; live network is opt-in.
 
 test_that("mc_cache_dir() resolves option > env > R_user_dir", {
   withr::local_options(methylCIPHER.cache_dir = NULL)
@@ -31,18 +23,12 @@ test_that("mc_cache_dir() is a pure query unless create = TRUE", {
   expect_true(fs::dir_exists(mc_cache_dir(create = TRUE)))
 })
 
-# ---------------------------------------------------------------------------
-# registry lookups
-# ---------------------------------------------------------------------------
-
 test_that("the shipped registry covers the three external groups", {
   expect_setequal(mc_external_groups(), c("SystemsAge", "PCClocks", "PCBrainAge"))
   for (gid in mc_external_groups()) {
     row <- mc_asset_row(gid)
     expect_identical(row$group_id, gid)
-    # filename is content-addressed: <group>-<payload_hash>.qs2, and the release tag is the
-    # filename stem <group>-<payload_hash> (a bare 40/64-hex tag is rejected by GitHub) -- the
-    # URL depends on nothing else.
+    # Filename and release_tag are <group>-<hash>; bare hex tags are rejected by GitHub.
     expect_identical(row$file, sprintf("%s-%s.qs2", tolower(gid), row$payload_hash))
     expect_identical(row$release_tag, sprintf("%s-%s", tolower(gid), row$payload_hash))
     expect_match(row$file_sha256, "^[0-9a-f]{64}$")
@@ -55,7 +41,7 @@ test_that("registry lookups reject unknown ids", {
   expect_error(mc_asset_row(c("PCClocks", "SystemsAge")), "single non-empty string")
   expect_error(mc_asset_row(NA_character_), "single non-empty string")
   expect_error(mc_asset_row(character(0)), "single non-empty string")
-  # a bad id in a vector is reported by name, not swallowed
+  # Bad ids in a vector are reported by name.
   expect_error(mc_resolve_groups(c("PCClocks", "Nope")), "Nope")
   expect_setequal(mc_resolve_groups("all"), mc_external_groups())
   expect_setequal(mc_resolve_groups(NULL), mc_external_groups())
@@ -65,14 +51,14 @@ test_that("a malformed registry row is fatal, never silently degraded", {
   good <- mc_asset_row("PCBrainAge")
   expect_identical(mc_validate_row(good, "PCBrainAge")$file, good$file)
 
-  # A missing or malformed checksum must NOT fall back to "no verification".
+  # Missing/malformed checksum must not disable verification.
   expect_error(mc_validate_row(utils::modifyList(good, list(file_sha256 = NULL)), "PCBrainAge"), "file_sha256")
   expect_error(mc_validate_row(utils::modifyList(good, list(file_sha256 = "abc")), "PCBrainAge"), "not a sha256")
   expect_error(
     mc_validate_row(utils::modifyList(good, list(file_sha256 = toupper(good$file_sha256))), "PCBrainAge"),
     "not a sha256"
   )
-  # A filename is a cache key; a separator in it would escape the cache directory.
+  # Filename is a cache key; path separators would escape the cache dir.
   expect_error(mc_validate_row(utils::modifyList(good, list(file = "../evil.qs2")), "PCBrainAge"), "bare filename")
   expect_error(mc_validate_row(utils::modifyList(good, list(size_bytes = 0)), "PCBrainAge"), "positive number")
   expect_error(mc_validate_row(utils::modifyList(good, list(release_tag = "")), "PCBrainAge"), "non-empty")
@@ -91,7 +77,7 @@ test_that("option and argument scalars are validated", {
   withr::local_options(methylCIPHER.release_repo = "https://github.com/o/r")
   expect_error(mc_release_repo(), "owner/repo")
 
-  # an empty option falls through to the next source rather than erroring
+  # Empty option falls through to the next source.
   withr::local_options(methylCIPHER.release_repo = character(0))
   withr::local_envvar(METHYLCIPHER_RELEASE_REPO = NA)
   expect_identical(mc_release_repo(), MC_RELEASE_REPO)
@@ -113,13 +99,8 @@ test_that("mc_asset_url() composes the release URL and honours the repo override
   expect_match(mc_asset_url(row), "^https://github\\.com/someone/fork/releases/")
 })
 
-# ---------------------------------------------------------------------------
-# consent gate
-# ---------------------------------------------------------------------------
-
 test_that("mc_confirm() refuses to act unprompted in a non-interactive session", {
-  # This is the CRAN-facing guarantee: a script that does not SAY it consents gets an
-  # error, never a silent write.
+  # Non-interactive without ask=FALSE must error, never silent write.
   skip_if(interactive())
   expect_error(mc_confirm("proceed?", ask = TRUE, action = "a download"), "non-interactive")
   expect_true(mc_confirm("proceed?", ask = FALSE))
@@ -134,15 +115,11 @@ test_that("the user-facing verbs inherit the consent gate", {
   expect_error(mc_data_download(path = cache), "non-interactive")
   expect_false(mc_cache_status(path = cache)$cached)
 
-  # and nothing gets deleted without consent either
+  # Clear also requires consent.
   fs::file_copy(row$.src, fs::path(cache, row$file))
   expect_error(mc_data_clear(path = cache), "non-interactive")
   expect_true(mc_cache_status(path = cache)$cached)
 })
-
-# ---------------------------------------------------------------------------
-# status
-# ---------------------------------------------------------------------------
 
 test_that("mc_cache_status() reports the expected file and tracks presence", {
   cache <- withr::local_tempdir()
@@ -162,10 +139,6 @@ test_that("mc_cache_status() reports the expected file and tracks presence", {
   expect_true(mc_cache_status(path = cache)$cached)
 })
 
-# ---------------------------------------------------------------------------
-# download
-# ---------------------------------------------------------------------------
-
 test_that("mc_data_download() fetches, verifies, and leaves no scratch files", {
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
@@ -175,7 +148,7 @@ test_that("mc_data_download() fetches, verifies, and leaves no scratch files", {
   expect_identical(unname(basename(paths)), row$file)
   expect_true(fs::file_exists(fs::path(cache, row$file)))
   expect_equal(as.numeric(fs::file_size(fs::path(cache, row$file))), row$size_bytes)
-  # the staging file is named .part-<pid> and must never survive
+  # Staging .part-<pid> must never survive.
   expect_false(any(grepl(".part", fs::path_file(fs::dir_ls(cache)), fixed = TRUE)))
 })
 
@@ -185,17 +158,16 @@ test_that("mc_data_download() is idempotent unless force = TRUE", {
   local_fake_registry(row)
 
   suppressMessages(mc_data_download(path = cache, ask = FALSE, quiet = TRUE))
-  # quiet = FALSE here on purpose: the skip notice is the observable behaviour
+  # quiet=FALSE so the skip notice is observable.
   expect_message(mc_data_download(path = cache, ask = FALSE), "already cached")
 
-  # force re-fetches, and the replacement still verifies
+  # force re-fetches and still verifies.
   suppressMessages(mc_data_download(path = cache, ask = FALSE, force = TRUE, quiet = TRUE))
   expect_identical(external_pack("FakeGroup", path = cache), row$.payload)
 })
 
 test_that("a checksum mismatch aborts and leaves the cache untouched", {
-  # Guards the case that matters most: a truncated or substituted download must never be
-  # left behind under the real filename, where a later run would accept it as cached.
+  # Truncated/substituted download must never land under the real filename.
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
   row$file_sha256 <- strrep("0", 64)
@@ -223,13 +195,8 @@ test_that("a download failure is reported with the URL and leaves nothing behind
   expect_length(fs::dir_ls(cache), 0)
 })
 
-# ---------------------------------------------------------------------------
-# clear
-# ---------------------------------------------------------------------------
-
 test_that("mc_data_clear() removes superseded packs, not just the current one", {
-  # Pack filenames carry a content hash, so upgrading methylCIPHER strands the previous
-  # file. Clearing a group must sweep the whole <group>-*.qs2 prefix.
+  # Clear must sweep the whole <group>-*.qs2 prefix (superseded packs too).
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
@@ -237,8 +204,7 @@ test_that("mc_data_clear() removes superseded packs, not just the current one", 
 
   stale <- paste0("fakegroup-", strrep("0", 32), ".qs2")
   fs::file_create(fs::path(cache, stale))
-  # files that merely SHARE the prefix are not ours and must survive -- someone may point
-  # the cache at a directory that already holds their own data
+  # Files that only share a loose prefix must survive.
   mine <- fs::path(cache, "fakegroup-my-own-cohort.qs2")
   unrelated <- fs::path(cache, "keep-me.txt")
   fs::file_create(mine)
@@ -262,10 +228,6 @@ test_that("mc_data_clear() is a no-op on an empty or absent cache", {
   expect_message(mc_data_clear(path = absent, ask = FALSE), "does not exist")
   expect_false(fs::dir_exists(absent))
 })
-
-# ---------------------------------------------------------------------------
-# external_pack() -- the runtime entry point
-# ---------------------------------------------------------------------------
 
 test_that("external_pack() never downloads; it errors with the command to run", {
   cache <- withr::local_tempdir()
@@ -291,18 +253,17 @@ test_that("external_pack() rejects a corrupt file and a payload that is not ours
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
-  # right name, unreadable bytes -- caught by qs2's own container checksum
+  # Right name, unreadable bytes -> qs2 checksum fails.
   writeLines("not a qs2 file", fs::path(cache, row$file))
   expect_error(external_pack("FakeGroup", path = cache), "Failed to read cached clock data")
 
-  # right name, valid qs2 container, wrong object
+  # Right name, valid qs2, wrong object.
   qs2::qs_save(list(bogus = TRUE), fs::path(cache, row$file))
   expect_error(external_pack("FakeGroup", path = cache), "group_id")
 })
 
 test_that("external_pack() checks each identity field of the decoded pack", {
-  # The structural check replaces re-hashing the decoded object, so each field it covers
-  # needs to actually bite -- otherwise a stale pack sails through.
+  # Each structural identity field must actually reject a stale pack.
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
@@ -324,14 +285,10 @@ test_that("external_pack() checks each identity field of the decoded pack", {
   tamper(group_id = "OtherGroup")
   expect_error(external_pack("FakeGroup", path = cache), "group_id")
 
-  # and the untampered pack still loads
+  # Untampered pack still loads.
   qs2::qs_save(row$.payload, fs::path(cache, row$file))
   expect_identical(external_pack("FakeGroup", path = cache), row$.payload)
 })
-
-# ---------------------------------------------------------------------------
-# live network (opt-in)
-# ---------------------------------------------------------------------------
 
 test_that("the real PCBrainAge release asset downloads and verifies", {
   skip_on_cran()

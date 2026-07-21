@@ -1,11 +1,5 @@
-# Which scorer a clock routes to, from (external, weights_format, computation_type, group_id).
-# Pure catalog lookup -> a closed tag set consumed by the dispatch switch in calc_clocks().
-# `component_matrices + linear` fans out to three scorers by group_id (GrimAge surrogates ->
-# linear_score, FitAge members -> score_fitage_member), so group_id is a real dispatch axis.
-# Anything unrecognized -> "unsupported", which the switch turns into an informative error.
-# Worth a structural test: every catalog clock should map to a known tag (implemented or a
-# deliberate "unsupported"), so a new (weights_format, computation_type) combo can't fall
-# through silently.
+# Map catalog fields to a closed scorer tag for calc_clocks() dispatch.
+# group_id matters for component_matrices (GrimAge/FitAge/PhysAge fan-out).
 score_type <- function(p) {
   if (clock_is_external(p)) {
     return("unsupported")
@@ -29,24 +23,20 @@ score_type <- function(p) {
       linear_transformed = "fitage_composite",
       "unsupported"
     ),
-    # PhysAge surrogates are cpg_coefficient/linear (already "linear" above); only the
-    # component_matrices composites reach here.
+    # PhysAge surrogates are already "linear" above; only composites reach here.
     PhysAge = switch(ct, linear_transformed = "physage", "unsupported"),
     "unsupported"
   )
 }
 
-# Public scorer: resolve clocks, prepare once, score each unit, assemble a methylCIPHER record.
-# Legacy per-clock calc* may wrap this; they are not the engine.
-#
-# @param DNAm    n x p numeric matrix, samples x CpGs. rownames = sample_id; rowname-less DNAm
-#                gets positional ids sample1..N unless allow_positional_ids is FALSE.
-# @param clocks  character tokens: "all", group_ids, and/or clock_ids.
-# @param pheno   optional covariate table (Age, Female); aligned onto sample_id, not appended.
-# @param pheno_id column in `pheno` holding the sample id. Defaults to "ID".
-# @param allow_positional_ids permit scoring rowname-less DNAm by row order (default TRUE).
-# @param min_coverage warn when a clock has fewer than this fraction of scoring CpGs (default 0.8).
-# @return a "methylCIPHER" S3 record: list(scores, coverage, provenance).
+# Public scorer: resolve clocks, prepare once, score each unit, assemble a record.
+# @param DNAm n x p matrix (samples x CpGs); rownames = sample_id.
+# @param clocks "all", group_ids, and/or clock_ids.
+# @param pheno optional covariates (Age, Female), aligned onto sample_id.
+# @param pheno_id sample-id column in pheno (default "ID").
+# @param allow_positional_ids score rowname-less DNAm by row order (default TRUE).
+# @param min_coverage warn below this fraction of scoring CpGs (default 0.8).
+# @return "methylCIPHER" S3 record: list(scores, coverage, provenance).
 calc_clocks <- function(
   DNAm,
   clocks,
@@ -56,15 +46,13 @@ calc_clocks <- function(
   min_coverage = 0.8,
   ...
 ) {
-  # user tokens -> requested clock_ids; then transitive deps, deps-first order.
-  # Auto-added deps are returned as columns too (with their own coverage).
+  # Requested clocks + transitive deps (deps first). Auto-deps are returned too.
   clock_ids <- resolve_clocks(clocks)
   clock_sequence <- resolve_clocks_sequence(clock_ids)
   output_ids <- c(clock_ids, setdiff(clock_sequence, clock_ids))
   check_DNAm(DNAm)
 
-  # Identity before check_DNAm (rownames must be non-NULL by then). Positional records
-  # are flagged so cbind can refuse them.
+  # Stamp positional sample ids when rownames are missing.
   positional_ids <- is.null(rownames(DNAm))
   if (positional_ids) {
     if (!allow_positional_ids) {
@@ -79,7 +67,6 @@ calc_clocks <- function(
   sample_id <- rownames(DNAm)
   resolve_DNAm_extra(clock_sequence)
 
-  # covariate union over the full compute plan (requested + deps)
   extra_columns <- unique(unlist(lapply(
     clock_sequence,
     clock_covariates_required
@@ -100,7 +87,7 @@ calc_clocks <- function(
   )
   pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids)
 
-  # missingness: needed_union bounds the scan; order is scan -> resolve_cpgs -> cache
+  # Scan missingness, resolve present/absent CpGs, build partial-NA cache.
   needed_union <- needed_cpgs_union(clock_sequence)
   mna <- scan_missing_cpgs(DNAm, needed_union)
   cpg_list <- resolve_cpgs(mna$usable_cols, clock_sequence)
@@ -110,9 +97,7 @@ calc_clocks <- function(
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
   )
 
-  # Dispatch on score_type(): a closed tag set from (external, weights_format,
-  # computation_type, group_id). Deps precede composites in clock_sequence, so the
-  # surrogates/members a pack reads are already in `results` by the time it runs.
+  # Deps precede composites so pack scorers find upstream results.
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
   for (p in clock_sequence) {
@@ -153,10 +138,7 @@ calc_clocks <- function(
     )
   }
 
-  # Batch-dependent clocks (PhysAge cohort_zscore, Zhang sample_scale) depend on which samples
-  # were scored together, so freeze a batch id over the scoring cohort. It survives subsetting so
-  # cbind can later refuse binding a subset against a fresh scoring of the same ids (detail-plan
-  # sec 6 / sec 7.1). NULL when no returned clock is batch-dependent.
+  # Freeze batch id for cohort/sample-dependent clocks so cbind can refuse mismatched batches.
   batch_set_id <- if (any(vapply(output_ids, clock_batch_dependent, logical(1)))) {
     digest::digest(sort(sample_id))
   } else {
@@ -173,8 +155,7 @@ calc_clocks <- function(
   )
 }
 
-# Stack scorer outputs into the methylCIPHER record: scores, coverage, provenance.
-# Pure reshape -- never re-touches DNAm.
+# Stack scorer outputs into the methylCIPHER record (pure reshape).
 construct_methylCIPHER <- function(
   results,
   output_ids,
@@ -191,7 +172,6 @@ construct_methylCIPHER <- function(
   sample_miss <- do.call(cbind, lapply(results, function(r) r$sample_miss))
   dimnames(sample_miss) <- list(sample_id, output_ids)
 
-  # covariates actually used = names required by returned clocks (not coef maps alone)
   covariates_used <- unique(unlist(
     lapply(output_ids, clock_covariates_required),
     use.names = FALSE

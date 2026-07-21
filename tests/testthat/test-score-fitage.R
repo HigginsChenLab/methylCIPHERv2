@@ -1,11 +1,6 @@
-# DNAmFitAge pack: sex-split biomarker members (linear_sex / shared linear) + the Klemera-Doubal
-# composite. These are self-contained -- synthetic betas over each unit's own CpG set (bundled
-# sysdata, no cohort duckdb), so they run on CRAN. They lock the ENGINE wiring (sex routing, sum
-# reduction, sex-median vendor fill, KDM mixing) by reconstructing the code's own formula; author
-# parity against the golden cohort is the (currently skip-listed) job of test-fixtures-parity.R.
-# synthetic_betas() lives in helper-sim.R.
+# DNAmFitAge engine wiring (self-contained synthetic betas; CRAN-safe).
+# Author parity is test-fixtures-parity.R (currently skip-listed).
 
-# A member's female/male coef tensors and the CpG union they score over.
 member_models <- function(id) {
   op <- fitage_score_op(id)
   list(
@@ -43,7 +38,7 @@ test_that("a linear_sex member routes each sex to its own model and reduces by s
 
   expect_equal(unname(got[ids]), unname(expected), tolerance = 1e-9)
 
-  # a sex the pheno never selects must not leak that model's intercept into the other sex
+  # Unselected sex must not leak its intercept into the other sex.
   expect_false(isTRUE(all.equal(unname(got[fem][1]), unname(got[mal][1]))))
 })
 
@@ -55,7 +50,7 @@ test_that("absent member CpGs vendor-fill by sex median (offset, never dropped)"
   ids <- rownames(DNAm)
   pheno <- fitage_pheno(ids, female = rep(1L, 4L)) # all female -> one model, easy to reconstruct
 
-  # drop 5 female-model CpGs that have a female median: they re-enter as coef * median
+  # Drop 5 female-model CpGs; they re-enter as coef * median.
   drop <- intersect(names(m$female), names(medians$female))[1:5]
   DNAm2 <- DNAm[, setdiff(colnames(DNAm), drop), drop = FALSE]
   res <- calc_clocks(DNAm2, "DNAmGait_noAge", pheno = pheno)
@@ -85,8 +80,7 @@ test_that("a FitAge member requires the Female covariate", {
   )
 })
 
-# One run over the full compute plan (members + GrimAgeV1 + its surrogates) drives the remaining
-# checks: dep expansion, the KDM mix, and the (absent) batch stamp.
+# Full plan (members + GrimAgeV1): dep expansion, KDM mix, no batch stamp.
 test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stamp", {
   cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks("DNAmFitAge")))
   DNAm <- synthetic_betas(cpgs, n = 6L)
@@ -97,15 +91,14 @@ test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stam
   res <- calc_clocks(DNAm, "DNAmFitAge", pheno = pheno)
   sc <- res$scores
 
-  # composite deps are auto-added and returned as their own columns
+  # Composite deps are auto-added as their own columns.
   expect_true(all(
     c("DNAmFitAge", "DNAmGait_noAge", "DNAmGrip_noAge", "DNAmVO2max", "GrimAgeV1") %in%
       colnames(sc)
   ))
   expect_true(all(is.finite(sc[, "DNAmFitAge"])))
 
-  # reconstruct the composite from its own upstream columns via the KDM params: this pins the
-  # mixing formula without recomputing GrimAge/members (it reuses whatever those columns hold).
+  # Reconstruct composite via KDM params (reuses upstream score columns).
   kdm <- fitage_kdm_params("DNAmFitAge")
   grim <- fitage_grim_dep("DNAmFitAge")
   col_of <- function(comp) if (identical(comp, "DNAmGrimAge")) grim else comp
@@ -125,6 +118,6 @@ test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stam
   }
   expect_equal(unname(sc[, "DNAmFitAge"]), unname(expected), tolerance = 1e-9)
 
-  # DNAmFitAge is not batch-dependent -> no frozen batch id
+  # DNAmFitAge is not batch-dependent.
   expect_null(res$provenance$batch_set_id)
 })

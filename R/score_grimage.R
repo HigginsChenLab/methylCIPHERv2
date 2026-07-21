@@ -1,5 +1,5 @@
 # GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years.
-# V1 uses standalone surrogate clocks; V2 uses `_internal` surrogates computed inline.
+# V1 uses standalone surrogates; V2 scores `_internal` surrogates inline.
 score_grimage <- function(
   id,
   cpgs,
@@ -13,11 +13,10 @@ score_grimage <- function(
   n <- nrow(DNAm)
 
   group_id <- clock_group_bundle(id)$group_id
-  cox <- grimage_cox_coef(id) # named numeric; names ARE the stack column spec
+  cox <- grimage_cox_coef(id)
   comps <- clock_components(id)
   stack_names <- names(cox)
 
-  # Build the n x k stack, one column per Cox coef name, in the coef's own order.
   X <- matrix(
     0,
     nrow = n,
@@ -38,8 +37,7 @@ score_grimage <- function(
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
-      # V2 retrained surrogate: score inline from its own cpg matrix. Not a catalog clock, so its
-      # present CpGs are resolved here against `usable` (absent -> dropped, GrimAge's omit policy).
+      # V2 surrogate: score inline; absent CpGs dropped (omit policy).
       comp <- Filter(function(c) identical(c$name, nm), comps)
       if (length(comp) != 1L) {
         stop(
@@ -66,7 +64,7 @@ score_grimage <- function(
       )
       X[, nm] <- lp$linpred
     } else {
-      # Dependency surrogate clock (V1 surrogates, or V2 DNAmlogA1C / DNAmlogCRP): already scored.
+      # Dependency surrogate already scored upstream.
       r <- results[[nm]]
       if (is.null(r)) {
         stop(
@@ -82,7 +80,6 @@ score_grimage <- function(
     }
   }
 
-  # Cox linear predictor (no intercept), then rescale to years. Columns align to `cox` by name.
   cox_score <- X[, stack_names, drop = FALSE] %*% cox
   score <- matrix(
     as.numeric(grimage_rescale(cox_score, grimage_rescale_params(id))),
@@ -91,8 +88,6 @@ score_grimage <- function(
     dimnames = list(sample_id, id)
   )
 
-  # Coverage over the COMPOSITE's scoring CpG union (cpgs skeleton). tier-2 partial-NA counts come
-  # from whichever of those present CpGs were cohort-cached (same rule as linear_score).
   cached <- if (is.null(partial_cache)) {
     character(0)
   } else {

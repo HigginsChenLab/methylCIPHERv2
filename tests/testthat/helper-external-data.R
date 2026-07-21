@@ -1,15 +1,6 @@
-# Fixture for the external-data cache tests.
-#
-# The real packs are 7-23 MB release assets, so the unit tests must never touch the network.
-# Instead we build a tiny qs2 payload, compute its real payload_hash + file_sha256 exactly as
-# sync.R does, and mock the two registry accessors (mc_asset_row / mc_external_groups) plus
-# mc_asset_url so the download path fetches it over file://. Everything downstream --
-# filename construction, sha verification, atomic move, qs2 read, payload-hash check -- runs
-# unmodified against real bytes on a real filesystem.
+# Fake external packs for unit tests: tiny qs2 over file://, never the network.
 
-# Build one fake pack on disk; returns the registry row it corresponds to. The payload
-# carries the same identity fields a real pack does (group_id / encoding / encoding_version /
-# cpgs) so external_pack()'s structural check runs for real rather than being vacuous.
+# Build one fake pack on disk; returns the registry row it corresponds to.
 fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   if (is.null(payload)) {
     payload <- list(
@@ -21,11 +12,9 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
     )
   }
   fs::dir_create(dir)
-  # 32 lowercase hex, matching the shape of the real payload_hash.
   phash <- digest::digest(payload, algo = "md5")
   file <- sprintf("%s-%s.qs2", tolower(group), phash)
-  # Release tag = filename stem (<group>-<hash>), as sync.R produces -- never the bare hash,
-  # which GitHub rejects as a tag name.
+  # Tag = filename stem; bare hex tags are rejected by GitHub.
   rtag <- sub("\\.qs2$", "", file)
   src <- fs::path(dir, file)
   qs2::qs_save(payload, src)
@@ -45,8 +34,7 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   )
 }
 
-# Install a fake registry of one or more assets for the duration of the calling test, served
-# from a local directory over file://. Returns the rows, invisibly named by group.
+# Mock registry + file:// download URLs for the duration of the calling test.
 local_fake_registry <- function(rows, .env = parent.frame()) {
   if (!is.null(rows$group_id)) {
     rows <- stats::setNames(list(rows), rows$group_id)
@@ -60,8 +48,7 @@ local_fake_registry <- function(rows, .env = parent.frame()) {
       }
       row
     },
-    # mustWork = FALSE so a deliberately-deleted source still yields a URL and the
-    # download itself 404s -- that is the failure path under test, not an argument error.
+    # mustWork=FALSE so a deleted source still yields a URL and the download 404s.
     mc_asset_url = function(row) {
       paste0("file:///", normalizePath(row$.src, winslash = "/", mustWork = FALSE))
     },

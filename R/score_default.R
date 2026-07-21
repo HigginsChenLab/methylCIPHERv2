@@ -1,7 +1,6 @@
-# Scorers: one work unit -> list(score, coverage, sample_miss).
-# linear and linear_transformed share one engine; they differ only by output_transform.
+# Shared linear scorers. linear and linear_transformed differ only by output_transform.
 
-# Horvath age back-transform (adult.age = 20); catalog stores the name only.
+# Horvath age back-transform (adult.age = 20).
 anti_trafo <- function(x, adult.age = 20) {
   ifelse(x < 0, (1 + adult.age) * exp(x) - 1, (1 + adult.age) * x + adult.age)
 }
@@ -18,8 +17,7 @@ resolve_output_transform <- function(name) {
   )
 }
 
-# Shared numeric core: linpred = intercept + sum(coef * beta) + covariates.
-# Reads cohort-filled columns from partial_cache when present; otherwise raw DNAm.
+# linpred = intercept + sum(coef * beta) + covariates. Uses partial_cache when present.
 linear_predictor <- function(
   coef,
   intercept,
@@ -68,8 +66,7 @@ linear_predictor <- function(
   }
 
   linpred <- cpg_contrib + cov_contrib + intercept
-  # cpg_contrib / cov_contrib are exposed so callers can reduce by mean (divide the CpG term by
-  # its count, then re-add intercept + covariates) or add a vendor offset before combining.
+  # Expose cpg/cov terms so callers can mean-reduce or add a vendor offset.
   list(
     linpred = linpred,
     cpg_contrib = cpg_contrib,
@@ -79,10 +76,7 @@ linear_predictor <- function(
   )
 }
 
-# Shared linear engine for one cpg_coefficient clock (linear or linear_transformed).
-# Reduction: "sum" (intercept + X %*% coef) or "mean" (intercept + rowMeans(X*coef)).
-# Impute split: present-but-NA -> cohort cache; completely absent -> vendor-mean offset
-# (policy vendor_mean) or dropped from the reduction (policy omit/drop).
+# Linear engine for one cpg_coefficient clock. Partial NA -> cohort; absent -> vendor or drop.
 linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
   id <- cpgs$clock_id
   policy <- clock_impute(id)$policy
@@ -117,8 +111,6 @@ linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
     id = id
   )
 
-  # Absent CpGs: vendor-mean fill contributes a per-clock constant offset (coef * ref mean),
-  # exactly like the FitAge sex-median branch; omit/drop contributes nothing.
   if (vendor_mean) {
     ref <- clock_impute_ref(id)
     miss_ref <- setdiff(absent, names(ref))
@@ -140,9 +132,7 @@ linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
     dropped <- absent
   }
 
-  # Combine. Sum: reuse linpred (intercept + covariates folded in) + vendor offset. Mean: reduce
-  # only the CpG term over its included-term count (present + vendor-filled), then re-add the
-  # intercept and covariates so they are not divided.
+  # Mean reduces only the CpG term; sum reuses linpred + vendor offset.
   if (identical(reduction, "mean")) {
     n_terms <- length(cpgs$score_present) + length(vendor_filled)
     cpg_num <- lp$cpg_contrib + absent_offset
@@ -159,7 +149,6 @@ linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
     dimnames = list(sample_id, id)
   )
 
-  # per-sample partial-NA count on raw (pre-fill) cached columns
   sample_miss <- if (length(lp$cached)) {
     slideimp::mat_miss(DNAm[, lp$cached, drop = FALSE], col = FALSE)
   } else {

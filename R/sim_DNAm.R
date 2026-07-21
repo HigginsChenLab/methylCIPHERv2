@@ -1,7 +1,4 @@
-# Internal: an n x length(cpgs) matrix of U(0, 1) surrogate betas, rownames sample1..n and
-# colnames = cpgs. `seed = NULL` draws from the ambient RNG (sim_DNAm's default); an integer
-# seed gives a reproducible draw (the self-contained scorer tests). The single place surrogate
-# beta matrices are constructed -- sim_DNAm() and the test helper synthetic_betas() both route here.
+# Build an n x length(cpgs) U(0,1) beta matrix. seed=NULL uses ambient RNG.
 random_betas <- function(cpgs, n = 10L, seed = NULL) {
   draw <- function() {
     matrix(
@@ -18,7 +15,7 @@ sim_DNAm <- function(clocks, n = 10, Age = FALSE, Female = FALSE, remove = 0) {
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
 
-  # include transitive deps so composites have their input CpGs on the panel
+  # Include transitive deps so composites have their input CpGs.
   cpgs <- clock_cpgs(resolve_clocks_sequence(resolve_clocks(clocks)))
   if (remove > 0) {
     n_drop <- min(remove, length(cpgs))
@@ -42,6 +39,7 @@ sim_DNAm <- function(clocks, n = 10, Age = FALSE, Female = FALSE, remove = 0) {
   out
 }
 
+# Print a methylCIPHER_sim list (DNAm + pheno preview).
 #' @export
 print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
   DNAm <- x$DNAm
