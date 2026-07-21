@@ -558,9 +558,9 @@ group_metas <- metas[basename(metas) == "_group.meta.json"]
 **Schema = accessors, not a doc.** The sysdata shape is defined by `build_index()` /
 `build_catalog()`. The executable schema is the accessor layer -- `get_clock()`,
 `clock_scoring_cpgs()`, `clock_norm_cpgs()`, `clock_impute()`, `clock_coefs()`,
-`clock_group_bundle()` -- whose roxygen states fields/types and whose structural `testthat` test
-asserts `names(mc_index)` + a sample `mc_catalog` entry. A shape change breaks the test and forces
-the doc update. `calc_clocks` code consumes only accessors, never raw nested lists. No
+`clock_group_bundle()` -- documented via short `#` comments for now (roxygen deferred to alpha)
+and whose structural `testthat` test asserts `names(mc_index)` + a sample `mc_catalog` entry. A
+shape change breaks the test and forces the comment update. `calc_clocks` code consumes only accessors, never raw nested lists. No
 hand-written `schema.md` (it would drift, the class the meta repo's `meta_schema.py` exists to
 eliminate); generate one from the objects if ever needed.
 

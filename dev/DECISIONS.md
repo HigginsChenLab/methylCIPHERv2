@@ -12,6 +12,25 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-21 -- no roxygen yet; plain `#` comments are the only in-source docs pre-alpha
+
+**Decision.** The package carries **no roxygen** during the rewrite. Do not author roxygen
+blocks and do not run `devtools::document()`. In-source documentation is short `#` comments
+only (the existing "Comments" rule: 1-2 sentences on *what*, not *why*).
+
+**Why.** The API surface is still moving; regenerating `NAMESPACE` / `man/*.Rd` on every change
+is churn with no reader yet, and half-written roxygen would rot against the code. `man/*.Rd` and
+the live `NAMESPACE` remain the hand-managed pre-rewrite leftovers noted below until roxygen is
+switched on.
+
+**Trigger.** Turning roxygen on is a **human-decided override** tied to the alpha release --
+there is **no** automatic condition (no version tag, no milestone gate). Claude must not enable
+it on its own initiative.
+
+**Supersedes.** The earlier CLAUDE.md guidance to "run `devtools::document()` after any
+export/doc change" and to treat `NAMESPACE` / `man/*.Rd` as roxygen-generated. Those lines were
+rewritten to the "No roxygen yet" invariant.
+
 ## 2026-07-21 -- maintainer handoff to Hung Pham; license is BSD-3 (not the anticipated GPL-2)
 
 **Decision.** Two DESCRIPTION-level facts recorded now that they are set in package metadata.
@@ -620,9 +639,9 @@ at small n, and those do not need a bespoke shipped fixture once engine units co
 **Decision.** No hand-written `schema.md`. The sysdata shape is defined by `build_index()` /
 `build_catalog()` in `data-raw/sync.R`, and the **accessor layer is the executable schema**:
 `get_clock()`, `clock_scoring_cpgs()`, `clock_norm_cpgs()`, `clock_impute()`, `clock_coefs()`,
-`clock_group_bundle()`. Their roxygen states the fields/types; a `testthat` test asserts
-`names(mc_index)` and a sample `mc_catalog` entry's structure, so a shape change breaks a test
-and forces the doc update. `calc_clocks` code consumes only accessors -- never raw
+`clock_group_bundle()`. Their `#` comments state the fields/types (roxygen deferred to alpha, per
+the 2026-07-21 entry); a `testthat` test asserts `names(mc_index)` and a sample `mc_catalog`
+entry's structure, so a shape change breaks a test and forces the comment update. `calc_clocks` code consumes only accessors -- never raw
 `entry$components[[i]]$file`. Covariate requirements are one flattened catalog field
 (`covariates_required`, computed by sync's `extract_covariates`), read once at runtime, never
 re-derived from three meta keys in the scoring path.
