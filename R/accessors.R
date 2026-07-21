@@ -1,18 +1,7 @@
-# The executable schema: calc_clocks() code reads clocks ONLY through these, never
-# through raw nested mc_catalog / mc_bundles lists. A sysdata shape change breaks
-# here (and, later, the structural test) rather than deep in a scorer.
-#
-# Backing objects (in R/sysdata.rda):
-#   mc_index    flat data.frame, 1 row/clock  (discovery/filter columns)
-#   mc_catalog  named list by clock_id        (per-clock meta; NO weights)
-#   mc_bundles  named list by group_id        ($tensors: weight-path -> named vec)
-#   mc_groups   named list by group_id        (members, shared_tensors)
-#   mc_provenance                             (sync meta, external_assets)
-# Coefficients are NOT in the catalog entry: mc_catalog[[id]]$coef_path is a
-# pointer resolved against mc_bundles[[group_id]]$tensors (bundle_tensor()).
-# foundation: validated lookups
+# Executable schema: scorers read clocks only through these accessors, never raw mc_catalog lists.
+# Coefs resolve via mc_catalog[[id]]$coef_path -> mc_bundles[[group_id]]$tensors.
 
-# One catalog entry, or a clear error. Everything below builds on this.
+# One catalog entry, or a clear error.
 clock_entry <- function(id) {
   if (length(id) != 1L) {
     stop(
@@ -28,9 +17,7 @@ clock_entry <- function(id) {
   entry
 }
 
-# The single place that maps a `weights/...` path -> named numeric coef vector.
-# Every scorer (linear, sex-split, pack) resolves tensors through here, so tensor
-# lookup lives in exactly one place.
+# Map a weights/ path to its named numeric tensor (single lookup site for all scorers).
 bundle_tensor <- function(group_id, path) {
   bundle <- mc_bundles[[group_id]]
   if (is.null(bundle)) {
@@ -56,25 +43,17 @@ probe_sets_cpgs <- function(entry, role) {
   unique(unlist(lapply(hits, function(p) p$cpgs), use.names = FALSE))
 }
 
-# Scoring CpGs for one clock: the terms that enter the weighted sum. The PRECISE
-# per-clock accessor -- distinct from the loose sim-only clock_cpgs() in
-# sim_DNAm.R (which unions across many ids for random-matrix generation).
+# Scoring CpGs for one clock (terms that enter the weighted sum).
 clock_scoring_cpgs <- function(id) {
   probe_sets_cpgs(clock_entry(id), "scoring")
 }
 
-# Normalization / background panel (quantile-normalization clocks); character(0)
-# when the clock has none. norm_needed in coverage (detail-plan §4).
+# Normalization / background panel; character(0) when none.
 clock_norm_cpgs <- function(id) {
   probe_sets_cpgs(clock_entry(id), "quantile_normalization_background")
 }
 
-# The array-normalization SCHEME a clock's paper assumed: one of "none" / "BMIQ" / "quantile" /
-# "noob" (`normalization` catalog field); character(0) when unset. The package NEVER executes any
-# of these -- array norm is upstream (sesame/minfi), Horvath BMIQ deliberately skipped (detail-plan
-# §2.4a). This is a coverage/provenance ANNOTATION only (feeds norm_needed), not a check and not a
-# compute step. NB: distinct from the in-recipe `sample_scale` transform (Zhang, whose scheme is
-# "none") -- see clock_needs_full_panel().
+# Array-normalization scheme the paper assumed (none/BMIQ/quantile/noob). Annotation only; never executed.
 clock_norm_scheme <- function(id) {
   scheme <- clock_entry(id)$normalization
   if (is.null(scheme)) {
@@ -83,26 +62,55 @@ clock_norm_scheme <- function(id) {
   as.character(scheme)
 }
 
-# list(policy = <chr>, ref = <NULL | path | list(female=, male=)>). Read once by
-# the linear engine to drive the partial(cohort) / absent(vendor) fork. Sex-keyed
-# refs (DNAmFitAge family) carry $female / $male weight-paths, resolved via
-# bundle_tensor() at score time, requiring Female first.
+# Parity fixture stub: list(expected, oracle, parity_policy, parity_metric), or NULL when the
+# clock has no committed golden. `expected` is a path relative to the methylCIPHER-meta clone
+# root ("fixtures/expected/{id}.csv.gz"); the cohort-gated parity tests resolve it there. Test
+# metadata only -- scorers never read it; kept here so the fixture surface stays part of the
+# executable schema (helper-fixtures.R / test-fixtures-parity.R read clocks only through this).
+clock_fixture <- function(id) {
+  clock_entry(id)$fixture
+}
+
+# Imputation policy + ref: list(policy, ref). Sex-keyed refs need Female at score time.
 clock_impute <- function(id) {
   clock_entry(id)$imputation
 }
 
-# Named numeric weight vector (names = CpG ids) for a clock that reduces to ONE cpg->coef vector.
-# Two shapes qualify, and the linear engine treats them identically:
-#   * weights_format 'cpg_coefficient' -- the vector lives at $coef_path.
-#   * weights_format 'component_matrices' with EXACTLY ONE cpg-keyed component (row_key "cpg") --
-#     the GrimAge protein/lifestyle SURROGATES (DNAmADM, DNAmlogA1C, ...): a single cpg->coef
-#     matrix, so they score through linear_score() exactly like a cpg_coefficient clock. The vector
-#     lives at that component's $file. The composite GrimAgeV1/V2 do NOT qualify (their components
-#     carry a `component`-keyed Cox model and, for V2, eight `_internal` cpg matrices) -> rejected
-#     here; they route to score_grimage(). external / custom formats resolve their many tensors via
-#     clock_group_bundle() + bundle_tensor() in their own scorers.
-# NB: computation_type (reference_code_required, linear_transformed, ...) is the router's concern --
-# this only guarantees the weights are one cpg->coef vector, not that plain linear scoring is correct.
+# Vendor-mean reference vector (named cpg->mean) for absent-CpG fill under policy vendor_mean.
+# Only for a scalar `ref` path (the common case); sex-keyed FitAge refs use fitage_sex_medians().
+clock_impute_ref <- function(id) {
+  imp <- clock_impute(id)
+  ref <- imp$ref
+  if (is.null(ref) || !is.character(ref) || length(ref) != 1L || !nzchar(ref)) {
+    stop(
+      "clock_impute_ref(): '",
+      id,
+      "' has no scalar vendor-mean ref path (policy '",
+      if (is.null(imp$policy)) NA else imp$policy,
+      "').",
+      call. = FALSE
+    )
+  }
+  bundle_tensor(clock_entry(id)$group_id, ref)
+}
+
+# CpG reduction for a linear work unit: "sum" (intercept + X %*% coef) or "mean"
+# (intercept + rowMeans of X*coef). Recipe op `linear_mean` -> mean (EpiTOC, HypoClock,
+# PhysAge surrogates); everything else reduces by sum. Read via a narrow recipe scan, same
+# pattern as the fitage_/grimage_ recipe accessors -- not a general interpreter.
+clock_reduction <- function(id) {
+  ops <- vapply(clock_entry(id)$recipe, function(s) as.character(s$op), character(1))
+  if ("linear_mean" %in% ops) "mean" else "sum"
+}
+
+# TRUE for cohort/sample batch-dependent clocks (PhysAge cohort_zscore, Zhang sample_scale):
+# scores depend on which samples are scored together, so results carry a frozen batch_set_id.
+clock_batch_dependent <- function(id) {
+  isTRUE(clock_entry(id)$batch_dependent)
+}
+
+# Named cpg->coef vector for clocks that reduce to one linear weight vector.
+# Also covers single-cpg-component GrimAge surrogates; composites use their orchestrator.
 clock_coefs <- function(id) {
   entry <- clock_entry(id)
   wf <- entry$weights_format
@@ -138,11 +146,7 @@ clock_coefs <- function(id) {
   )
 }
 
-# Turn a {name: coef} covariate list -- as carried on a clock entry ($covariates) OR a single
-# component entry (a GrimAge surrogate's $covariates) -- into a named numeric vector; numeric(0)
-# when empty or name-less. Shared so clock-level and component-level covariate terms resolve
-# identically. The object form {name: coef} yields weights; a bare-array requirement form (names
-# absent) yields numeric(0).
+# {name: coef} list -> named numeric; numeric(0) if empty or name-less.
 covariate_coefs_from <- function(cov) {
   empty <- stats::setNames(numeric(0), character(0))
   if (is.null(cov) || !length(cov)) {
@@ -155,36 +159,24 @@ covariate_coefs_from <- function(cov) {
   stats::setNames(vapply(cov, as.numeric, numeric(1)), nms)
 }
 
-# Covariate coefficients as a named numeric vector, e.g. c(Age = -0.107) -- the covariate*coef
-# terms a clock adds on top of the CpG sum (GrimAge surrogates, DNAmFitAge, ...). numeric(0)
-# when none. Distinct from mc_index$covariates_required, which lists the covariate NAMES a clock
-# needs (for prepare_inputs), not their weights.
+# Covariate weights (named numeric); numeric(0) when none.
 clock_covariate_coefs <- function(id) {
   covariate_coefs_from(clock_entry(id)$covariates)
 }
 
-# The covariate NAMES a clock requires (character vector, e.g. c("Age", "Female"); character(0)
-# when none). The prepare path UNIONS this across all resolved clocks to validate `pheno` exactly
-# once (feeds check_pheno(extra_columns=)). Distinct from clock_covariate_coefs() above, which
-# returns the {name: coef} WEIGHTS applied at score time -- names here, weights there. Sourced
-# from the flattened `covariates_required` catalog field (sync's extract_covariates()).
+# Covariate names required for prepare/pheno checks (not the weights).
 clock_covariates_required <- function(id) {
   covs <- clock_entry(id)$covariates_required
   if (is.null(covs) || length(covs) == 0) character(0) else as.character(covs)
 }
 
-# The clock ids this clock consumes as inputs (character vector; character(0) when none). Only
-# composites declare any: GrimAgeV1/V2 (their CpG-surrogate components) and DNAmFitAge
-# (gait/grip/vo2max + GrimAgeV1, which crosses the GrimAge group). resolve_clocks_sequence() walks
-# this to expand a requested set into a dependency-satisfying COMPUTE order -- it is a compute
-# input, NOT a scoring coefficient. `depends_on_clocks` is the flattened catalog field (sync).
+# Clock ids this clock consumes as compute inputs (deps for resolve_clocks_sequence).
 clock_depends_on <- function(id) {
   deps <- clock_entry(id)$depends_on_clocks
   if (is.null(deps) || length(deps) == 0) character(0) else as.character(deps)
 }
 
-# Model intercept; 0 when unset. Separate from clock_coefs() to match the
-# linear_score(coefs, intercept) signature (calc_clocks-scaffold.R).
+# Model intercept; 0 when unset.
 clock_intercept <- function(id) {
   intercept <- clock_entry(id)$intercept
   if (is.null(intercept)) 0 else intercept
@@ -199,21 +191,13 @@ clock_type <- function(id) {
   }
 }
 
-# The output transform a clock applies to its linear predictor: the catalog `output_transform` NAME
-# only ("identity" for the 93 plain-linear clocks, "anti.trafo" for the 8 Horvath-family age
-# back-transform clocks). No params live in the catalog -- resolved to a function by the scorer's
-# registry (resolve_output_transform() in score.R). `linear` and `linear_transformed` are the SAME
-# engine; this string is the only thing that differs. Defaults to "identity" when unset.
+# Catalog output_transform name ("identity" or "anti.trafo"); defaults to "identity".
 clock_output_transform <- function(id) {
   ot <- clock_entry(id)$output_transform
   if (is.null(ot)) "identity" else as.character(ot)
 }
 
-# The upstream-canonical weights encoding: one of "cpg_coefficient", "component_matrices",
-# "external_package", "custom". calc_clocks() routes the scorer on the PAIR (weights_format,
-# computation_type) -- computation_type alone is ambiguous (e.g. GrimAge surrogates are
-# computation_type "linear" but weights_format "component_matrices", so they are NOT the plain
-# cpg_coefficient linear engine). Never NULL in a well-formed catalog.
+# weights_format: cpg_coefficient | component_matrices | external_package | custom.
 clock_weights_format <- function(id) {
   weights_format <- clock_entry(id)$weights_format
   if (is.null(weights_format)) {
@@ -223,18 +207,12 @@ clock_weights_format <- function(id) {
   }
 }
 
-# TRUE when the clock belongs to an external group (SystemsAge, PCClocks, PCBrainAge) whose weights
-# ship as content-addressed qs2 release assets, NOT in mc_bundles. calc_clocks() routes these to the
-# (unwritten) external adapter, never the in-package linear engine -- even PCClocks members carry
-# weights_format 'cpg_coefficient', but their coefs are not in a shipped bundle, so linear_score()
-# would fail in bundle_tensor(). FALSE for every in-package clock.
+# TRUE for external groups (SystemsAge, PCClocks, PCBrainAge) whose weights are not in mc_bundles.
 clock_is_external <- function(id) {
   isTRUE(clock_entry(id)$external_group)
 }
 
-# The whole shipped bundle for a clock's group: $group_id, $clocks,
-# $tensors (weight-path -> named vector). Sex-split and pack orchestrators pull
-# arbitrary named tensors (female/male, kdm_params, shared medians) from here.
+# Shipped group bundle: $group_id, $clocks, $tensors.
 clock_group_bundle <- function(id) {
   group_id <- clock_entry(id)$group_id
   bundle <- mc_bundles[[group_id]]
@@ -244,9 +222,7 @@ clock_group_bundle <- function(id) {
   bundle
 }
 
-# The group_id a clock belongs to. calc_clocks() routes FAMILY orchestrators on it (group_id
-# "GrimAge" -> score_grimage()), so the pack dispatch keys on the catalog's own family label rather
-# than a hardcoded id list. Never NULL in a well-formed catalog.
+# Family label used for pack dispatch (e.g. "GrimAge" -> score_grimage).
 clock_group_id <- function(id) {
   gid <- clock_entry(id)$group_id
   if (is.null(gid)) {
@@ -255,27 +231,14 @@ clock_group_id <- function(id) {
   gid
 }
 
-# ===========================================================================
-# GrimAge pack accessors (detail-plan §2.5)
-# ===========================================================================
-# The composite GrimAgeV1/V2 are weights_format 'component_matrices' whose $components list mixes
-# cpg-keyed surrogate matrices with one `component`-keyed Cox model. These read exactly the pieces
-# score_grimage() needs, keeping the raw nested structure behind the schema layer -- there is NO
-# generic recipe walker; the ONE recipe field consulted is the grimage_rescale params below.
+# GrimAge pack accessors -- pieces score_grimage() needs from $components / rescale params.
 
-# The full $components list for a clock (list(); never NULL error). score_grimage() scans it to find
-# a V2 `_internal_*` surrogate's coef file + intercept + covariates.
 clock_components <- function(id) {
   comps <- clock_entry(id)$components
   if (is.null(comps)) list() else comps
 }
 
-# The GrimAge Cox coefficient vector for GrimAgeV1/V2: the single $components entry with row_key
-# "component" (the model over the stacked surrogate columns), resolved to its named numeric tensor.
-# Its NAMES are the stack column spec score_grimage() builds against -- "_internal_*" (V2 surrogates
-# computed inline), "Age"/"Female" (from pheno), or a dependency component clock id (V1 surrogates,
-# V2 DNAmlogA1C/DNAmlogCRP). This name-driven dispatch is what keeps V1 on V1 surrogate columns and
-# V2 on the retrained `_internal` columns without interpreting the recipe.
+# GrimAge Cox coef vector; names drive the surrogate stack (Age/Female/deps/_internal_*).
 grimage_cox_coef <- function(id) {
   entry <- clock_entry(id)
   model <- Filter(function(c) identical(c$row_key, "component"), entry$components)
@@ -292,10 +255,7 @@ grimage_cox_coef <- function(id) {
   bundle_tensor(entry$group_id, model[[1]]$file)
 }
 
-# The grimage_rescale parameters (m_cox, sd_cox, m_age, sd_age) that convert a GrimAge Cox linear
-# predictor to years: years = (cox - m_cox)/sd_cox * sd_age + m_age. Stored on the clock's transform
-# recipe step -- the ONLY recipe field the GrimAge scorer reads (a targeted lookup, not a recipe
-# interpreter). Returned as a named numeric vector in (m_cox, sd_cox, m_age, sd_age) order.
+# grimage_rescale params: m_cox, sd_cox, m_age, sd_age.
 grimage_rescale_params <- function(id) {
   recipe <- clock_entry(id)$recipe
   step <- Filter(
@@ -326,21 +286,9 @@ grimage_rescale_params <- function(id) {
   vapply(p[need], as.numeric, numeric(1))
 }
 
-# ===========================================================================
-# DNAmFitAge pack accessors (detail-plan §2.5; sex-split + Klemera-Doubal)
-# ===========================================================================
-# The DNAmFitAge family is weights_format 'component_matrices': six fitness biomarker MEMBERS (five
-# sex-split female/male coef matrices + the shared-model DNAmVO2max) and one COMPOSITE (DNAmFitAge, a
-# KDM weighted mix of three members + GrimAgeV1). Like the GrimAge accessors these read exactly the
-# pieces score_fitage_*() needs, keeping the raw nested structure behind the schema. There is NO
-# recipe walker; the only recipe field consulted is the scoring op (which carries the sex-split
-# members' intercepts + covariate coefs -- they live NOWHERE else, since $intercept is the sentinel
-# "in_object").
+# DNAmFitAge pack accessors -- pieces score_fitage_*() needs (sex-split + KDM params).
 
-# The scoring recipe op for a FitAge MEMBER: the step whose $out == "score" (the leading 'impute'
-# step is skipped). Its $op is "linear" (DNAmVO2max, shared model) or "linear_sex" (female/male
-# models). For sex-split members it is the sole carrier of female_intercept/male_intercept and
-# female_covariates/male_covariates.
+# FitAge member scoring op (out == "score"): linear or linear_sex with intercepts/covariates.
 fitage_score_op <- function(id) {
   recipe <- clock_entry(id)$recipe
   step <- Filter(function(s) identical(s$out, "score"), recipe)
@@ -357,9 +305,7 @@ fitage_score_op <- function(id) {
   step[[1]]
 }
 
-# Resolve a $components entry by NAME to its coef tensor (named numeric). The scoring op names a coef
-# component ("female_model"/"male_model" for linear_sex, "model" for linear); components map that name
-# to a weight-path resolved via bundle_tensor().
+# Resolve a named FitAge component to its coef tensor.
 fitage_component_tensor <- function(id, comp_name) {
   entry <- clock_entry(id)
   comp <- Filter(function(c) identical(c$name, comp_name), entry$components)
@@ -378,9 +324,7 @@ fitage_component_tensor <- function(id, comp_name) {
   bundle_tensor(entry$group_id, comp[[1]]$file)
 }
 
-# The Klemera-Doubal params table for the DNAmFitAge composite: a data.frame with columns
-# sex, component, weight, center, scale (one row per component x sex). The single $components entry
-# with row_key "sex". Drives the weighted, sex-specific combination in score_fitage_composite().
+# KDM params table (sex, component, weight, center, scale) for the FitAge composite.
 fitage_kdm_params <- function(id) {
   entry <- clock_entry(id)
   comp <- Filter(function(c) identical(c$row_key, "sex"), entry$components)
@@ -397,9 +341,7 @@ fitage_kdm_params <- function(id) {
   bundle_tensor(entry$group_id, comp[[1]]$file)
 }
 
-# The GrimAge dependency a FitAge composite consumes as its KDM "DNAmGrimAge" input. depends_on_clocks
-# carries the concrete id (GrimAgeV1); grep keeps the mapping robust to V1/V2 naming without a
-# hardcoded lookup. Exactly one GrimAge dep is expected.
+# GrimAge dep id for the FitAge composite (exactly one expected).
 fitage_grim_dep <- function(id) {
   dep <- grep("^GrimAge", clock_depends_on(id), value = TRUE)
   if (length(dep) != 1L) {
@@ -415,10 +357,7 @@ fitage_grim_dep <- function(id) {
   dep
 }
 
-# Sex-specific vendor medians for absent-CpG imputation: list(female=, male=) named numeric vectors
-# over the group's AllCpGs. clock_impute()$ref carries the $female / $male weight-paths (the sex-keyed
-# ref shape flagged in clock_impute()'s header); resolved to tensors here. Needs Female at score time
-# to pick each sample's median.
+# Sex-specific vendor medians for absent-CpG fill: list(female=, male=).
 fitage_sex_medians <- function(id) {
   entry <- clock_entry(id)
   ref <- entry$imputation$ref
@@ -434,4 +373,99 @@ fitage_sex_medians <- function(id) {
     female = bundle_tensor(entry$group_id, ref$female),
     male = bundle_tensor(entry$group_id, ref$male)
   )
+}
+
+# DNAmPhysAge pack accessors -- pieces score_physage() needs (surrogate coefs + zscore/poly recipe).
+
+# Ordered surrogate list for the PhysAge composite: each is {name (raw_*), coef (named cpg->weight),
+# negate (reverse-code before cohort z-score)}. Order follows the recipe's `stack` inputs so the
+# raws matrix column order is stable and reproducible.
+physage_surrogates <- function(id) {
+  entry <- clock_entry(id)
+  recipe <- entry$recipe
+
+  stack_step <- Filter(function(s) identical(s$op, "stack"), recipe)
+  if (length(stack_step) != 1L) {
+    stop(
+      "physage_surrogates(): ",
+      id,
+      " has ",
+      length(stack_step),
+      " stack op(s) (expected 1).",
+      call. = FALSE
+    )
+  }
+  order <- as.character(unlist(stack_step[[1]]$inputs))
+
+  zs <- Filter(
+    function(s) identical(s$op, "cohort_zscore") && identical(s$`in`, "raws"),
+    recipe
+  )
+  if (length(zs) != 1L) {
+    stop(
+      "physage_surrogates(): ",
+      id,
+      " has ",
+      length(zs),
+      " cohort_zscore op(s) over 'raws' (expected 1).",
+      call. = FALSE
+    )
+  }
+  negate_set <- as.character(unlist(zs[[1]]$negate))
+
+  # Each linear_mean op names its coef component and its `out` (raw_*); map out -> component tensor.
+  lm_ops <- Filter(function(s) identical(s$op, "linear_mean"), recipe)
+  by_out <- stats::setNames(lm_ops, vapply(lm_ops, function(s) s$out, character(1)))
+
+  lapply(order, function(raw_name) {
+    op <- by_out[[raw_name]]
+    if (is.null(op)) {
+      stop(
+        "physage_surrogates(): ",
+        id,
+        " stack input '",
+        raw_name,
+        "' has no matching linear_mean op.",
+        call. = FALSE
+      )
+    }
+    comp <- Filter(function(c) identical(c$name, op$coef), entry$components)
+    if (length(comp) != 1L) {
+      stop(
+        "physage_surrogates(): ",
+        id,
+        " component '",
+        op$coef,
+        "' resolves to ",
+        length(comp),
+        " tensor(s) (expected 1).",
+        call. = FALSE
+      )
+    }
+    list(
+      name = raw_name,
+      coef = bundle_tensor(entry$group_id, comp[[1]]$file),
+      negate = raw_name %in% negate_set
+    )
+  })
+}
+
+# The DNAmPhysAge_years rescale: poly coef [c0, c1, ...] applied to the z-scored composite
+# (years = c0 + c1*z for the length-2 author coef). NULL when the clock has no poly step.
+physage_poly_coef <- function(id) {
+  step <- Filter(function(s) identical(s$op, "poly"), clock_entry(id)$recipe)
+  if (!length(step)) {
+    return(NULL)
+  }
+  if (length(step) != 1L) {
+    stop(
+      "physage_poly_coef(): ",
+      id,
+      " has ",
+      length(step),
+      " poly op(s) (expected 0 or 1).",
+      call. = FALSE
+    )
+  }
+  as.numeric(unlist(step[[1]]$coef))
 }

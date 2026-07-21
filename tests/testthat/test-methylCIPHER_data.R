@@ -40,10 +40,11 @@ test_that("the shipped registry covers the three external groups", {
   for (gid in mc_external_groups()) {
     row <- mc_asset_row(gid)
     expect_identical(row$group_id, gid)
-    # filename is content-addressed: <group>-<payload_hash>.qs2, and the release tag IS
-    # the payload hash (sync.R fixes both) -- the URL depends on nothing else.
+    # filename is content-addressed: <group>-<payload_hash>.qs2, and the release tag is the
+    # filename stem <group>-<payload_hash> (a bare 40/64-hex tag is rejected by GitHub) -- the
+    # URL depends on nothing else.
     expect_identical(row$file, sprintf("%s-%s.qs2", tolower(gid), row$payload_hash))
-    expect_identical(row$release_tag, row$payload_hash)
+    expect_identical(row$release_tag, sprintf("%s-%s", tolower(gid), row$payload_hash))
     expect_match(row$file_sha256, "^[0-9a-f]{64}$")
     expect_gt(row$size_bytes, 0)
   }

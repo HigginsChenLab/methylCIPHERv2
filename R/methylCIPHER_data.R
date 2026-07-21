@@ -1,44 +1,9 @@
-# External clock-data cache (detail-plan §9; replaces dev/methylCIPHER_path.R).
-#
-# Three clock GROUPS are too large to ship inside the package: SystemsAge, PCClocks,
-# PCBrainAge. sync() encodes each one into a single content-addressed qs2 payload and
-# publishes it as a GitHub release asset; the shipped `mc_provenance$external_assets`
-# registry records, per group, exactly which bytes this package version expects:
-#
-#   payload_hash  hash of the in-memory payload (sync.R) -> release TAG + cache identity
-#   file          "<group>-<payload_hash>.qs2"           -> asset NAME + cache filename
-#   file_sha256   sha256 of the published file           -> download integrity check
-#
-# payload_hash is an IDENTITY LABEL, not a runtime check. It is produced maintainer-side by
-# rlang::hash() (xxhash128 over R's serialization), which is a fine way to notice that a pack
-# changed at build time but a poor thing to re-verify at load: it is pinned to rlang's
-# implementation and to R's serialization format, so a future R or rlang could invalidate
-# already-published assets for every user holding a perfectly good cache. Integrity at load is
-# therefore qs2's own container checksum (bit rot) plus a structural check of the decoded pack
-# against the registry (wrong/stale pack) -- see external_pack().
-#
-# Because the filename carries the payload hash, a package upgrade that changes the pack
-# asks for a DIFFERENT filename: no in-place overwrite, no stale-cache ambiguity, and two
-# package versions can coexist in one cache dir. Nothing here consults the meta-repo or a
-# commit SHA -- identity is the payload hash alone (migration-plan: no SHA as identity).
-#
-# CRAN contract, non-negotiable:
-#   * The package NEVER writes outside tempdir() without consent. Default cache is
-#     tools::R_user_dir("methylCIPHER", "cache"); creation + download require either an
-#     interactive "yes" or an explicit ask = FALSE.
-#   * The package NEVER downloads implicitly. Scorers call external_pack(), which ERRORS
-#     with the exact command to run when the pack is absent -- it does not fetch.
-#   * Everything downloaded can be removed by the user with mc_data_clear().
+# External clock-data cache for SystemsAge, PCClocks, PCBrainAge (content-addressed qs2 packs).
+# No silent download; no write outside user cache without consent. Identity is the payload hash.
 
-# Fallback release repo when git/env give nothing (mirrors sync.R's package_release_repo()).
 MC_RELEASE_REPO <- "hhp94/methylCIPHER"
 
-# No session-level memoisation, deliberately. Measured: qs_read() of the 22.5 MB SystemsAge
-# pack is ~0.05s, while holding all three packs resident costs ~76 MB for the life of the
-# session -- invisible to the user and never reclaimed. A hidden global cache also has to be
-# invalidated from mc_data_clear(), which is exactly the kind of cross-talk the record
-# contract avoids elsewhere. Group orchestrators load their pack ONCE per calc_clocks() call
-# and pass it down; that is where reuse belongs.
+# No session memoisation: load packs once per calc_clocks() call and pass them down.
 # ===========================================================================
 # validation
 # ===========================================================================
@@ -177,8 +142,9 @@ mc_release_repo <- function() {
   slug
 }
 
-# Release tag == payload_hash (sync.R fixes this), so the URL is fully determined by the
-# registry row. No API call, no listing, no auth: a plain public asset GET.
+# Release tag is the filename stem <group>-<hash> (a bare 40/64-hex tag is rejected by GitHub;
+# sync.R sets this), so the URL is fully determined by the registry row. No API call, no listing,
+# no auth: a plain public asset GET.
 mc_asset_url <- function(row) {
   sprintf(
     "https://github.com/%s/releases/download/%s/%s",
@@ -564,10 +530,7 @@ mc_data_clear <- function(groups = "all", path = NULL, ask = TRUE) {
 # load (the runtime entry point)
 # ===========================================================================
 
-# The one function scorers call to get an external group's weights. It NEVER downloads: a
-# missing pack is a user-actionable error naming the exact command, because a scoring call
-# must not silently pull 24 MB off the network (detail-plan §12 non-goal: no silent
-# downloads). Stateless: see the no-memoisation note at the top of this file.
+# Load an external group's pack. Never downloads -- errors with the install command if missing.
 external_pack <- function(group_id, path = NULL) {
   row <- mc_asset_row(group_id)
   dir <- mc_cache_path_arg(path)

@@ -26,13 +26,16 @@ Imports:
     utils,
     withr
 Suggests:
+    betanorm,
+    DBI,
     devtools,
     duckdb,
     gradethis (>= 0.2.10.9000),
     learnr,
     testthat (>= 3.0.0)
-Remotes: 
+Remotes:
     danbelsky/DunedinPoAm38,
+    hhp94/betanorm,
     MorganLevineLab/prcPhenoAge
 biocViews:
 Config/roxygen2/version: 8.0.0

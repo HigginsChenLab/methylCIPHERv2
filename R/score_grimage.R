@@ -1,40 +1,5 @@
-# GrimAge family orchestrator (detail-plan §2.5). GrimAgeV1 and GrimAgeV2 are weights_format
-# 'component_matrices' + computation_type 'linear_transformed': a Cox linear predictor over a STACK
-# of protein / lifestyle SURROGATE columns plus Age and Female, then rescaled from the Cox scale to
-# years. Too special for the generic linear engine -> its own scorer. It reuses linear_predictor()
-# as the inner sub-step for the V2 `_internal` surrogates and consumes the already-scored standalone
-# surrogate clocks (the V1 surrogates, and V2's DNAmlogA1C / DNAmlogCRP) out of `results`.
-#
-# The single load-bearing distinction (product policy, DECISIONS / detail-plan §2.5):
-#   * GrimAgeV1 stacks the V1 surrogate columns  = the STANDALONE component clocks (DNAmADM, ...),
-#     which are exactly what a user gets when asking for that component (weights/GrimAge/v1/...).
-#   * GrimAgeV2 stacks the `_internal` surrogate columns = the RETRAINED V2 coefficients
-#     (weights/GrimAge/v2/_internal/...), computed inline here and NEVER surfaced as standalone
-#     clocks, plus the two new standalone V2 surrogates DNAmlogA1C / DNAmlogCRP.
-# So the SAME protein (e.g. ADM) enters V1 via its V1 standalone score and V2 via a distinct
-# `_internal` V2 score, and a bare `calc_clocks(DNAm, "DNAmADM")` returns the V1 one.
-#
-# What drives that split is the Cox coef vector's NAMES (grimage_cox_coef()): iterating them builds
-# the stack column by column --
-#   name == "Age" / "Female"      -> take the covariate column from pheno.
-#   name starts with "_internal_" -> compute the V2 surrogate inline (its own cpg matrix + intercept
-#                                    + covariates, via linear_predictor()).
-#   any other name                -> a dependency surrogate CLOCK id, already scored upstream in the
-#                                    calc_clocks() loop (deps precede the composite in the plan) and
-#                                    read from results[[name]]$score.
-# No recipe interpreter: the only recipe field consulted is the grimage_rescale params.
-#
-# Inputs mirror linear_score()'s prepared context, plus two the composite needs:
-#   cpgs          resolve_cpgs()$per_clock[[id]] for the COMPOSITE -- its scoring CpG skeleton (the
-#                 union over every surrogate, materialized in the catalog) for coverage.
-#   results       the per-clock scorer outputs accumulated so far; holds the dependency surrogate
-#                 scores this composite stacks.
-#   usable        scan_missing_cpgs()$usable_cols -- the present, non-all-NA needed column universe.
-#                 The inline `_internal` surrogates intersect their CpGs against this (their columns
-#                 are not in resolve_cpgs(), being sub-clock, so they resolve present/absent here).
-#   DNAm, partial_cache, pheno  as in linear_score().
-#
-# Returns the same list(score, coverage, sample_miss) shape every scorer returns.
+# GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years.
+# V1 uses standalone surrogate clocks; V2 uses `_internal` surrogates computed inline.
 score_grimage <- function(
   id,
   cpgs,
@@ -47,7 +12,7 @@ score_grimage <- function(
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
 
-  group_id <- clock_group_bundle(id)$group_id # validates the shipped bundle exists
+  group_id <- clock_group_bundle(id)$group_id
   cox <- grimage_cox_coef(id) # named numeric; names ARE the stack column spec
   comps <- clock_components(id)
   stack_names <- names(cox)
@@ -157,10 +122,7 @@ score_grimage <- function(
   list(score = score, coverage = coverage, sample_miss = sample_miss)
 }
 
-# GrimAge Cox-scale -> years rescale (detail-plan §2.5). params = grimage_rescale_params(id) =
-# c(m_cox, sd_cox, m_age, sd_age): years = (cox - m_cox) / sd_cox * sd_age + m_age. This is the
-# transform recipe step, applied to the composite Cox linear predictor (not an output_transform:
-# GrimAgeV1/V2 carry output_transform 'identity').
+# Cox scale -> years: (cox - m_cox) / sd_cox * sd_age + m_age.
 grimage_rescale <- function(cox_score, params) {
   (cox_score - params[["m_cox"]]) / params[["sd_cox"]] *
     params[["sd_age"]] +
