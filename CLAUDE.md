@@ -85,11 +85,39 @@ token with release-write scope and is maintainer-only.
 
 ## Testing
 
-- **Always run, no meta dependency:** hand-authored engine/machinery unit tests (golden values
-  written in-test) plus the `sim_DNAm()` `expect_no_error` smoke over every bundled clock.
-- **Cohort-gated parity fixtures** (the only clock-golden source): run against
+Three tiers. The package is fast-moving pre-alpha, so tests guard **core functionality and
+observable output**, not implementation detail -- see "Test altitude" below.
+
+- **Crash smoke (always run):** `test-sim-smoke.R` scores every bundled, supported clock through
+  `sim_DNAm()` + `calc_clocks()` with `expect_no_error`. The cheapest, most refactor-robust net --
+  it catches "a clock stopped running" without pinning any value. External clocks are excluded
+  (pack-only; `sim_DNAm()` has no scoring CpGs for them).
+- **Value goldens (always run, no meta dependency):** hand-authored engine/machinery unit tests
+  with golden values written in-test, one per scoring path (linear sum/mean, sex-split, imputation
+  offset, external pack, composites).
+- **Cohort-gated parity fixtures** (the science gate; the only clock-golden source): run against
   `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`, skipped via `file.exists()`
   when the cohort is not staged. CRAN skips this tier; CI may stage it.
+
+### Test altitude -- keep tests loose enough to move fast
+
+Assert on what `calc_clocks()` *produces*, not on how it is wired. A test that breaks on a
+refactor with no behavior change is too tight -- loosen or delete it.
+
+- **Errors: assert *that*, not the wording.** `expect_error(expr)` with no regex. Error/warning
+  text is UI; pin a message (or a condition class) only when a test must otherwise confuse two
+  distinct failure modes.
+- **No internal dispatch-tag tables.** Do not hard-code `clock_reduction()` / `score_type()` per
+  clock; prove routing through `calc_clocks()` output. The one allowed invariant is the closed-set
+  guard "every catalog clock maps to a *known* tag".
+- **No maintainer-side plumbing shapes.** Do not assert asset filenames, release tags, download
+  URLs, or cache-dir precedence order -- none reach a result record. Test the *behavior* instead
+  (verifies on fetch, leaves no scratch, warns-not-stops on hash drift, closed set never downloads).
+- **Re-derive a recipe in-test only until parity covers it.** Once a clock has a passing parity
+  fixture, that fixture owns the numeric golden and only a smoke stays here. In-test re-derivation
+  is allowed where parity is still skip-listed for that clock -- it is the only numeric gate meanwhile.
+- **Coverage counts and provenance flags are output, not internals** -- asserting
+  `res$coverage$...$score_imputed_full` or `res$provenance$batch_set_id` is fair game.
 
 ## ASCII-only
 

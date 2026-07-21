@@ -12,6 +12,192 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-21 -- Test suite deliberately loosened; "test altitude" policy set
+
+**Decision.** The suite had grown too tight for a fast-moving pre-alpha: it pinned exact
+error-message strings, maintainer-side plumbing shapes (asset filenames, release tags, download
+URLs, the 4-layer cache-dir precedence order), per-clock internal dispatch-tag tables
+(`clock_reduction()`, `score_type()`), and re-derived full recipes in-test. All of these break on
+refactors that change no observable behavior. Loosened them so tests assert on `calc_clocks()`
+output and the parity science gate only; the policy now lives in CLAUDE.md "Test altitude".
+
+- Error/warning/message assertions drop the regex -> bare `expect_error/warning/message`; the
+  behavior after the throw (writes nothing, still returns the payload, etc.) is still asserted.
+- Dropped the per-clock reduction/route tag tables; kept the closed-set "every clock maps to a
+  known tag" guard. Routing is proven through `calc_clocks()` output.
+- Dropped filename/release-tag/URL format asserts and the cache-dir precedence spec; kept the
+  download *behaviors* (verify, no scratch, warn-not-stop on hash drift, closed-set, never
+  auto-delete).
+- Removed the SystemsAge composite recipe re-derivation -- cohort parity passes it at ~1e-11, so
+  the fixture owns the golden. **Kept** the DNAmFitAge KDM re-derivation: its parity is skip-listed,
+  so the in-test math is currently its only numeric gate. Revisit when that parity lands.
+
+**Added.** `test-sim-smoke.R` -- `expect_no_error` over every bundled, supported clock via
+`sim_DNAm()` + `calc_clocks()`. This is the always-on crash net the Testing section had described
+but no test implemented. Net: ~256 lines of brittle assertions removed, ~84 crash-smoke cases
+added; full suite 363 pass / 0 fail.
+
+**Not done.** S3 record-verb tests (`as.matrix` / `[` / `cbind` / ...) -- the generics are not
+implemented yet, so there is nothing to test; add them when the methods land.
+
+---
+
+## 2026-07-21 -- SystemsAge orchestrator landed (external.md step 4); external scoring complete
+
+**Decision.** Wired the SystemsAge family (Sehgal 2024, 13 members) -- the last external.md gap.
+All 13 members now pass cohort parity at exact tolerance (max_abs_diff ~1e-11, gate 1e-6), so the
+three external groups (PCClocks, PCBrainAge, SystemsAge) are fully scored.
+
+1. **Organ sub-clocks go through the shared linear engine, not the orchestrator.** The 11
+   organ/system members (Blood..MusculoSkeletal) are `cpg_coefficient`/`linear` -- literally
+   `intercept + sum(coef*beta)` with vendor-mean fill. `score_type()` now returns `"linear"` for
+   them; `clock_coefs()` gained a one-line SystemsAge branch sourcing the column from `pack$organs`
+   (PCClocks/PCBrainAge use `pack$coefficient_matrix`; SystemsAge's pack carries `$organs` +
+   `$systems` + `$age`). This maximizes reuse of the tested engine (coverage, transform, reduction,
+   impute) -- the alternative of routing all 13 through the orchestrator would re-implement
+   `linear_score`'s vendor accounting 11 extra times for no gain. Rejected the earlier
+   "hold the organ members back with the composite as one slice" framing: the members are
+   independent (the composite recomputes its own raw system vectors), so each of the 13 dispatches
+   on its own.
+
+2. **The two composites (`Age_prediction`, `SystemsAge`) are one named branch,
+   `score_systemsage()`.** They are not linear in the CpGs, so they get a family orchestrator (like
+   GrimAge/FitAge/PhysAge), NOT a recipe walker. The branch hard-codes the pipeline *shape* --
+   age-linear front -> quadratic; and for the composite: 11 raw system predictors + poly-scaled age
+   -> center/scale -> systems_PCA project -> linear head -- and reads every *constant* from the
+   catalog recipe via targeted accessors (`systemsage_step/_age_intercept/_poly/_raw_intercepts/
+   _stack_order/_final_intercept`), never hand-copied into R source. Every linear stage reuses the
+   shared `linear_predictor()` kernel via a small `sa_linpred()` (present cols + partial-cohort
+   cache + vendor offset for absent).
+
+3. **The systems_PCA tensor tree stays in the pack `$tensors`, consumed as-is.** `encode_systemsage`
+   already leaves the four small tensors (center[12], scale[12], model[12], rotation[12x12]) in
+   `$tensors` keyed by their `weights/` paths; `systemsage_pca()` resolves them by component name
+   (from the catalog) and aligns rows/cols to the recipe stack order. Deliberately did **not** bump
+   the pack encoding to promote them into named `$pca` fields: the accessor is small, the pack is
+   already built/verified, and a re-encode would churn the payload_hash and re-staging for no
+   scoring benefit. Column-order care: the pack `$organs`/`$systems` matrices are alphabetical while
+   the systems_PCA order is the recipe stack order (Blood, Brain, **Inflammation, Heart**, ...,
+   **Metabolic, Lung**, ..., Age_prediction) -- everything is indexed by name, never position.
+
+4. **`Age_prediction` vs the composite's `ap_scaled` use different poly coefs, on purpose.** The
+   standalone `Age_prediction` clock folds the author's `transformation_coefs` affine + /12 into its
+   quadratic; the composite feeds the un-transformed age (just /12) into systems_PCA, so its
+   `ap_scaled` poly differs. Both come straight from their own catalog recipe step, so the scorer
+   never conflates them.
+
+## 2026-07-21 -- external scoring landed for PCClocks + PCBrainAge (external.md steps 1-5); SystemsAge deferred
+
+**Decision.** Wired external.md steps 1-5 for the two plain-linear external groups (PCClocks,
+PCBrainAge): accessors read external coef/impute from the loaded pack, `load_mc_assets` is the
+single loader, `calc_clocks()` resolves packs upfront and scores them on the shared linear engine.
+SystemsAge (organ members and its component-matrices composite) stays `"unsupported"` -- its
+orchestrator is its own later slice.
+
+1. **`external_pack()` -> `load_mc_assets(groups, assets = NULL, ask = TRUE)`** (renamed, verb-named)
+   in [`R/methylCIPHER_data.R`](../R/methylCIPHER_data.R). Returns a **named list of packs keyed by
+   `group_id`** (even for one group), not a single pack. It is the sole consent/download/read site.
+   The single-pack read/validate/drift-warn body is now the internal helper `mc_read_pack()`;
+   `mc_download()` split into pure `mc_fetch()` (stage -> qs2-validate -> atomic rename, no prompt)
+   plus `mc_consent()` (one **batched** prompt for the union of missing packs, refusing
+   non-interactively). `mc_data_download()` reuses both.
+
+2. **Closed-vs-open `assets`.** `assets = NULL` -> default cache dir, missing packs consent-downloaded
+   (open set). `assets` **explicitly provided** -> **closed set, never downloads**, a coverage gap is
+   fatal. `assets` accepts a cache-dir path **or** loaded object(s) -- a bare pack, a list of packs,
+   or a path all canonicalize (via `mc_canonicalize_assets()`) to the named-list registry; objects
+   key by their own `$group_id`. This reverses the old semantics where `assets` was only a cache-dir
+   path that downloads landed into. Data-layer tests were rewritten to drive open-mode downloads via
+   `options(methylCIPHER.cache_dir=)` and to cover the closed path/object modes.
+
+3. **Accessors take the registry on the external path.** `clock_coefs(id, packs = NULL)` and
+   `clock_impute_ref(id, packs = NULL)` gained an external branch: for an `external_group` clock they
+   pull the coef column from `packs[[group_id]]$coefficient_matrix[, id]` (named by `$cpgs`) and the
+   vendor ref from `$impute`, via the new `clock_pack()` helper (errors if the group's pack is not in
+   the registry). The bundled path is unchanged; `packs` defaults to `NULL`, so every existing
+   bundled caller (`linear_score`, `score_physage`, tests) is untouched. `linear_score()` gained
+   `packs` and forwards it.
+
+4. **Upfront resolution is gated on `score_type() != "unsupported"`, not merely "is external".**
+   `calc_clocks()` collects the external groups whose clocks route to a pack-consuming scorer and
+   calls `load_mc_assets()` once before the pure loop. `assets`/`ask` were added to the
+   `calc_clocks()` signature.
+
+5. **Dispatch flip (step 3), narrowly.** `score_type()` now routes external + `cpg_coefficient` /
+   {`linear`,`linear_transformed`} -> `"linear"`, **except** the SystemsAge group, which stays
+   `"unsupported"`. So PCClocks + PCBrainAge score (step 4 for them is pure fall-through to
+   `linear_score`); SystemsAge's cpg_coefficient organ members are held back with the composite so
+   the group is enabled as one orchestrated slice, and the gating in point 4 means SystemsAge never
+   downloads-then-errors.
+
+6. **Tests (step 5).** `test-score-external.R` drives `calc_clocks()` end-to-end on PCBrainAge with
+   an **in-memory pack** (closed set -> no disk, no network): full-coverage golden, vendor-fill
+   golden (absent CpGs from `$impute`), and the closed-set "pack absent" error. Real cohort parity
+   is now **pack-gated** too: `skip_if_no_pack()` skips an external clock's parity unless its pack is
+   cached, and open-mode `calc_clocks()` then reads the cached pack without a download prompt.
+
+**Why hold SystemsAge back.** Its composite is `component_matrices`/`wrapper` (organs -> systems ->
+age -> composite over the pack's `$organs`/`$systems`/`$age` matrices), a genuinely new branch;
+enabling only its linear organ members would half-support the group and download-then-error on the
+headline composite. It ships as one slice.
+
+---
+
+## 2026-07-21 -- external asset layer simplified: qs2 checksum is the integrity guard, payload_hash drift WARNs, no memoise
+
+**Decision.** Rewrote [`R/methylCIPHER_data.R`](../R/methylCIPHER_data.R) from ~479 to ~230 lines.
+The module now reads as one flow: resolve cache dir -> find expected file -> consent-gated download
+if absent -> `qs2::qs_read(validate_checksum = TRUE)` -> WARN-only content-hash check -> return
+pack. `external_pack(group_id, assets = NULL, ask = TRUE)` is the single runtime entry; see
+detail-plan 9.4.
+
+**What changed and why (reverses two earlier stances).**
+
+1. **Transfer integrity is qs2's own `validate_checksum`, not a parallel `file_sha256` recompute.**
+   This reverses the 2026-07-20 "kept, deliberately ... runtime download-integrity `file_sha256`"
+   line. qs2 already stores and verifies a checksum on read; recomputing a separate sha256 over the
+   file was redundant. `file_sha256` stays in `mc_provenance` as a maintainer-side record but is no
+   longer read by R (candidate for later removal). The `.part`-stage -> qs2-validate -> atomic
+   rename gives the same "a corrupt transfer never counts as cached" guarantee the old sha256 +
+   staging dance did, in three lines.
+
+2. **`payload_hash` mismatch WARNs, never errors.** The old `external_pack()` hard-errored on four
+   structural identity fields (`group_id`/`encoding`/`encoding_version`/`n_cpgs`). Replaced by one
+   `mc_payload_hash(pack)` vs provenance `payload_hash` compare that only `warning()`s. The filename
+   already embeds `payload_hash`, so a name match is strong; the recompute is cheap belt-and-braces
+   and a drift is a "your scores may not match this version" signal, not a reason to refuse to
+   score. (`mc_payload_hash` mirrors sync's `payload_hash_of`; the saved object *is* the stripped
+   stable payload, so the hashes line up with no re-derivation.)
+
+3. **No memoise -- confirmed by benchmark, not assumed.** Cold `qs_read` of the three packs is
+   ~0.10s (PCClocks 13.5 MB), ~0.13s (PCBrainAge 8.6 MB), ~0.20s (SystemsAge 30.7 MB), and
+   `validate_checksum` is free within noise. So there is no session-cache/global-env tier and no
+   `clear_clock_cache()`-clears-a-memo semantics; `calc_clocks()` loads each needed group's pack
+   once per call and passes it down. This also retires the stale detail-plan 9.4 "session cache ->
+   bundled -> R_user_dir -> download" order (external packs are never "bundled").
+
+4. **`ask = TRUE` default, not `ask = interactive()`.** `interactive()` as the default silently
+   auto-downloads in scripts/CI (evaluates to `FALSE` = "consent given"). `ask = TRUE` prompts when
+   interactive, **refuses** non-interactively, and `ask = FALSE` is the explicit-consent signal --
+   matching the "no download without consent" invariant.
+
+**Cut as over-engineering** (the module treated our own compiled `mc_provenance` as a hostile wire
+contract): `mc_validate_row` field-by-field validation, `mc_resolve_groups` multi-group ceremony,
+`mc_cache_status` data.frame, `mc_release_repo` slug regex, `mc_chr1`/`mc_num1`, the elaborate
+`mc_confirm`, and the separate sha256 verify + `.part-<pid>` machinery.
+
+**Cache-dir model.** `assets` arg (per-call) > session option `methylCIPHER.cache_dir` (via
+`mc_set_cache_dir()`, a session-consistent setter) > `METHYLCIPHER_CACHE_DIR` (.Renviron) >
+`mc_default_cache_dir()` (`R_user_dir`).
+
+**Kept.** `clear_clock_cache()` as a must-have **stub** -- it reports what is cached and never
+auto-unlinks; the interactive delete flow is deferred by design. A thin `mc_data_download()`
+pre-fetch verb for offline/CI staging.
+
+**Sites.** `R/methylCIPHER_data.R` (rewrite); `tests/testthat/{test-methylCIPHER_data.R,
+helper-external-data.R}`; `dev/detail-plan.md` 1.1, 9.1, 9.4. Full suite after: 0 failures (the 13
+parity warnings are the pre-existing per-clock-subset orientation notice, unrelated).
+
 ## 2026-07-21 -- no roxygen yet; plain `#` comments are the only in-source docs pre-alpha
 
 **Decision.** The package carries **no roxygen** during the rewrite. Do not author roxygen

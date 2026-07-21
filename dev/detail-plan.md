@@ -24,8 +24,8 @@ their history lives solely in [`DECISIONS.md`](DECISIONS.md).
 | `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Main scorer |
 | `summary(x)` | Coverage data.frame from the result record |
 | `augment(scores, data, ...)` | Join scores to analysis / pheno tables |
-| `clear_clock_cache()` | Drop memoized heavy assets |
-| Download / path helpers | Explicit external asset install + cache location |
+| `clear_clock_cache()` | Report cached external packs; consent-gated removal (never auto-deletes) |
+| `mc_data_download()` / `mc_set_cache_dir()` | Explicit pre-fetch; session cache-dir override |
 
 ### 1.2 Removed or non-primary surface
 
@@ -314,8 +314,15 @@ Too special to force through a generic path -> `score_grimage()`.
 
 ### 2.6 SystemsAge pack
 
-Same idea: shared projection / system intermediates once; return requested system columns +
-composite. External asset bundle. Orchestrator, not 13 independent full reloads.
+External asset bundle carrying `$organs`/`$systems`/`$age`/`$impute` matrices + a small
+systems_PCA tensor tree; loaded **once** upfront and threaded to every member (no per-member
+reload). The 11 organ sub-clocks are plain `cpg_coefficient` linear (coef from `$organs`, shared
+engine). The two component-matrices composites (`Age_prediction`, `SystemsAge`) are the
+`score_systemsage()` family orchestrator: age-linear front -> quadratic, and for the overall index
+11 raw system predictors + poly-scaled age -> center/scale -> systems_PCA project -> linear head.
+Pipeline *shape* is hard-coded (no recipe walker); constants come from the catalog recipe via
+`systemsage_*` accessors. Each member is scored independently on the shared linear kernel -- the
+composite recomputes its raw system vectors (cheap; no shared-intermediate cache).
 
 ### 2.7 Worked call
 
@@ -579,8 +586,12 @@ qs2 packs (SystemsAge, PCClocks, PCBrainAge):
 
 - `payload_hash` -- content-address over a version-pinned serialization (`serialize(version = 2L,
   xdr = TRUE)` + `digest` sha256); sets the pack filename `<group>-<payload_hash>.qs2`, its GitHub
-  release tag, and the reupload skip key.
-- `file_sha256` -- runtime download-integrity, shipped in `mc_provenance` to protect the consumer.
+  release tag, and the reupload skip key. It is also read at runtime by `external_pack()` for a
+  **WARN-only** content-drift check (`mc_payload_hash()` mirrors it); the warning never gates or
+  errors, so it is not correctness provenance.
+- `file_sha256` -- maintainer-side record in `mc_provenance`. It is **no longer read at runtime**:
+  transfer integrity is now qs2's own `validate_checksum` on read (see 9.4), so R never recomputes a
+  file hash. (Candidate for removal from the shipped registry later.)
 
 A gitignored `data-raw/assets/lockfile.rds` (keyed on the meta `source_git_sha` + presence of the
 staged packs) skips only the external-pack rebuild; it is **not** a product pin, not stamped on
@@ -613,10 +624,41 @@ paths (never `papers/` or `scripts/`); missing referenced weights path = error.
 
 ### 9.4 External asset resolution
 
-Order: session cache -> bundled -> `tools::R_user_dir("methylCIPHER", "cache")` -> explicit
-download. Cache by bundle/`group_id`. No silent first-use download without opt-in.
+`load_mc_assets(groups, assets = NULL, ask = TRUE)` in [`R/methylCIPHER_data.R`](../R/methylCIPHER_data.R)
+is the single runtime entry (deliberately small -- see the 2026-07-21 DECISIONS entries). It returns
+a **named list of packs keyed by `group_id`** (even for one group). `calc_clocks()` calls the
+identical function internally, so a pre-loaded object and an auto-loaded one cannot drift. Flow:
 
-Within a family, share probe ids once with matrix-style columns where probe sets match.
+1. **Cache dir precedence:** an `assets` **path** > session option `methylCIPHER.cache_dir` (set via
+   `mc_set_cache_dir()`) > `METHYLCIPHER_CACHE_DIR` (.Renviron) > `tools::R_user_dir(.., "cache")`
+   (`mc_default_cache_dir()`).
+2. **Open vs closed set (from `assets`).** `assets = NULL` -> **open**: resolve each group from the
+   cache dir; missing packs are consent-downloaded. `assets` **explicitly provided** -> **closed**:
+   resolve only from what is given, **never download**; a needed group not covered is a hard error.
+   `assets` accepts a cache-dir path **or** loaded object(s) -- a bare pack (a list with `$group_id`),
+   a list of packs, or a path all canonicalize to the named-list registry (objects key by their own
+   `$group_id`); an asset the plan does not need warns and is ignored.
+3. **Expected file** = `mc_provenance$external_assets[[group_id]]$file` (`<group>-<payload_hash>.qs2`).
+   Present -> read it. Open-set download is consent-gated: `ask = TRUE` prompts interactively (one
+   **batched** prompt for the union of missing packs) and **refuses** non-interactively; `ask = FALSE`
+   is the explicit-consent signal. Staged to `<file>.part`, validated by a qs2 read, then atomically
+   renamed -- a truncated transfer never lands as cached.
+4. **Read** with `qs2::qs_read(validate_checksum = TRUE)`; qs2's own checksum is the transfer
+   integrity guard (no separate sha256 recompute).
+5. **WARN-only drift:** `mc_payload_hash(pack)` vs the provenance `payload_hash`. Mismatch warns;
+   it never errors and never blocks scoring.
+
+**No memoise.** A cold `qs_read` is ~0.1-0.2s for all three packs (benchmarked 2026-07-21), so
+`calc_clocks()` resolves the needed groups **once per call** (in the prepare phase, before the pure
+scoring loop) and threads the registry down; there is no session-cache/global-env tier. No silent
+first-use download.
+
+Pack encoding (`canonical_matrices`) is per-group: PCClocks/PCBrainAge carry one
+`coefficient_matrix` + `impute` vector; SystemsAge carries `organs`/`systems`/`age` matrices +
+`impute`. Within a group the probe set is shared once as matrix columns.
+
+Verbs: `mc_data_download(groups, assets, ask)` pre-fetches; `clear_clock_cache(groups, assets)`
+reports what is cached (deletion flow still to be designed; it never auto-unlinks).
 
 ### 9.5 Verification status
 

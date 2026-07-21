@@ -72,8 +72,25 @@ clock_impute <- function(id) {
 }
 
 # Vendor-mean ref vector for absent-CpG fill (scalar path only; FitAge uses fitage_sex_medians).
-clock_impute_ref <- function(id) {
-  imp <- clock_impute(id)
+# External clocks read the vendor means from the loaded pack's $impute vector.
+clock_impute_ref <- function(id, packs = NULL) {
+  entry <- clock_entry(id)
+  if (isTRUE(entry$external_group)) {
+    pack <- clock_pack(id, packs)
+    ref <- pack$impute
+    if (is.null(ref)) {
+      stop(
+        "clock_impute_ref(): external group '",
+        entry$group_id,
+        "' pack has no $impute vector.",
+        call. = FALSE
+      )
+    }
+    ref <- as.numeric(ref)
+    names(ref) <- pack$cpgs
+    return(ref)
+  }
+  imp <- entry$imputation
   ref <- imp$ref
   if (is.null(ref) || !is.character(ref) || length(ref) != 1L || !nzchar(ref)) {
     stop(
@@ -85,7 +102,7 @@ clock_impute_ref <- function(id) {
       call. = FALSE
     )
   }
-  bundle_tensor(clock_entry(id)$group_id, ref)
+  bundle_tensor(entry$group_id, ref)
 }
 
 # Linear reduction: "mean" if recipe has linear_mean, else "sum".
@@ -100,10 +117,34 @@ clock_batch_dependent <- function(id) {
 }
 
 # Named cpg->coef for single-vector clocks (and single-cpg GrimAge surrogates).
-clock_coefs <- function(id) {
+# External clocks pull their column from the loaded pack (`packs`), not mc_bundles.
+clock_coefs <- function(id, packs = NULL) {
   entry <- clock_entry(id)
   wf <- entry$weights_format
   if (identical(wf, "cpg_coefficient")) {
+    if (isTRUE(entry$external_group)) {
+      pack <- clock_pack(id, packs)
+      # SystemsAge organ sub-clocks are the pack's $organs columns; other external
+      # groups (PCClocks, PCBrainAge) carry a single $coefficient_matrix.
+      m <- if (identical(entry$group_id, "SystemsAge")) {
+        pack$organs
+      } else {
+        pack$coefficient_matrix
+      }
+      if (is.null(m) || is.null(colnames(m)) || !id %in% colnames(m)) {
+        stop(
+          "clock_coefs(): external clock '",
+          id,
+          "' is not a column of group '",
+          entry$group_id,
+          "' coefficient_matrix.",
+          call. = FALSE
+        )
+      }
+      coef <- as.numeric(m[, id])
+      names(coef) <- pack$cpgs
+      return(coef)
+    }
     path <- entry$coef_path
     if (length(path) != 1L || !nzchar(path)) {
       stop(
@@ -199,6 +240,24 @@ clock_weights_format <- function(id) {
 # TRUE for external groups whose weights are not in mc_bundles.
 clock_is_external <- function(id) {
   isTRUE(clock_entry(id)$external_group)
+}
+
+# The loaded pack for an external clock's group, from the resolved registry.
+# `packs` is the named list from load_mc_assets(); errors if the group is absent.
+clock_pack <- function(id, packs) {
+  gid <- clock_group_id(id)
+  pack <- if (is.null(packs)) NULL else packs[[gid]]
+  if (is.null(pack)) {
+    stop(
+      "clock '",
+      id,
+      "': pack for external group '",
+      gid,
+      "' is not loaded; pass the registry from load_mc_assets() via `packs`.",
+      call. = FALSE
+    )
+  }
+  pack
 }
 
 # Shipped group bundle: $group_id, $clocks, $tensors.
@@ -454,4 +513,111 @@ physage_poly_coef <- function(id) {
     )
   }
   as.numeric(unlist(step[[1]]$coef))
+}
+
+# SystemsAge: recipe constants + the small systems_PCA tensor tree for the two
+# composites (Age_prediction, SystemsAge). Organ sub-clocks are plain cpg_coefficient
+# linear (clock_coefs -> pack$organs); only the composites read these.
+
+# Unique recipe step producing `out`, or a clear error.
+systemsage_step <- function(id, out) {
+  step <- Filter(function(s) identical(s$out, out), clock_entry(id)$recipe)
+  if (length(step) != 1L) {
+    stop(
+      "systemsage_step(): ",
+      id,
+      " has ",
+      length(step),
+      " recipe step(s) with out='",
+      out,
+      "' (expected 1).",
+      call. = FALSE
+    )
+  }
+  step[[1]]
+}
+
+# Intercept of the age-linear front: L = intercept + sum(age_pc_coef * beta).
+systemsage_age_intercept <- function(id) {
+  as.numeric(systemsage_step(id, "L")$intercept)
+}
+
+# Quadratic poly coef [c0, c1, c2] for the poly step producing `out`.
+systemsage_poly <- function(id, out) {
+  as.numeric(unlist(systemsage_step(id, out)$coef))
+}
+
+# 11 raw-system linear intercepts, named by organ (recipe out = raw_<organ>).
+systemsage_raw_intercepts <- function(id) {
+  steps <- Filter(
+    function(s) {
+      identical(s$op, "linear") &&
+        !is.null(s$out) &&
+        startsWith(s$out, "raw_")
+    },
+    clock_entry(id)$recipe
+  )
+  ints <- vapply(steps, function(s) as.numeric(s$intercept), numeric(1))
+  names(ints) <- sub("^raw_", "", vapply(steps, function(s) s$out, character(1)))
+  ints
+}
+
+# Stack column order as system labels (raw_<organ> -> <organ>, ap_scaled -> Age_prediction).
+systemsage_stack_order <- function(id) {
+  inputs <- as.character(unlist(systemsage_step(id, "sysscores")$inputs))
+  vapply(
+    inputs,
+    function(x) if (identical(x, "ap_scaled")) "Age_prediction" else sub("^raw_", "", x),
+    character(1),
+    USE.NAMES = FALSE
+  )
+}
+
+# Intercept of the final systems_model linear head.
+systemsage_final_intercept <- function(id) {
+  as.numeric(systemsage_step(id, "score")$intercept)
+}
+
+# systems_PCA tensor tree from the pack, aligned to the stack system order (rows) and
+# PC order (cols): list(center, scale, rotation [systems x PCs], model [over PCs]).
+systemsage_pca <- function(id, packs, order) {
+  pack <- clock_pack(id, packs)
+  comps <- clock_components(id)
+  tensor_by_component <- function(name) {
+    comp <- Filter(function(c) identical(c$name, name), comps)
+    if (length(comp) != 1L) {
+      stop("systemsage_pca(): ", id, " lacks component '", name, "'.", call. = FALSE)
+    }
+    t <- pack$tensors[[comp[[1]]$file]]
+    if (is.null(t)) {
+      stop(
+        "systemsage_pca(): pack for '",
+        id,
+        "' has no tensor ",
+        comp[[1]]$file,
+        " (component '",
+        name,
+        "').",
+        call. = FALSE
+      )
+    }
+    t
+  }
+
+  center <- tensor_by_component("systems_pca_center")
+  scale <- tensor_by_component("systems_pca_scale")
+  model <- tensor_by_component("systems_model")
+  rot_df <- tensor_by_component("systems_pca_rotation")
+
+  sys_col <- if ("system" %in% names(rot_df)) "system" else names(rot_df)[1]
+  pc_cols <- setdiff(names(rot_df), sys_col)
+  rot <- as.matrix(rot_df[, pc_cols, drop = FALSE])
+  rownames(rot) <- as.character(rot_df[[sys_col]])
+
+  list(
+    center = center[order],
+    scale = scale[order],
+    rotation = rot[order, pc_cols, drop = FALSE],
+    model = model[pc_cols]
+  )
 }

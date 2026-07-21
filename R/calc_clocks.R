@@ -1,8 +1,15 @@
 # Map catalog fields to a closed scorer tag for calc_clocks() dispatch.
 # group_id matters for component_matrices (GrimAge/FitAge/PhysAge fan-out).
 score_type <- function(p) {
-  if (clock_is_external(p)) {
-    return("unsupported")
+  # External cpg_coefficient clocks (PCClocks, PCBrainAge) score on the shared linear
+  # engine from the loaded pack. SystemsAge organ sub-clocks are also plain linear
+  # (coef from pack$organs); its two component_matrices composites (Age_prediction,
+  # SystemsAge) route to the family orchestrator.
+  if (clock_is_external(p) && identical(clock_group_id(p), "SystemsAge")) {
+    if (identical(clock_weights_format(p), "cpg_coefficient")) {
+      return("linear")
+    }
+    return("systemsage")
   }
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
@@ -36,6 +43,9 @@ score_type <- function(p) {
 # @param pheno_id sample-id column in pheno (default "ID").
 # @param allow_positional_ids score rowname-less DNAm by row order (default TRUE).
 # @param min_coverage warn below this fraction of scoring CpGs (default 0.8).
+# @param assets external-pack source: NULL = default cache (consent download of missing
+#   packs); a cache-dir path or loaded pack(s) = closed set, no download (see load_mc_assets).
+# @param ask prompt before downloading missing external packs (default TRUE).
 # @return "methylCIPHER" S3 record: list(scores, coverage, provenance).
 calc_clocks <- function(
   DNAm,
@@ -44,6 +54,8 @@ calc_clocks <- function(
   pheno_id = "ID",
   allow_positional_ids = TRUE,
   min_coverage = 0.8,
+  assets = NULL,
+  ask = TRUE,
   ...
 ) {
   # Requested clocks + transitive deps (deps first). Auto-deps are returned too.
@@ -97,6 +109,19 @@ calc_clocks <- function(
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
   )
 
+  # External packs needed by the plan, resolved once (sole download/consent site) and
+  # threaded into the pure scoring loop. Only groups whose clocks route to a pack-consuming
+  # scorer are fetched, so a still-unimplemented external clock (e.g. SystemsAge) never
+  # triggers a download that would only be followed by an "unsupported" error.
+  pack_groups <- unique(unlist(lapply(clock_sequence, function(p) {
+    if (clock_is_external(p) && !identical(score_type(p), "unsupported")) {
+      clock_group_id(p)
+    } else {
+      NULL
+    }
+  })))
+  packs <- load_mc_assets(pack_groups, assets, ask)
+
   # Deps precede composites so pack scorers find upstream results.
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
@@ -104,7 +129,7 @@ calc_clocks <- function(
     cpgs <- cpg_list$per_clock[[p]]
     results[[p]] <- switch(
       score_type(p),
-      linear = linear_score(cpgs, DNAm, partial_cache, pheno),
+      linear = linear_score(cpgs, DNAm, partial_cache, pheno, packs),
       grimage = score_grimage(
         p,
         cpgs,
@@ -124,6 +149,7 @@ calc_clocks <- function(
         pheno
       ),
       physage = score_physage(p, cpgs, DNAm, partial_cache),
+      systemsage = score_systemsage(p, cpgs, DNAm, partial_cache, pheno, packs),
       stop(
         "calc_clocks(): clock '",
         p,
@@ -132,7 +158,7 @@ calc_clocks <- function(
         "', computation_type '",
         clock_type(p),
         "') is not implemented yet -- only cpg_coefficient/{linear,linear_transformed}, ",
-        "the GrimAge pack, and the DNAmFitAge pack are supported so far.",
+        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge packs are supported so far.",
         call. = FALSE
       )
     )
