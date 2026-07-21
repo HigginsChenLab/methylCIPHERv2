@@ -2,7 +2,3 @@
 
 S3method(print,methylCIPHER_sim)
 S3method(rbind,methylCIPHER)
-export(mc_cache_dir)
-export(mc_cache_status)
-export(mc_data_clear)
-export(mc_data_download)

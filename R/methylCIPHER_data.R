@@ -1,18 +1,11 @@
-# External clock-data cache for SystemsAge, PCClocks, PCBrainAge (content-addressed qs2 packs).
-# No silent download; no write outside user cache without consent. Identity is the payload hash.
+# External clock-data cache (SystemsAge, PCClocks, PCBrainAge). Content-addressed qs2 packs.
+# No silent download; no write without consent. Identity is the payload hash.
 
 MC_RELEASE_REPO <- "hhp94/methylCIPHER"
 
-# No session memoisation: load packs once per calc_clocks() call and pass them down.
-# ===========================================================================
-# validation
-# ===========================================================================
-# Everything below funnels through mc_asset_row() / the `path` and option readers, so scalar
-# checks live here and nowhere else. Without them a character(0) option or an NA registry
-# field surfaces as an opaque `if` / list-index error three frames deep.
+# --- validation ---
 
-# A hash written as lowercase hex: 32 for the current payload_hash, 64 for a sha256. Used
-# both to validate registry fields and to recognise our own cache filenames.
+# Lowercase hex hash: 32 (payload) or 64 (sha256).
 MC_HEX_RE <- "^[0-9a-f]{32}$|^[0-9a-f]{64}$"
 
 mc_chr1 <- function(x, what) {
@@ -30,10 +23,7 @@ mc_num1 <- function(x, what) {
   x
 }
 
-# A registry row is a wire contract compiled into sysdata: if any of it is malformed the
-# package cannot safely download or verify anything, so this throws rather than degrading.
-# In particular a missing file_sha256 must NEVER silently disable verification -- that would
-# turn the one guarantee the download path makes into a no-op.
+# Validate a registry row as a wire contract; never skip file_sha256.
 mc_validate_row <- function(row, group_id) {
   if (!is.list(row)) {
     stop("Malformed asset registry entry for ", group_id, ".", call. = FALSE)
@@ -53,7 +43,6 @@ mc_validate_row <- function(row, group_id) {
   }
   row$release_tag <- mc_chr1(row$release_tag, where("release_tag"))
   row$file <- mc_chr1(row$file, where("file"))
-  # The filename is the cache key; a path separator in it would escape the cache dir.
   if (!identical(row$file, basename(row$file)) || grepl("[/\\\\]", row$file)) {
     stop(where("file"), " must be a bare filename, got: ", row$file, call. = FALSE)
   }
@@ -70,19 +59,14 @@ mc_validate_row <- function(row, group_id) {
   row
 }
 
-# ===========================================================================
-# registry
-# ===========================================================================
+# --- registry ---
 
-# The external group ids this package version knows about, in registry order.
 mc_external_groups <- function() {
   assets <- mc_provenance$external_assets
   if (is.null(assets)) character(0) else names(assets)
 }
 
-# One VALIDATED registry row, or a clear error. Every path below starts here, so an id typo
-# fails once, early, with the valid set -- never as a 404 or a mystery cache miss -- and a
-# malformed row fails before it can be used to fetch or verify anything.
+# One validated registry row, or a clear error.
 mc_asset_row <- function(group_id) {
   group_id <- mc_chr1(group_id, "group id")
   row <- mc_provenance$external_assets[[group_id]]
@@ -98,9 +82,7 @@ mc_asset_row <- function(group_id) {
   mc_validate_row(row, group_id)
 }
 
-# "all" -> every registered group; otherwise validate against the registry. Kept separate
-# from mc_asset_row() because the user-facing verbs take a VECTOR and should report every
-# bad id at once rather than dying on the first.
+# "all" or a vector of known group ids; reports every bad id at once.
 mc_resolve_groups <- function(groups) {
   if (is.null(groups) || identical(groups, "all") || !length(groups)) {
     return(mc_external_groups())
@@ -119,8 +101,7 @@ mc_resolve_groups <- function(groups) {
   groups
 }
 
-# Release slug: option > env (same var sync.R uses) > compiled-in default. The option/env
-# hooks exist so a fork or a mirror can be pointed at without patching the package.
+# Release slug: option > env > compiled default.
 mc_release_repo <- function() {
   slug <- getOption("methylCIPHER.release_repo")
   if (is.null(slug) || !length(slug) || is.na(slug[[1L]]) || !nzchar(slug[[1L]])) {
@@ -130,8 +111,6 @@ mc_release_repo <- function() {
     slug <- MC_RELEASE_REPO
   }
   slug <- mc_chr1(slug, "The release repo")
-  # An override goes straight into a URL, so require the owner/repo shape rather than
-  # letting a stray value produce a nonsense request.
   if (!grepl("^[A-Za-z0-9._-]+/[A-Za-z0-9._-]+$", slug)) {
     stop(
       "Release repo must look like 'owner/repo', got: ",
@@ -142,9 +121,7 @@ mc_release_repo <- function() {
   slug
 }
 
-# Release tag is the filename stem <group>-<hash> (a bare 40/64-hex tag is rejected by GitHub;
-# sync.R sets this), so the URL is fully determined by the registry row. No API call, no listing,
-# no auth: a plain public asset GET.
+# Public release-asset URL from the registry row (no API/auth).
 mc_asset_url <- function(row) {
   sprintf(
     "https://github.com/%s/releases/download/%s/%s",
@@ -154,32 +131,10 @@ mc_asset_url <- function(row) {
   )
 }
 
-# ===========================================================================
-# cache location
-# ===========================================================================
+# --- cache location ---
 
-#' Location of the methylCIPHER data cache
-#'
-#' Where the large external clock packs (SystemsAge, PCClocks, PCBrainAge) are stored on
-#' disk. Resolution order:
-#'
-#' 1. `getOption("methylCIPHER.cache_dir")`
-#' 2. the `METHYLCIPHER_CACHE_DIR` environment variable
-#' 3. `tools::R_user_dir("methylCIPHER", "cache")`, the standard per-user cache location
-#'
-#' To make a custom location permanent, put
-#' `options(methylCIPHER.cache_dir = "/my/path")` in your `.Rprofile`, or set
-#' `METHYLCIPHER_CACHE_DIR` in `.Renviron`.
-#'
-#' @param create Create the directory if it does not exist? Defaults to `FALSE` -- this
-#'   function is a pure query unless you ask otherwise. [mc_data_download()] is the only
-#'   caller that passes `TRUE`, and only after consent.
-#'
-#' @return The cache directory path, as an [fs::path()].
-#' @export
-#' @seealso [mc_data_download()], [mc_data_clear()], [mc_cache_status()]
-#' @examples
-#' mc_cache_dir()
+# Cache dir: option methylCIPHER.cache_dir > METHYLCIPHER_CACHE_DIR > R_user_dir.
+# create=TRUE makes the directory (download path only, after consent).
 mc_cache_dir <- function(create = FALSE) {
   path <- getOption("methylCIPHER.cache_dir")
   if (is.null(path) || !length(path) || is.na(path[[1L]]) || !nzchar(path[[1L]])) {
@@ -195,7 +150,7 @@ mc_cache_dir <- function(create = FALSE) {
   path
 }
 
-# Normalize the `path =` argument shared by the verbs below: NULL -> the resolved cache dir.
+# NULL path -> resolved cache dir.
 mc_cache_path_arg <- function(path, create = FALSE) {
   if (is.null(path)) {
     return(mc_cache_dir(create = create))
@@ -207,14 +162,9 @@ mc_cache_path_arg <- function(path, create = FALSE) {
   path
 }
 
-# ===========================================================================
-# consent
-# ===========================================================================
+# --- consent ---
 
-# The single consent gate for every filesystem side effect (create dir, download, delete).
-# Interactive -> a real prompt, default NO. Non-interactive -> refuse and name the argument
-# that grants consent, rather than silently proceeding: a script must SAY it may write.
-# `ask = FALSE` is the caller asserting consent and is honoured in both modes.
+# Consent gate for filesystem side effects. ask=FALSE asserts consent; non-interactive refuses.
 mc_confirm <- function(prompt, ask, action = "this operation") {
   if (!isTRUE(ask)) {
     return(TRUE)
@@ -236,27 +186,9 @@ mc_bytes <- function(x) {
   format(structure(as.numeric(x), class = "object_size"), units = "auto")
 }
 
-# ===========================================================================
-# status
-# ===========================================================================
+# --- status ---
 
-#' Status of the cached external clock packs
-#'
-#' Reports, for each external clock group, the exact file this package version expects and
-#' whether it is present in the cache. Purely a query: it never downloads, deletes, or
-#' creates anything.
-#'
-#' @param groups Character vector of group ids, or `"all"` (default) for every external
-#'   group.
-#' @param path Cache directory. `NULL` (default) uses [mc_cache_dir()].
-#'
-#' @return A `data.frame` with one row per group: `group_id`, `file`, `cached` (logical),
-#'   `size_bytes` (expected download size), `n_clocks`, and `path` (where the file is or
-#'   would be).
-#' @export
-#' @seealso [mc_data_download()], [mc_data_clear()]
-#' @examples
-#' mc_cache_status()
+# Query which external packs are cached. Never downloads or writes.
 mc_cache_status <- function(groups = "all", path = NULL) {
   groups <- mc_resolve_groups(groups)
   dir <- mc_cache_path_arg(path)
@@ -282,23 +214,16 @@ mc_cache_status <- function(groups = "all", path = NULL) {
   out
 }
 
-# ===========================================================================
-# download
-# ===========================================================================
+# --- download ---
 
-# Fetch one asset to a scratch file, verify, then move into place. The staging file lives in
-# the DESTINATION directory, not tempdir(), so the final step is a same-filesystem rename --
-# atomic, so a killed download can never leave a truncated file under the real name that a
-# later run would happily accept as cached. withr::defer cleans the scratch file on every
-# exit path, error or not.
+# Fetch one asset to a same-dir staging file, verify sha256, then atomic rename.
 mc_download_one <- function(row, dir, quiet = FALSE) {
   url <- mc_asset_url(row)
   dest <- fs::path(dir, row$file)
   tmp <- fs::path(dir, paste0(row$file, ".part-", Sys.getpid()))
   withr::defer(try(fs::file_delete(tmp), silent = TRUE))
 
-  # download.file()'s default 60s timeout is measured over the WHOLE transfer, so a 24 MB
-  # pack on a slow link fails at 60s through no fault of the server. Raise it locally only.
+  # Large packs need more than download.file()'s default 60s whole-transfer timeout.
   withr::local_options(list(timeout = max(getOption("timeout", 60L), 1800L)))
 
   if (!quiet) {
@@ -331,8 +256,6 @@ mc_download_one <- function(row, dir, quiet = FALSE) {
     stop("Download produced no file for ", row$group_id, call. = FALSE)
   }
 
-  # Unconditional: mc_validate_row() has already guaranteed a well-formed sha256, so there
-  # is no "no checksum recorded" branch that could quietly skip verification.
   actual <- digest::digest(file = tmp, algo = "sha256")
   if (!identical(actual, row$file_sha256)) {
     stop(
@@ -352,37 +275,8 @@ mc_download_one <- function(row, dir, quiet = FALSE) {
   dest
 }
 
-#' Download the external clock data packs
-#'
-#' The SystemsAge, PCClocks, and PCBrainAge clocks depend on weight matrices far too large
-#' to ship inside a CRAN package, so they are published as release assets and downloaded
-#' once into a local cache. Everything else in methylCIPHER works without this.
-#'
-#' Files are content-addressed: the name carries a hash of the pack contents, and every
-#' download is verified against the SHA-256 recorded in the package. A file that is already
-#' present is left alone unless `force = TRUE`.
-#'
-#' @param groups Character vector of group ids to download, or `"all"` (default). See
-#'   [mc_cache_status()] for the available groups.
-#' @param path Destination directory. `NULL` (default) uses [mc_cache_dir()].
-#' @param force Re-download packs that are already cached? Defaults to `FALSE`.
-#' @param ask Ask for confirmation before writing to disk? Defaults to `TRUE`. In a
-#'   non-interactive session this errors instead of prompting -- pass `ask = FALSE` to
-#'   consent explicitly from a script.
-#' @param quiet Suppress progress messages.
-#'
-#' @return Invisibly, a named character vector of cached file paths (one per requested
-#'   group).
-#' @export
-#' @seealso [mc_cache_status()], [mc_data_clear()], [mc_cache_dir()]
-#' @examples
-#' \dontrun{
-#' # everything, with a confirmation prompt
-#' mc_data_download()
-#'
-#' # one group, no prompt (scripts / CI)
-#' mc_data_download("SystemsAge", ask = FALSE)
-#' }
+# Download external clock packs into the cache (sha256-verified, content-addressed).
+# ask=FALSE consents without a prompt (required non-interactively).
 mc_data_download <- function(
   groups = "all",
   path = NULL,
@@ -438,34 +332,10 @@ mc_data_download <- function(
   invisible(stats::setNames(final$path, final$group_id))
 }
 
-# ===========================================================================
-# clear
-# ===========================================================================
+# --- clear ---
 
-#' Remove cached external clock data
-#'
-#' Deletes the downloaded clock packs from the cache. This is the counterpart to
-#' [mc_data_download()]: nothing methylCIPHER writes to disk survives it.
-#'
-#' Files from older package versions are removed too. Because pack filenames carry a
-#' content hash, upgrading methylCIPHER leaves the previous pack behind as dead weight;
-#' clearing a group removes every `<group>-*.qs2` in the cache, not only the file the
-#' current version expects.
-#'
-#' @param groups Character vector of group ids to clear, or `"all"` (default).
-#' @param path Cache directory. `NULL` (default) uses [mc_cache_dir()].
-#' @param ask Ask for confirmation before deleting? Defaults to `TRUE`. In a
-#'   non-interactive session this errors instead of prompting -- pass `ask = FALSE` to
-#'   consent explicitly.
-#'
-#' @return Invisibly, a character vector of the deleted file paths.
-#' @export
-#' @seealso [mc_data_download()], [mc_cache_status()]
-#' @examples
-#' \dontrun{
-#' mc_data_clear("PCClocks")
-#' mc_data_clear(ask = FALSE)
-#' }
+# Delete cached external packs for the given groups (including superseded hashes).
+# ask=FALSE consents without a prompt (required non-interactively).
 mc_data_clear <- function(groups = "all", path = NULL, ask = TRUE) {
   groups <- mc_resolve_groups(groups)
   dir <- mc_cache_path_arg(path)
@@ -476,11 +346,7 @@ mc_data_clear <- function(groups = "all", path = NULL, ask = TRUE) {
     return(invisible(none))
   }
 
-  # Match the group prefix rather than the CURRENT filename, so superseded packs go too --
-  # but only files that match our content-addressed naming exactly (<group>-<hex>.qs2). A
-  # loose "<group>-*.qs2" would delete a user's own systemsage-my-cohort.qs2 if they pointed
-  # the cache at a shared directory. Filtering on the basename rather than globbing the full
-  # path also keeps a cache directory with glob metacharacters in its name harmless.
+  # Match <group>-<hex>.qs2 only (including superseded packs), never a loose prefix glob.
   present <- fs::dir_ls(dir, type = "file")
   stems <- tolower(fs::path_file(present))
   keep <- Reduce(
@@ -526,11 +392,9 @@ mc_data_clear <- function(groups = "all", path = NULL, ask = TRUE) {
   invisible(victims)
 }
 
-# ===========================================================================
-# load (the runtime entry point)
-# ===========================================================================
+# --- load ---
 
-# Load an external group's pack. Never downloads -- errors with the install command if missing.
+# Load an external pack from cache; never downloads. Errors with the install command if missing.
 external_pack <- function(group_id, path = NULL) {
   row <- mc_asset_row(group_id)
   dir <- mc_cache_path_arg(path)
@@ -571,12 +435,7 @@ external_pack <- function(group_id, path = NULL) {
     }
   )
 
-  # Identity check on the DECODED pack. Deliberately structural rather than a re-hash of the
-  # object (see the header note on payload_hash): these four fields are what a scorer
-  # actually relies on, they are stable across R and rlang versions, and they catch the
-  # failure that matters -- a file that is readable and correctly named but is not the pack
-  # this package version was built against. Bit rot is already covered by qs2's own checksum
-  # above, and substitution by the sha256 check at download time.
+  # Structural identity check on the decoded pack (not a re-hash of the R object).
   mismatch <- function(field, expected, actual) {
     stop(
       "Clock data for ",

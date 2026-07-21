@@ -1,36 +1,25 @@
-# Cohort parity fixtures: shared plumbing for the cohort-gated golden-parity tests.
-#
-# The golden cohort (GSE286313 / EPICv1, 71 samples) lives in the methylCIPHER-meta clone under
-# data-raw/methylCIPHER-meta/fixtures/ -- gitignored, regenerable via fixtures/build_cohort.R, and
-# never committed into the package. So every reader here sits behind skip_if_no_cohort() and CRAN
-# never runs it. Betas are raw (there is no local BMIQ twin): local scoring always starts from the
-# raw `beta` table (see fixtures/cohort_EPIC/beta_schema.md).
+# Cohort parity helpers. Golden cohort lives in data-raw/methylCIPHER-meta/fixtures/
+# (gitignored); every reader sits behind skip_if_no_cohort() so CRAN never runs it.
 
-# Absolute path into the meta clone (or a subpath of it), from the test working dir.
 meta_clone_path <- function(...) {
   testthat::test_path("..", "..", "data-raw", "methylCIPHER-meta", ...)
 }
 
-# Absolute path into the meta clone's fixtures/ tree.
 meta_fixtures_path <- function(...) {
   meta_clone_path("fixtures", ...)
 }
 
-# The on-disk cohort beta store. character(1); may be absent (skip gate below).
 cohort_beta_db <- function() {
   meta_fixtures_path("cohort_EPIC", "beta.duckdb")
 }
 
-# Skip the calling test unless duckdb/DBI are installed and the cohort beta store is staged.
 skip_if_no_cohort <- function() {
   testthat::skip_if_not_installed("duckdb")
   testthat::skip_if_not_installed("DBI")
   testthat::skip_if_not(file.exists(cohort_beta_db()), "EPIC cohort fixture not present")
 }
 
-# One read-only duckdb connection, memoized for the whole test run and closed at file teardown.
-# The parity sweep opens ~76 clocks against the same 475 MB store, so a per-clock reconnect would
-# be wasteful; the singleton keeps it to a single open. Safe to call from any parity test.
+# One read-only duckdb connection for the whole test run.
 .cohort_env <- new.env(parent = emptyenv())
 cohort_con <- function() {
   if (is.null(.cohort_env$con)) {
@@ -50,9 +39,7 @@ cohort_con <- function() {
   .cohort_env$con
 }
 
-# Pull the requested CpGs from the tall `beta` table and return them samples x CpGs (the logical
-# scoring orientation calc_clocks() wants). CpGs absent from the store simply do not appear -- the
-# scorer's impute path then handles them, exactly as it would on real data. `con` from cohort_con().
+# Samples x CpGs from the tall beta table. Absent CpGs are omitted (scorer imputes).
 cohort_betas <- function(con, cpgs) {
   raw <- DBI::dbGetQuery(
     con,
@@ -66,9 +53,7 @@ cohort_betas <- function(con, cpgs) {
   t(mat)
 }
 
-# Canonical covariate surface for the cohort, from the committed pheno.csv (no duckdb needed).
-# Maps the fixture's sample_id/age/sex onto the package pheno contract: an ID column plus the
-# canonical Age / Female (0/1) covariates. Column names match calc_clocks(pheno_id = "ID").
+# Cohort pheno: ID + Age + Female (0/1).
 cohort_pheno <- function() {
   ph <- utils::read.csv(
     meta_fixtures_path("cohort_EPIC", "pheno.csv"),
@@ -82,8 +67,7 @@ cohort_pheno <- function() {
   )
 }
 
-# One clock's golden scores as data.frame(sample_id, value), 71 rows. The path comes from the
-# clock's fixture stub ($expected, relative to the meta clone root) -- not a guessed filename.
+# Golden scores from the clock's fixture$expected path.
 expected_scores <- function(id) {
   rel <- clock_fixture(id)$expected
   if (is.null(rel)) {
@@ -92,19 +76,10 @@ expected_scores <- function(id) {
   utils::read.csv(gzfile(meta_clone_path(rel)), stringsAsFactors = FALSE)
 }
 
-# Provisional exact-parity bound and correlation floor. The exact-tolerance *policy* is still under
-# development (clocks that only miss a strict float-accumulation bound are skip-listed in
-# test-fixtures-parity.R rather than pinned to a number here); this constant just keeps the clocks
-# that already agree to float precision green.
 PARITY_EXACT_TOL <- 1e-6
 PARITY_COR_MIN <- 0.99
 
-# Assert a clock's scores against its golden fixture, honoring the fixture's parity_policy:
-#   exact       -> max_abs_diff < PARITY_EXACT_TOL
-#   correlation -> cor(got, expected) > PARITY_COR_MIN
-#   skipped     -> skip()
-# `got` is the clock's named score vector (names = sample_id); it is aligned onto the fixture's
-# sample order before comparison, and a missing sample is a failure (not a silent NA).
+# Assert scores vs golden: exact, correlation, or skipped per fixture parity_policy.
 expect_parity <- function(got, id) {
   policy <- clock_fixture(id)$parity_policy
   if (identical(policy, "skipped")) {

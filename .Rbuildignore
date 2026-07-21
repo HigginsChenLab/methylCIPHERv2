@@ -9,3 +9,8 @@
 ^pyproject\.toml$
 ^uv\.lock$
 ^\.python-version$
+^LICENSE\.md$
+^README\.Rmd$
+^CLAUDE\.md$
+^CLAUDE\.local\.md$
+^\.Rprofile$

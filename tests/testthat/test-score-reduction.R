@@ -1,6 +1,4 @@
-# Engine reduction (sum vs mean) + the linear_mean regression. Self-contained: synthetic betas
-# over each clock's own CpG set (bundled sysdata, no cohort duckdb), so these run on CRAN.
-# synthetic_betas() lives in helper-sim.R (a seeded wrapper over random_betas()).
+# Engine reduction (sum vs mean) + linear_mean regression (synthetic betas; CRAN-safe).
 
 test_that("clock_reduction reads the recipe: linear_mean -> mean, else sum", {
   expect_identical(clock_reduction("EpiTOC"), "mean")
@@ -19,7 +17,7 @@ test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(got), unname(mean_form), tolerance = 1e-10)
 
-  # guard against a regression to the old (silently wrong) sum reduction
+  # Guard against regression to the old sum reduction.
   sum_form <- ic + as.numeric(DNAm[, names(co)] %*% co)
   expect_false(isTRUE(all.equal(unname(got), unname(sum_form))))
 })
@@ -35,8 +33,7 @@ test_that("plain linear clocks still reduce by sum (unchanged)", {
 })
 
 test_that("every catalog clock maps to a known score_type tag", {
-  # A new (weights_format, computation_type, group) combo must not fall through the dispatch
-  # switch silently; it either resolves to an implemented scorer or a deliberate "unsupported".
+  # Every catalog clock maps to an implemented scorer tag or deliberate "unsupported".
   known <- c(
     "linear", "grimage", "fitage_member", "fitage_composite",
     "physage", "unsupported"

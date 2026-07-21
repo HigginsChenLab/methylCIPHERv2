@@ -1,7 +1,7 @@
-# DNAmFitAge pack: sex-split biomarker members + Klemera-Doubal composite.
-# Partial NA uses the shared cohort cache; absent CpGs use sex-specific vendor medians.
+# DNAmFitAge: sex-split biomarker members + Klemera-Doubal composite.
+# Partial NA uses the cohort cache; absent CpGs use sex-specific vendor medians.
 
-# One fitness biomarker (sex-split on Female, except DNAmVO2max which shares one model).
+# One fitness biomarker (sex-split on Female; DNAmVO2max shares one model).
 score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
@@ -64,8 +64,8 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
       next
     }
     m <- grp$model
-    present <- intersect(names(m$coef), cpgs$score_present) # == names(coef) ∩ usable
-    absent <- setdiff(names(m$coef), present) # -> sex-median vendor fill
+    present <- intersect(names(m$coef), cpgs$score_present)
+    absent <- setdiff(names(m$coef), present)
 
     miss_ref <- setdiff(absent, names(grp$med))
     if (length(miss_ref)) {
@@ -78,14 +78,12 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
       )
     }
 
+    # Slice rows+cols so linear_predictor does not materialize a full-width sex subset.
     lp <- linear_predictor(
       coef = m$coef,
       intercept = m$intercept,
       cov_coefs = m$cov,
       score_present = present,
-      # Slice rows AND cols in one subset: linear_predictor only reads DNAm[, raw]
-      # (raw <= present), so passing full width here would materialize an
-      # n_sex x 850k intermediate per sex. Narrow to `present` to cap the spike.
       DNAm = DNAm[rows, present, drop = FALSE],
       partial_cache = if (is.null(partial_cache)) {
         NULL
@@ -95,7 +93,6 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
       pheno = if (is.null(pheno)) NULL else pheno[rows, , drop = FALSE],
       id = id
     )
-    # vendor branch: absent CpGs contribute a per-sex constant (coef * sex median).
     offset <- if (length(absent)) sum(m$coef[absent] * grp$med[absent]) else 0
     score[rows] <- as.numeric(lp$linpred) + offset
 
@@ -119,10 +116,10 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
     policy = clock_impute(id)$policy,
     score_needed = length(cpgs$score_needed),
     score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_needed), # present scored + absent vendor-filled
+    score_used = length(cpgs$score_needed),
     score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(cpgs$score_absent), # absent -> sex-median vendor fill
-    score_dropped = 0L, # vendor policy fills, never drops
+    score_imputed_full = length(cpgs$score_absent),
+    score_dropped = 0L,
     norm_needed = length(cpgs$norm_needed),
     norm_present = length(cpgs$norm_present),
     missing_cpgs = cpgs$score_absent
@@ -153,10 +150,10 @@ score_fitage_composite <- function(
   }
   female <- as.numeric(pheno[["Female"]])
 
-  kdm <- fitage_kdm_params(id) # data.frame: sex, component, weight, center, scale
-  grim_dep <- fitage_grim_dep(id) # the GrimAge dep behind the "DNAmGrimAge" input
+  kdm <- fitage_kdm_params(id)
+  grim_dep <- fitage_grim_dep(id)
 
-  # component name -> per-sample score vector; "DNAmGrimAge" resolves to the GrimAge dependency clock.
+  # "DNAmGrimAge" resolves to the GrimAge dependency clock.
   comp_vec <- function(component) {
     src <- if (identical(component, "DNAmGrimAge")) grim_dep else component
     r <- results[[src]]
@@ -194,8 +191,7 @@ score_fitage_composite <- function(
     dimnames = list(sample_id, id)
   )
 
-  # coverage over the composite's scoring CpG union. It reads member SCORES not CpGs, so (as in
-  # score_grimage) the per-sample partial count is over the cohort-cached present CpGs of that union.
+  # Coverage over the composite's CpG union (reads member scores, not CpGs).
   cached <- if (is.null(partial_cache)) {
     character(0)
   } else {

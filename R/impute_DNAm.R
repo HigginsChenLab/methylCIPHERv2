@@ -1,11 +1,8 @@
-# Missingness front end + imputation primitives.
-# Partial NA (present-but-NA) fills from the cohort; completely-absent fills from vendor -- never cross.
+# Missingness front end. Partial NA fills from cohort; fully absent fills from vendor.
 
-# One numeric pre-pass over DNAm (once per call), gated by anyNA(). Classifies needed present
-# columns as clean / partial / all-NA; hard-errors on fully-empty samples.
+# One NA scan over needed columns; errors on fully-empty samples.
 scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   cols <- colnames(DNAm)
-  # only columns whose NA-state can matter: needed by some clock AND on the panel
   present_needed <- intersect(needed_cpgs, cols)
   out <- list(
     has_na = FALSE,
@@ -19,7 +16,6 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
 
   nr <- nrow(DNAm)
 
-  # empty samples: refuse before imputation can fabricate a score
   row_miss <- slideimp::mat_miss(DNAm, col = FALSE)
   dead <- rownames(DNAm)[row_miss == ncol(DNAm)]
   if (length(dead)) {
@@ -34,7 +30,6 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
     )
   }
 
-  # three-way column split over needed present columns only
   sub <- DNAm[, present_needed, drop = FALSE]
   col_miss <- slideimp::mat_miss(sub, col = TRUE)
   all_na <- present_needed[col_miss == nr]
@@ -43,12 +38,11 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   out$has_na <- TRUE
   out$all_na_cols <- all_na
   out$partial_na_cols <- partial
-  out$usable_cols <- setdiff(present_needed, all_na) # all-NA needed -> vendor/drop path
+  out$usable_cols <- setdiff(present_needed, all_na)
   out
 }
 
-# Shared partial-NA cohort cache: one n x k matrix of present scoring CpGs with column-mean fill.
-# Subset columns first so mean_imp_col does not allocate a second full panel.
+# Shared partial-NA cohort cache (column means over present scoring CpGs).
 build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
   if (!length(cache_cpgs)) {
     return(NULL)
@@ -57,6 +51,5 @@ build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
   slideimp::mean_imp_col(sub, cores = cores)
 }
 
-# Apply resolved fill values to a scoring subset. Does not choose sources -- caller keeps
-# partial=cohort / absent=vendor separate. TODO: finalize signature once linear_score settles.
+# Apply resolved fill values to a scoring subset (caller chooses sources).
 impute_DNAm <- function(DNAm, impute_cpgs, impute_values) {}
