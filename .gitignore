@@ -1,14 +1,38 @@
+# R / RStudio
 .Rproj.user
 .Rhistory
 .RData
 .Ruserdata
-dev/
+*.Rproj
+
+# Personal, machine-specific Claude overrides (never shared with collaborators)
+CLAUDE.local.md
+
+# dev folder: local-only, except the three canonical planning docs
+# (tracked so CLAUDE.md's pointer resolves in a fresh clone).
+# Everything else -- legacy/, scratch.R, clock_tracker.csv, build scripts -- stays local.
+dev/*
+!dev/migration-plan.md
+!dev/detail-plan.md
+!dev/DECISIONS.md
+
+# Python / uv
+.venv/
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Large external/sync assets (intentional)
+data-raw/assets/
+data-raw/methylCIPHER-meta/
+
+# Large test fixtures (binary/generated data)
 tests/testthat/fixtures/*.gz
 tests/testthat/fixtures/*.qs2
 tests/testthat/fixtures/*.csv
 tests/testthat/fixtures/*.rds
 
-# macOS system files
+# macOS
 .DS_Store
 .DS_Store?
 ._*
@@ -16,7 +40,7 @@ tests/testthat/fixtures/*.rds
 .Trashes
 ehthumbs.db
 Thumbs.db
-
-# macOS zip artifact folder
 __MACOSX/
-.positai
+
+# Posit / other
+.posit*

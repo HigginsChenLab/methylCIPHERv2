@@ -1,11 +1,5 @@
 ---
-output: 
-  github_document:
-    toc: true
-    toc_depth: 2
-    df_print: kable
-    
-      
+output: github_document
 ---
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
@@ -19,83 +13,19 @@ knitr::opts_chunk$set(
 )
 ```
 
-# HigginsChenLab/methylCIPHER
+# methylCIPHER
 
 <!-- badges: start -->
 <!-- badges: end -->
 
-The goal of methylCIPHER is to allow users to easily calculate their choice of CpG clocks using simple commands, from a single source. CpG epigenetic clocks are currently found in many places, and some require users to send data to external portals, which is not advisable when working with protected or restricted data. The current package allows you to calculate reported epigenetic clocks, or where not precisely disclosed, our best estimates--all performed locally on your own machine in R Studio. We would like to acknowledge the authors of the original clocks and their valuable contributions to aging research, and the requisite citations for their clocks can be found at the bottom of the current page. Please do not forget to cite them in your work!
+The goal of methylCIPHER is to ...
 
 ## Installation
 
-You can install the released version of methylCIPHER and its imported packages from [Github](https://Cgithub.com/HigginsChenLab/methylCIPHER) with:
+Under Development
 
 ``` r
-devtools::install_github("MorganLevineLab/prcPhenoAge")
-devtools::install_github("danbelsky/DunedinPoAm38")
-devtools::install_github("MorganLevineLab/methylCIPHER")
+
 ```
 
-## Calculating Epigenetic Clocks and Predictors
-
-### Running single "clock" calculations
-
-The current package contains a large number of currently available CpG clocks or CpG based predictors. While we strove to be inclusive of such published CpG-based epigenetic clocks to our knowledge, if you find we are missing a clock, please contact us and we will do our best to promptly include it, if possible. You can do so by raising an issue on this repo or emailing us directly at a.higginschen@yale.edu.  
-
-In order to calculate a CpG clock, you simply need to use the appropriate function, typically named "calc[ClockNameHere]". For example:
-
-```{r}
-library(methylCIPHER)
-calcPhenoAge(exampleBetas, examplePheno, imputation = F)
-```
-
-Alternatively, if you would just like to receive a vector with the clock values to use, rather than appending it to an existing phenotype/ demographic dataframe, simply use:
-```{r}
-calcPhenoAge(exampleBetas, imputation = F)
-```
-
-
-### Categories of Epigenetic Clocks
-
-Due to the abundance of epigenetic clocks are overlapping reasons for use, it is important to keep track of which clocks are most related to each other. This will allow you to steer clear of multiple testing and collinearity problems if you use all available clocks for your analysis. 
-
-Another important note is that with a few exceptions, the list of following clocks were trained and validated almost exclusively in blood. This can lead to a number of observed effects, which include unreasonable shifts in age intercept. As bespoke clocks are developed for use in additional human tissues, we will include these in their own section below.  
-
-```{r}
-getClockInfo()
-```
-
-#### Running A User-Defined List of Epigenetic Clocks
-
-The user is welcome to specify a vector of clocks that they would like to calculate, rather than running each individual clock calculation. In this case, you will need to choose from the following options:
-```{r}
-clockOptions()
-```
-
-To do so, here is an example:
-
-```{r}
-userClocks <- c("calcSmokingMcCartney", "calcPhenoAge", "calcEpiTOC2")
-calcUserClocks(userClocks, exampleBetas, examplePheno, imputation = F)
-```
-
-
-### Missing beta values
-
-Of course, all of the CpG clocks work best when you have all of the necessary probes' beta values for each sample. However, sometimes after preprocessing, beta values will be removed for a variety of reasons. For each CpG clock, you have the option to impute missing values for CpGs that were removed across all samples. In this case, you will need to impute using a vector of your choice (e.g. mean methylation values across CpGs from an independent tissue-matched dataset). However, by default, imputation will not be performed and the portion of the clock that is reliant upon those CpGs will not be considered. To check quickly whether this is the case for your data and clock(s) of interest, we have created the following helper function:
-
-```{r}
-getClockProbes(exampleBetas)
-```
-
-Please note that this will not count columns of NAs for named CpGs as missing! If you want to check for this you can run the following line of code to find the column numbers that are all NAs. If you get "named integer(0)" then you don't have any. We recommend that you remove any identified columns from your beta matrix entirely to avoid errors, and then rerun the code producing the table above.
-
-```r
-which(apply(exampleBetas, 2, function(x)all(is.na(x))))
-```
-
-In the case that you have CpGs missing from only some samples, we encourage you to be aware of this early on. Run the following line and check that it is 0.
-```r
-sum(is.na(betaMatrix))
-```
-If this does not end up being 0, you might consider running mean imputation within your data so that NA values for single/ few samples at least have mean values rather than being ignored.
+## Example
