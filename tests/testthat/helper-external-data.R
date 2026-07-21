@@ -24,12 +24,15 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   # 32 lowercase hex, matching the shape of the real payload_hash.
   phash <- digest::digest(payload, algo = "md5")
   file <- sprintf("%s-%s.qs2", tolower(group), phash)
+  # Release tag = filename stem (<group>-<hash>), as sync.R produces -- never the bare hash,
+  # which GitHub rejects as a tag name.
+  rtag <- sub("\\.qs2$", "", file)
   src <- fs::path(dir, file)
   qs2::qs_save(payload, src)
   list(
     group_id = group,
     payload_hash = phash,
-    release_tag = phash,
+    release_tag = rtag,
     file = file,
     file_sha256 = digest::digest(file = src, algo = "sha256"),
     size_bytes = as.numeric(fs::file_size(src)),

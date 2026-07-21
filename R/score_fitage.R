@@ -1,34 +1,7 @@
-# DNAmFitAge family orchestrator (detail-plan §2.5; sex-split + Klemera-Doubal). The group is
-# weights_format 'component_matrices' with two scorer shapes:
-#
-#   * score_fitage_member()    -- the six fitness biomarkers (DNAmGait/Grip/FEV1 _no/wAge, DNAmVO2max).
-#     SEX-SPLIT on Female: female / male samples get their OWN coef vector + intercept + covariate
-#     coefs (recipe op 'linear_sex'), except DNAmVO2max which shares one model across sexes ('linear').
-#     The intercepts and covariate coefs of the sex-split members live in the RECIPE op, NOT in
-#     $intercept (which is the sentinel "in_object") -- fitage_score_op() reads them.
-#
-#   * score_fitage_composite() -- DNAmFitAge itself: a Klemera-Doubal weighted combination of
-#     DNAmGait_noAge, DNAmGrip_noAge, DNAmVO2max and GrimAgeV1 (the KDM "DNAmGrimAge" input). Each
-#     component is standardized (value - center)/scale then weighted, with sex-specific weight/center/
-#     scale from kdm_params. It reads the member + GrimAge SCORES out of `results` (deps precede it in
-#     the plan, like GrimAge's surrogates), never CpGs directly.
-#
-# The load-bearing missingness split (detail-plan §2.3, never crossed) runs per sex here:
-#   - present-but-partial-NA scoring CpG -> the shared cohort cache (partial branch, built once in
-#     calc_clocks) -- identical fill for every clock sharing the CpG.
-#   - completely-ABSENT scoring CpG -> VENDOR fill from that sample's sex-specific training MEDIAN
-#     (the group's Female_Medians / Male_Medians). This is the first vendor_mean policy wired up
-#     (linear_score() still gates it off). Because the model is linear, a vendor-filled absent CpG
-#     contributes a per-sex CONSTANT offset sum(coef_absent * median_absent) -- arithmetically identical
-#     to materializing the fill and multiplying, but with no n x p copy (matches legacy's median-fill +
-#     colMean fallback exactly: partial columns cohort-mean, absent columns sex-median).
-#
-# Samples whose Female is neither 1 nor 0 (NA) cannot pick a sex model/median and score NA -- exactly
-# the legacy complete.cases behavior. Every scorer returns the usual list(score, coverage, sample_miss).
+# DNAmFitAge pack: sex-split biomarker members + Klemera-Doubal composite.
+# Partial NA uses the shared cohort cache; absent CpGs use sex-specific vendor medians.
 
-# One fitness biomarker member. `cpgs` is resolve_cpgs()$per_clock[[id]] (the member's scoring CpG
-# skeleton over its female+male coef union); its $score_present is the usable universe, so a per-sex
-# coef's present set is intersect(names(coef), cpgs$score_present) and the rest is vendor-filled.
+# One fitness biomarker (sex-split on Female, except DNAmVO2max which shares one model).
 score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
@@ -43,11 +16,9 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
   }
   female <- as.numeric(pheno[["Female"]])
 
-  medians <- fitage_sex_medians(id) # list(female=, male=) named numeric over AllCpGs
-  op <- fitage_score_op(id) # the 'linear' / 'linear_sex' scoring step
+  medians <- fitage_sex_medians(id)
+  op <- fitage_score_op(id)
 
-  # per-sex model. 'linear_sex' carries distinct female/male coef+intercept+covariates; 'linear'
-  # (DNAmVO2max) shares one model across sexes -- but imputation still forks by sex below.
   models <- if (identical(op$op, "linear_sex")) {
     list(
       female = list(
@@ -112,7 +83,10 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
       intercept = m$intercept,
       cov_coefs = m$cov,
       score_present = present,
-      DNAm = DNAm[rows, , drop = FALSE],
+      # Slice rows AND cols in one subset: linear_predictor only reads DNAm[, raw]
+      # (raw <= present), so passing full width here would materialize an
+      # n_sex x 850k intermediate per sex. Narrow to `present` to cap the spike.
+      DNAm = DNAm[rows, present, drop = FALSE],
       partial_cache = if (is.null(partial_cache)) {
         NULL
       } else {
@@ -157,9 +131,7 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
   list(score = score_mat, coverage = coverage, sample_miss = sample_miss)
 }
 
-# The DNAmFitAge composite (Klemera-Doubal weighted mix). `cpgs` is the composite's scoring CpG
-# skeleton (the group's ~627-CpG panel union); `results` holds the already-scored member + GrimAge
-# outputs it stacks.
+# DNAmFitAge composite: KDM mix of member + GrimAgeV1 scores from `results`.
 score_fitage_composite <- function(
   id,
   cpgs,
