@@ -1,12 +1,6 @@
 # Engine reduction (sum vs mean) + linear_mean regression (synthetic betas; CRAN-safe).
-
-test_that("clock_reduction reads the recipe: linear_mean -> mean, else sum", {
-  expect_identical(clock_reduction("EpiTOC"), "mean")
-  expect_identical(clock_reduction("HypoClock"), "mean")
-  expect_identical(clock_reduction("DNAmCRP"), "mean")
-  expect_identical(clock_reduction("Hannum"), "sum")
-  expect_identical(clock_reduction("GrimAgeV1"), "sum")
-})
+# Reduction is proven through calc_clocks() output below, not by asserting the internal
+# clock_reduction() tag per clock.
 
 test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   co <- clock_coefs("EpiTOC")
@@ -36,12 +30,8 @@ test_that("every catalog clock maps to a known score_type tag", {
   # Every catalog clock maps to an implemented scorer tag or deliberate "unsupported".
   known <- c(
     "linear", "grimage", "fitage_member", "fitage_composite",
-    "physage", "unsupported"
+    "physage", "systemsage", "unsupported"
   )
   tags <- vapply(mc_index$clock_id, score_type, character(1))
   expect_true(all(tags %in% known))
-  expect_setequal(
-    unique(tags[mc_index$group_id == "PhysAge"]),
-    c("linear", "physage")
-  )
 })

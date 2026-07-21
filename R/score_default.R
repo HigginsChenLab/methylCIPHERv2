@@ -77,11 +77,12 @@ linear_predictor <- function(
 }
 
 # Linear engine for one cpg_coefficient clock. Partial NA -> cohort; absent -> vendor or drop.
-linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
+# `packs` (from load_mc_assets) sources coef/impute for external clocks; NULL for bundled.
+linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL, packs = NULL) {
   id <- cpgs$clock_id
   policy <- clock_impute(id)$policy
   reduction <- clock_reduction(id)
-  coef <- clock_coefs(id)
+  coef <- clock_coefs(id, packs)
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
 
@@ -112,7 +113,7 @@ linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
   )
 
   if (vendor_mean) {
-    ref <- clock_impute_ref(id)
+    ref <- clock_impute_ref(id, packs)
     miss_ref <- setdiff(absent, names(ref))
     if (length(miss_ref)) {
       stop(

@@ -1,5 +1,7 @@
 # Cohort-gated golden parity (skip_if_no_cohort). One test_that per clock.
 # Scope: fixtured clocks with an implemented score_type (not "unsupported"/skipped).
+# External clocks are additionally pack-gated (skip_if_no_pack): their downloaded pack
+# must be cached, and open-mode calc_clocks() then reads it without a download prompt.
 
 # Known gaps: emit skip() so the suite stays green; trim as scorers settle.
 KNOWN_PARITY_GAPS <- c(
@@ -27,6 +29,7 @@ for (id in parity_targets()) {
     clock_id <- id
     test_that(paste0("parity: ", clock_id), {
       skip_if_no_cohort()
+      skip_if_no_pack(clock_id)
       if (clock_id %in% names(KNOWN_PARITY_GAPS)) {
         skip(paste0("known parity gap -- ", KNOWN_PARITY_GAPS[[clock_id]]))
       }

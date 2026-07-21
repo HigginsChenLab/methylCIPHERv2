@@ -19,6 +19,19 @@ skip_if_no_cohort <- function() {
   testthat::skip_if_not(file.exists(cohort_beta_db()), "EPIC cohort fixture not present")
 }
 
+# External clocks need their downloaded pack; skip when it is absent from the cache
+# (parity is cohort- AND pack-gated). No-op for bundled clocks.
+skip_if_no_pack <- function(clock_id) {
+  if (!clock_is_external(clock_id)) {
+    return(invisible())
+  }
+  gid <- clock_group_id(clock_id)
+  testthat::skip_if_not(
+    length(mc_cached_files(gid)) > 0L,
+    paste0("external pack for '", gid, "' not cached")
+  )
+}
+
 # One read-only duckdb connection for the whole test run.
 .cohort_env <- new.env(parent = emptyenv())
 cohort_con <- function() {
