@@ -3,37 +3,36 @@ Package: methylCIPHER
 Title: A Methylation Clock Investigational Package for Hypothesis-Driven
     Evaluation & Research
 Version: 0.2.0
-Author: person(given = "Kyra L.", family = "Thrush", email =
-    "kyra.thrush@yale.edu",role = c("aut","cre"))
-Maintainer: Kyra Thrush <kyra.thrush@yale.edu>
+Authors@R: c(
+    person("Hung", "Pham", , "amser.hoanghung@gmail.com", role = c("aut", "cre"),
+           comment = c(ORCID = "0000-0002-8271-9355")),
+    person("Kyra L.", "Thrush", , "kyra.thrush@yale.edu", role = "aut"),
+    person("Yale University", role = "cph"))
 Description: Code to easily calculate nearly all of the CpG-based
     epigenetic clocks currently in circulation locally, in just one place.
-License: What license is it under?
-Depends: 
-    R (>= 3.5)
-biocViews:
+License: BSD_3_clause + file LICENSE
+Depends:
+    R (>= 4.4)
 Imports:
     checkmate,
-    DunedinPoAm38 (>= 0.1.0),
-    methods,
-    prcPhenoAge (>= 0.1.0),
-    qs2
-Suggests:
-    devtools,
+    digest,
     fs,
-    googledrive,
-    gradethis (>= 0.2.10.9000),
-    learnr,
-    rlang,
-    testthat (>= 3.0.0),
-    zen4R
-Remotes: 
-    danbelsky/DunedinPoAm38,
-    MorganLevineLab/prcPhenoAge,
-    rstudio/gradethis,
-    rstudio/learnr
+    qs2,
+    slideimp,
+    stats,
+    tools,
+    utils,
+    withr
+Suggests:
+    betanorm,
+    curl,
+    DBI,
+    duckdb,
+    testthat (>= 3.0.0)
+Remotes:
+    hhp94/betanorm
+biocViews:
 Config/testthat/edition: 3
 Encoding: UTF-8
 LazyData: true
-Roxygen: list(markdown = TRUE)
 Config/roxygen2/version: 8.0.0
