@@ -177,13 +177,28 @@ are pragmatic, hand-optimized implementations of that contract.
 | Linear engine | Shared `linear_score()` | Most `cpg_coefficient` clocks |
 | Pre-transforms | Small modules feeding linear | Zhang `sample_scale` (stats on full panel -> apply to coef subset) |
 | Sex-split | Linear engine, female/male coef selected on `Female` | DNAmFitAge surrogates |
-| Family orchestrators | Dedicated internal functions | **GrimAge pack**, **SystemsAge pack** |
+| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock) |
+| Batched pack scorers | One shared subset + one matmul per group | **PCClocks**, **SystemsAge** packs |
 | External | Soft dependency adapters | DunedinPoAm38, DunedinPACE |
 | Custom | Dedicated helper | MiAge |
 
-Packs may own their orchestration (shared intermediates, multi-column assembly) but must call
+Bundled packs may own their orchestration (shared intermediates, multi-column assembly) but call
 the shared `linear_score()` / impute helper for every linear sub-step, so imputation lives in
 exactly one place (sec 2.3).
+
+**Batched pack scorers** (`score_pack_group()` in `R/score_pack.R`) are the exception, for the two
+external groups whose members share one large CpG panel (PCClocks ~78k, SystemsAge ~125k). Scoring
+those per clock repeats the panel-wide `DNAm[, present]` subset once per member -- the dominating
+cost (13.7x measured for 14 PC clocks; the matmul itself is negligible). So a group is scored in a
+single `pack_design()` (one subset, reused) + one `pack_linpred()` matmul over all requested
+columns, with per-clock intercept, covariate, and output transform applied to the resulting
+columns. This is a *batched* linear kernel, not `linear_score()` -- but it reproduces the identical
+imputation contract (partial-NA -> cohort cache; absent -> vendor-mean offset from `pack$impute`),
+so imputation semantics still live in one described place. It is **only** worth it where the panel
+is huge and shared: the bundled clocks (union ~20.7k CpGs, 1.6x overlap) score all 86 in ~60ms, so
+they stay on the per-clock engine -- no general "group linear clocks" layer (see DECISIONS
+2026-07-21). Requesting a single pack member returns just that member (no family expansion); the
+batch simply collapses however many members are in the plan into one matmul.
 
 ### 2.3 Linear engine
 

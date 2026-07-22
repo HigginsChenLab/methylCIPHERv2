@@ -12,6 +12,37 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-21 -- Batched pack scorers for PCClocks / SystemsAge; no general grouping layer
+
+**Decision.** External groups whose members share one large CpG panel (PCClocks, SystemsAge) are
+now scored per *group* in a single shared `DNAm[, present]` subset + one matmul over all requested
+columns (`score_pack_group()` in `R/score_pack.R`), instead of routing each member through
+`linear_score()`. `resolve_clocks()` is unchanged -- no family expansion, no reverse-resolve, no
+member-input restriction; requesting one member returns one member, and the batch just collapses
+whatever pack members are in the plan into one matmul.
+
+**Why.** The dominating cost of scoring a pack member is the panel-wide subset, not the matmul.
+Per clock it is repeated once per member: measured **13.7x** for 14 PC clocks (78k-wide panel);
+the SystemsAge composite repeats it ~24 times across its age/organs/systems sub-steps. Batching
+pays the subset once. It reproduces the exact imputation contract (partial-NA cohort cache; absent
+-> vendor-mean offset from `pack$impute`), so parity holds within fp tolerance -- guarded by the
+in-test goldens (multi-member PC with covariates + `anti.trafo`; the SystemsAge systems_PCA
+composite re-derived) and cohort parity.
+
+**Why not a general `calc_group` layer** (fold *all* same-recipe linear clocks into one matmul).
+Considered and rejected. The win only exists where the panel is huge *and shared*: the bundled
+clocks' scoring CpGs overlap just **1.6x** (sum 33,249 vs union 20,724), so batching all 86 saves
+~26ms on a ~60ms operation while the dense union matmul does ~50x more (zero-filled) flops -- and
+it would fold per-clock vendor refs (bundled refs differ per clock, unlike the packs' single shared
+`pack$impute`), mean denominators, covariates, output transforms, and coverage into a batched
+engine: the recipe-ish per-clock logic the "one engine + closed branch set" invariant keeps out.
+Not worth it. Batching earns its complexity only for the two shared-panel packs.
+
+**Why GrimAge is excluded** though it is a family. Its surrogates have disjoint CpG sets (no shared
+panel -> no subset win), and `"GrimAge"` as a group token already expands to its members. Member ->
+family expansion was dropped entirely: it made output unwieldy (one member request -> 14 columns)
+and required reverse-resolve, while buying nothing the group token doesn't already give.
+
 ## 2026-07-21 -- Test suite deliberately loosened; "test altitude" policy set
 
 **Decision.** The suite had grown too tight for a fast-moving pre-alpha: it pinned exact

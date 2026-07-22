@@ -125,7 +125,35 @@ calc_clocks <- function(
   # Deps precede composites so pack scorers find upstream results.
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
-  for (p in clock_sequence) {
+
+  # External-pack clocks share one CpG panel per group; score each group in a single
+  # batched matmul (one subset reused across members) rather than one matmul per clock.
+  # Packs are dependency-isolated, so they can be scored apart from the per-clock loop.
+  is_pack <- vapply(
+    clock_sequence,
+    function(p) clock_is_external(p) && !identical(score_type(p), "unsupported"),
+    logical(1)
+  )
+  if (any(is_pack)) {
+    pack_ids <- clock_sequence[is_pack]
+    pgroups <- vapply(pack_ids, clock_group_id, character(1))
+    for (g in unique(pgroups)) {
+      grp <- score_pack_group(
+        g,
+        pack_ids[pgroups == g],
+        cpg_list,
+        mna$usable_cols,
+        DNAm,
+        partial_cache,
+        pheno,
+        packs
+      )
+      results[names(grp)] <- grp
+    }
+  }
+
+  # Bundled clocks keep the per-clock engine (deps precede dependents).
+  for (p in clock_sequence[!is_pack]) {
     cpgs <- cpg_list$per_clock[[p]]
     results[[p]] <- switch(
       score_type(p),
@@ -149,7 +177,6 @@ calc_clocks <- function(
         pheno
       ),
       physage = score_physage(p, cpgs, DNAm, partial_cache),
-      systemsage = score_systemsage(p, cpgs, DNAm, partial_cache, pheno, packs),
       stop(
         "calc_clocks(): clock '",
         p,
