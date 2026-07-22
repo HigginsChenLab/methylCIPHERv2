@@ -554,6 +554,38 @@ physage_poly_coef <- function(id) {
   as.numeric(unlist(step[[1]]$coef))
 }
 
+# EpiTOC2 per-CpG ground state: named delta (de-novo rate) and beta0 vectors.
+epitoc2_params <- function(id) {
+  entry <- clock_entry(id)
+  comp <- Filter(function(c) identical(c$row_key, "cpg"), entry$components)
+  if (length(comp) != 1L) {
+    stop(
+      "epitoc2_params(): ",
+      id,
+      " has ",
+      length(comp),
+      " cpg-keyed component(s) (expected 1).",
+      call. = FALSE
+    )
+  }
+  tab <- bundle_tensor(entry$group_id, comp[[1]]$file)
+  miss <- setdiff(c("cpg", "delta", "beta0"), names(tab))
+  if (length(miss)) {
+    stop(
+      "epitoc2_params(): ",
+      id,
+      " params tensor lacks column(s) ",
+      paste(miss, collapse = ", "),
+      ".",
+      call. = FALSE
+    )
+  }
+  list(
+    delta = stats::setNames(as.numeric(tab$delta), tab$cpg),
+    beta0 = stats::setNames(as.numeric(tab$beta0), tab$cpg)
+  )
+}
+
 # Unique recipe step producing out, or error.
 systemsage_step <- function(id, out) {
   step <- Filter(function(s) identical(s$out, out), clock_entry(id)$recipe)

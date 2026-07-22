@@ -4,7 +4,7 @@ score_dunedin <- function(
   cpgs,
   DNAm,
   partial_cache = NULL,
-  min_coverage = 0.8
+  min_coverage = 0.75
 ) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
@@ -44,12 +44,7 @@ score_dunedin <- function(
   }
   names(sample_miss) <- sample_id
 
-  # Coverage NA-gates: whole-clock and per-sample when min_coverage > 0.
-  model_cov <- length(model_present) / length(model_needed)
-  panel_cov <- length(panel_present) / length(panel_needed)
-  clock_gated <- min_coverage > 0 &&
-    (model_cov < min_coverage || panel_cov < min_coverage)
-
+  # Per-sample NA-gate. Whole-clock coverage already stopped in check_coverage().
   raw_miss <- if (length(panel_present)) {
     slideimp::mat_miss(DNAm[, panel_present, drop = FALSE], col = FALSE)
   } else {
@@ -59,69 +54,60 @@ score_dunedin <- function(
   sample_cov <- 1 - not_obs / length(panel_needed)
   low_sample <- if (min_coverage > 0) sample_cov < min_coverage else logical(n)
 
-  if (clock_gated) {
-    warning(
-      id,
-      ": every sample returned NA -- the clock observes under ",
-      round(100 * min_coverage),
-      "% of its scoring panel.",
-      call. = FALSE
-    )
-  } else {
-    # Assemble panel: present from cache/raw, absent from fill ref; mask low-coverage samples.
-    panel <- matrix(
-      0,
-      nrow = n,
-      ncol = length(panel_needed),
-      dimnames = list(sample_id, panel_needed)
-    )
-    if (length(cached)) {
-      panel[, cached] <- partial_cache[, cached, drop = FALSE]
-    }
-    if (length(raw_cols)) {
-      panel[, raw_cols] <- DNAm[, raw_cols, drop = FALSE]
-    }
-    if (length(panel_absent)) {
-      panel[, panel_absent] <- rep(fill_ref[panel_absent], each = n)
-    }
+  # Assemble panel: present from cache/raw, absent from fill ref.
+  panel <- matrix(
+    0,
+    nrow = n,
+    ncol = length(panel_needed),
+    dimnames = list(sample_id, panel_needed)
+  )
+  if (length(cached)) {
+    panel[, cached] <- partial_cache[, cached, drop = FALSE]
+  }
+  if (length(raw_cols)) {
+    panel[, raw_cols] <- DNAm[, raw_cols, drop = FALSE]
+  }
+  if (length(panel_absent)) {
+    panel[, panel_absent] <- rep(fill_ref[panel_absent], each = n)
+  }
 
-    scored <- if (qn) {
-      if (!requireNamespace("betanorm", quietly = TRUE)) {
-        stop(
-          "score_dunedin(): '",
-          id,
-          "' quantile-normalizes and needs the 'betanorm' package. Install it ",
-          "(Remotes: hhp94/betanorm) to score this clock.",
-          call. = FALSE
-        )
-      }
-      norm <- betanorm::quantile_norm(
-        panel,
-        target = as.numeric(fill_ref[panel_needed])
-      )
-      dimnames(norm) <- dimnames(panel)
-      norm
-    } else {
-      panel
-    }
-    score[, 1] <- as.numeric(
-      intercept + scored[, model_needed, drop = FALSE] %*% coef[model_needed]
-    )
-
-    if (any(low_sample)) {
-      score[low_sample, 1] <- NA_real_
-      warning(
+  scored <- if (qn) {
+    if (!requireNamespace("betanorm", quietly = TRUE)) {
+      stop(
+        "score_dunedin(): '",
         id,
-        ": ",
-        sum(low_sample),
-        " of ",
-        n,
-        " sample(s) returned NA -- each observes under ",
-        round(100 * min_coverage),
-        "% of the scoring panel.",
+        "' quantile-normalizes and needs the 'betanorm' package. Install it ",
+        "(Remotes: hhp94/betanorm) to score this clock.",
         call. = FALSE
       )
     }
+    norm <- betanorm::quantile_norm(
+      panel,
+      target = as.numeric(fill_ref[panel_needed])
+    )
+    dimnames(norm) <- dimnames(panel)
+    norm
+  } else {
+    panel
+  }
+  score[, 1] <- as.numeric(
+    intercept + scored[, model_needed, drop = FALSE] %*% coef[model_needed]
+  )
+
+  # Mask samples that observe too little of the panel.
+  if (any(low_sample)) {
+    score[low_sample, 1] <- NA_real_
+    warning(
+      id,
+      ": ",
+      sum(low_sample),
+      " of ",
+      n,
+      " sample(s) returned NA -- each observes under ",
+      round(100 * min_coverage),
+      "% of the scoring panel.",
+      call. = FALSE
+    )
   }
 
   coverage <- list(

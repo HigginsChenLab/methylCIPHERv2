@@ -48,12 +48,11 @@ test_that("DunedinPACE quantile-normalizes the gold panel before the linear scor
   expect_false(isTRUE(all.equal(golden, linear)))
 })
 
-test_that("whole-clock coverage gate returns all-NA", {
+test_that("whole-clock coverage stops upfront", {
   cpgs <- clock_scoring_cpgs("DunedinPoAm38")
   keep <- cpgs[seq_len(round(0.6 * length(cpgs)))] # ~60% < 80%
   DNAm <- random_betas(keep, n = 5L)
-  res <- suppressWarnings(calc_clocks(DNAm, "DunedinPoAm38"))
-  expect_true(all(is.na(res$scores[, "DunedinPoAm38"])))
+  expect_error(calc_clocks(DNAm, "DunedinPoAm38"))
 })
 
 test_that("per-sample coverage gate NA-s only under-covered samples", {

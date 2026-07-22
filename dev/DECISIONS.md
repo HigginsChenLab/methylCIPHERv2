@@ -12,6 +12,120 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- the coverage floor becomes a graded stop/warn gate at 0.75
+
+**Decision.** `warn_low_coverage()` becomes `check_coverage()`, a two-band gate on a clock's worst
+panel: **stop** under `min_coverage` (default lowered 0.8 -> **0.75**) or at 0 observed CpGs,
+**warn** when it clears the floor by under 10% (`< 1.1 x min_coverage`, capped at 1), silent above.
+Same call site in `calc_clocks()` -- after `resolve_cpgs()`, before `build_partial_cache()` and the
+scoring loop, so nothing expensive runs first. It gains the norm panel and an unconditional
+zero-coverage clause.
+
+**Why graded.** A single boundary made one number carry two jobs: "this cannot be scored" and "this
+is thinner than you probably want". Measured on EPICv2 (below), a hard floor at 0.8 stopped 12
+clocks, of which 8 were within 5 points of the line -- usable scores killed by a threshold, which
+pushes callers to lower `min_coverage` globally and lose the signal entirely. Two bands let the
+default stay honest without being the only lever.
+
+**Why the band is relative, not a second absolute number.** It tracks a caller who moves the floor
+(0.6 -> warn to 0.66) instead of needing its own knob, and it keeps the API at one argument. Full
+coverage never warns whatever the threshold, so a strict `min_coverage = 1` stays silent on
+complete panels rather than warning about everything.
+
+**Why 0.75 and not 0.6.** 0.6 would score `DunedinPoAm38` (0.67 on EPICv2) and the wrong-array
+`RetroAge450K` (0.64) by default, which reads as the package endorsing those numbers. At 0.75 a
+caller who wants them has to pass a lower `min_coverage` explicitly and own the call.
+
+**Why.** Warning-and-proceeding was emitting scores that look publishable and are not. Measured on
+a foreign panel at zero coverage: `Hannum` returned `0`, `EpiTOC` returned `NaN`, and `Horvath1`
+returned **42.4, 39.1, 41.3, 42.3 years** -- `anti_trafo(intercept)`, a fabricated age per sample,
+from no observed CpGs. Three different degenerate behaviors for one degenerate input, and the
+default `min_coverage = 0.8` did not stop any of them. A number a user can paste into a paper is
+not an acceptable output for "we observed nothing".
+
+**Why the zero clause is unconditional.** For any `min_coverage > 0` the ratio test already
+subsumes it (0 < threshold). The gap was `min_coverage = 0`, where the old function early-returned
+without checking anything -- and that is exactly the setting someone reaches for when coverage is
+already bad. It costs one `||` in the existing predicate, not a second mechanism. Clocks with an
+empty panel (`MiAge`) are exempt so they keep failing on the clearer unimplemented-scorer error.
+
+**Why not auto-drop the failing clocks (`setdiff`) and warn.** Mass low coverage is near-always one
+root cause -- transposed matrix, 450k data against EPIC panels -- not N independent problems.
+Auto-dropping turns one root cause into N warnings, or worse, an empty result that looks like a
+successful run. Same reason the error caps its listing at 10 clocks.
+
+**Why one global scalar and not per-clock thresholds.** The gate is monotonic: lowering the
+threshold can never make a passing clock fail. So a caller who wants 0.6 for one clock can set 0.6
+for the call and lose nothing -- the other clocks already cleared a stricter bar, and their actual
+coverage is still reported per clock in `$coverage`.
+
+**Consequences.** `score_dunedin()`'s whole-clock gate (`clock_gated`) is now unreachable and is
+deleted, along with its warning -- `model_cov` was byte-for-byte the ratio the front end computes.
+Its **per-sample** gate (`low_sample`) stays: that reads per-row NA counts, which the
+sample-invariant front end cannot see. The parity tier now passes `min_coverage = 0` explicitly --
+the EPIC cohort under-covers some panels (CausAge 420/585) and the author oracle ran on that same
+subset, so parity gates numbers, not coverage policy.
+
+**Measured.** Against Illumina manifests (`slideimp.extra::ilmn_manifest(chip, deduped = TRUE)`),
+over the 85 bundled scoreable clocks, at `min_coverage = 0.75` (warn band 0.75-0.825):
+
+| Array | probes | stop | warn | ok |
+|---|---|---|---|---|
+| 450K | 485,577 | 16 | 0 | 69 |
+| EPICv1 | 865,918 | 1 | 1 | 83 |
+| EPICv2 | 930,658 | 4 | 14 | 67 |
+| MSA | 269,094 | 41 | 0 | 44 |
+
+EPICv2 stops shrink from 12 (at 0.8) to **4**: `RetroAge450K` 0.64, `DunedinPoAm38` 0.67,
+`DNAmFEV1_wAge` 0.69, `DNAmGrip_wAge` 0.69. The GrimAge/DNAmFitAge cluster that bunched at
+0.75-0.80 now warns and scores. `RetroAge450K` stopping on EPICv2 is the gate working correctly --
+it is a 450K-specific weight set with an EPICv2 sibling, so scoring it on EPICv2 data was always
+wrong; the same logic explains 450K's 16 (EPIC-era clocks) and MSA's 41 (a 269k array).
+EPICv1's single stop is `CausAge` 0.72, which matches the 420/585 = 0.718 seen on the EPIC cohort
+fixture.
+
+**Non-issue, checked.** The `clock_id == group_id` collision (SystemsAge, DNAmFitAge, RepliTali,
+EpiTOC2 -- `resolve_clocks()` gives the group precedence, so requesting `"EpiTOC2"` also scores
+HypoClock) does not strand any flagship in practice. HypoClock's 678 solo-WCGWs cover **100% of
+450K, 96% EPICv1, 85% EPICv2, 96% MSA** -- it clears the floor, and the warn band, on every real
+array. The collision remains a latent API gap (no token names the member clock alone), not an
+active bug. The whole epiTOC family is "ok" on all four arrays; no clock there is hardcoded out,
+and `dev/hardcoded.md` was not created -- it would have had no entries. If a disabled-clock list is
+ever needed, the pattern to copy is `KNOWN_PARITY_GAPS` in `test-fixtures-parity.R`: a named
+`clock_id -> reason` constant next to the code that reads it, which cannot drift the way a separate
+doc would.
+
+---
+
+## 2026-07-22 -- EpiTOC2 scores the full model only, as a closed branch
+
+**Decision.** `score_epitoc2()` (`R/score_epitoc2.R`) implements one scorer for the `EpiTOC2`
+clock: `2 * mean_j((beta_ij - beta0_j) / (delta_j * (1 - beta0_j)))` over represented CpGs. It
+reuses `linear_predictor()` for the CpG term (so the partial-NA cache path is shared) and folds
+the ground state in as a constant offset inside the mean.
+
+**Why not the other author outputs.** `epiTOC2.R` returns eight things. Four are already covered
+or out of scope here: `pcgtAge` is the separate catalog clock `EpiTOC`, `hypoSC` is `HypoClock`
+(both plain `linear_mean`, both at exact parity), and `irS`/`irS2`/`irT`/`irT2` are just
+`tnsc / age` and its cohort median -- a downstream ratio, not a clock, and `irT` is cohort-level
+so it has no per-sample column in an `n x k` score matrix. That leaves `tnsc` (full model, what we
+ship) and `tnsc2` (the beta0 = 0 approximation). The catalog carries one recipe with
+`model: "full"` and one fixture, so `tnsc2` has no clock id and no golden; adding it would mean a
+new master row upstream in `methylCIPHER-meta` first. Revisit only if the approximation is
+requested -- the branch already has `delta`/`beta0` in hand, so it is a one-line variant.
+
+**Why the author's ground-state alert is not ported.** The header prose says the function warns
+when many beta values fall below the ground state; the shipped code never does, and the EPIC
+cohort fixture has 1148 such values while still matching at max_abs_diff 0. Porting a warning the
+oracle does not emit would be noise on ordinary data.
+
+**On `computation_type = "reference_code_required"`.** That tag means "the meta recipe does not
+fully specify the math, read `code_ref`" -- it is not a licence for an interpreter. It routes to a
+named branch like every other non-linear clock. Two catalog clocks still carry it and remain
+unsupported: `MiAge` and `CellDRIFT`.
+
+---
+
 ## 2026-07-22 -- one hash, not four: `file_sha256` and the runtime drift re-hash are gone
 
 **Decision.** The external-pack layer keeps exactly two integrity mechanisms, and neither costs

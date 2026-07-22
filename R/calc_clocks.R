@@ -39,6 +39,8 @@ score_type <- function(p) {
     ),
     # PhysAge composites only (surrogates are linear above).
     PhysAge = switch(ct, linear_transformed = "physage", "unsupported"),
+    # EpiTOC2 proper only (HypoClock is linear above).
+    EpiTOC2 = switch(ct, reference_code_required = "epitoc2", "unsupported"),
     "unsupported"
   )
 }
@@ -64,7 +66,7 @@ calc_clocks <- function(
   pheno = NULL,
   pheno_id = "ID",
   allow_positional_ids = TRUE,
-  min_coverage = 0.8,
+  min_coverage = 0.75,
   assets = NULL,
   ask = TRUE
 ) {
@@ -117,7 +119,7 @@ calc_clocks <- function(
   panels <- clock_panels(clock_sequence, packs)
   mna <- scan_missing_cpgs(DNAm, panels_union(panels))
   cpg_list <- resolve_cpgs(mna$usable_cols, panels)
-  warn_low_coverage(cpg_list, min_coverage)
+  check_coverage(cpg_list, min_coverage)
   partial_cache <- build_partial_cache(
     DNAm,
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
@@ -173,6 +175,7 @@ calc_clocks <- function(
       ),
       physage = score_physage(p, cpgs, DNAm, partial_cache),
       dunedin = score_dunedin(p, cpgs, DNAm, partial_cache, min_coverage),
+      epitoc2 = score_epitoc2(p, cpgs, DNAm, partial_cache),
       stop(
         "calc_clocks(): clock '",
         p,
@@ -181,7 +184,8 @@ calc_clocks <- function(
         "', computation_type '",
         clock_type(p),
         "') is not implemented yet -- only cpg_coefficient/{linear,linear_transformed}, ",
-        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge / Dunedin families are supported so far.",
+        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge / Dunedin / EpiTOC2 families ",
+        "are supported so far.",
         call. = FALSE
       )
     )
