@@ -154,17 +154,31 @@ scoring, both run exactly once — never inside the per-clock loop:
     raised. `check_pheno()` warns **once**, naming each affected column and its NA count, scoped to
     rows that survive the id-join (an `NA` on an unscored cohort row does not warn). Clocks that do
     not declare the covariate still score finite for that sample.
-  - **coverage floor** — `warn_low_coverage(cpg_list, min_coverage = 0.8)`, run once on the
-    `resolve_cpgs()` skeleton (§2.3a): one warning naming every clock whose
-    `score_present / score_needed` falls under `min_coverage`, with counts and percentage.
-    `min_coverage = 0` silences it. **Sample-invariant** — it reads set sizes, so it fires on
-    panel/array mismatch (wrong array, a group's weights off-manifest, a simulated panel built from
-    too narrow a clock set), never on per-sample NA, which is tier 2's job (§4.2). It **warns and
-    proceeds**: a partial panel still yields a defensible score for many clocks (`vendor_mean`
-    fills; `omit` degrades smoothly) and the caller may knowingly be scoring a 27k array — what is
-    not defensible is silence. Running it over the **plan** is what makes a collapsed *input*
-    visible: a `GrimAgeV1` at 0 present CpGs is named even when only `DNAmFitAge` was requested.
-    It lives in `calc_clocks()`, not inside `resolve_cpgs()`, which stays pure set math (§2.3a).
+  - **coverage floor** — `check_coverage(cpg_list, min_coverage = 0.75)`, run once on the
+    `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's *worst* panel (`score_present /
+    score_needed`, and `norm_present / norm_needed` where a clock has a QN panel):
+
+    | Band | Action |
+    |---|---|
+    | 0 observed CpGs, or under `min_coverage` | **stop**, naming each clock + counts + percentage |
+    | within 10% above `min_coverage` (`< 1.1 x min_coverage`, capped at 1) | **warn**, same listing |
+    | otherwise | silent |
+
+    A panel at **0 observed CpGs always stops**, regardless of `min_coverage`. So
+    `min_coverage = 0` relaxes the quality gate but never buys a score computed from nothing --
+    `Horvath1` on a foreign panel used to return `anti_trafo(0)`, a plausible ~40 years, for every
+    sample. Full coverage never warns, whatever the threshold. The warn band is *relative* so it
+    tracks a caller who moves the floor, rather than pinning an absolute second number. Clocks with
+    no panel at all (`MiAge`) are not gated here; they fail later on the unimplemented-scorer
+    branch, which is the clearer error.
+    **Sample-invariant** — it reads set sizes, so it fires on panel/array mismatch (wrong array, a
+    group's weights off-manifest, a simulated panel built from too narrow a clock set), never on
+    per-sample NA, which is tier 2's job (§4.2). Running it over the **plan** is what makes a
+    collapsed *input* visible: a `GrimAgeV1` at 0 present CpGs is named even when only
+    `DNAmFitAge` was requested. The listing caps at 10 clocks -- mass failure is near-always one
+    root cause, so a 50-line dump would bury it. It lives in `calc_clocks()`, not inside
+    `resolve_cpgs()`, which stays pure set math (§2.3a), and before `build_partial_cache()`, so
+    nothing expensive runs ahead of it.
 
 Deliberately **not** in this front end: the full-panel warning (it is the `sample_scale`
 transform's own precondition — §2.4), imputation checks (they live with the impute step — §2.3),
@@ -183,7 +197,7 @@ are pragmatic, hand-optimized implementations of that contract.
 | Linear engine | Shared `linear_score()` | Most `cpg_coefficient` clocks |
 | Pre-transforms | Small modules feeding linear | Zhang `sample_scale` (stats on full panel -> apply to coef subset) |
 | Sex-split | Linear engine, female/male coef selected on `Female` | DNAmFitAge surrogates |
-| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`) |
+| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`); **EpiTOC2** (`score_epitoc2`) |
 | Batched pack scorers | One shared subset + one matmul per group | **PCClocks**, **SystemsAge** packs |
 | Custom | Dedicated helper | MiAge |
 
@@ -412,8 +426,9 @@ they ride the skeleton to assembly and `summary()` only **formats**; it never re
 - Messaging that implies confidence must not ship without coverage context.
 
 The `score_present / score_needed` ratio is also read at **prepare** time by the coverage floor
-(§2.1), which warns before any scoring happens rather than waiting for the user to call `summary()`.
-Same numbers, two moments: the floor is the unmissable signal, `summary()` the full account.
+(§2.1), which stops before any scoring happens rather than waiting for the user to call
+`summary()`. Same numbers, two moments: the floor is the gate, `summary()` the full account of
+what got through it.
 
 ### 4.2 Tier 2 — per-clock × per-sample missingness (QC matrix)
 

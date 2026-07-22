@@ -308,49 +308,112 @@ resolve_cpgs <- function(usable_cols, panels) {
   list(per_clock = per_clock, present_needed_union = present_needed_union)
 }
 
-# Warn when a clock's present/needed scoring ratio falls below threshold.
-warn_low_coverage <- function(cpg_list, threshold = 0.8) {
+# Graded coverage gate, run once before any scoring. Under `threshold` (or 0
+# observed CpGs on a panel) stops; clearing it by under 10% warns.
+WARN_COVERAGE_MARGIN <- 1.1
+
+check_coverage <- function(cpg_list, threshold = 0.75) {
   checkmate::assert_number(threshold, lower = 0, upper = 1)
-  if (threshold <= 0) {
-    return(invisible(character(0)))
-  }
+  warn_below <- min(1, threshold * WARN_COVERAGE_MARGIN)
 
-  ratios <- vapply(
-    cpg_list$per_clock,
-    function(x) {
-      n <- length(x$score_needed)
-      if (!n) NA_real_ else length(x$score_present) / n
-    },
-    numeric(1L)
-  )
-  low <- which(!is.na(ratios) & ratios < threshold)
-  if (!length(low)) {
-    return(invisible(character(0)))
-  }
-
-  ids <- names(ratios)[low]
-  lines <- vapply(
-    low,
-    function(i) {
-      x <- cpg_list$per_clock[[i]]
-      sprintf(
-        "  %s: %d/%d (%.1f%%)",
-        x$clock_id,
-        length(x$score_present),
-        length(x$score_needed),
-        100 * ratios[[i]]
+  # Panels a clock actually has; a clock with none is gated elsewhere.
+  clock_panels_used <- function(x) {
+    Filter(
+      function(q) length(q$needed) > 0L,
+      list(
+        list(
+          label = "scoring",
+          present = x$score_present,
+          needed = x$score_needed
+        ),
+        list(
+          label = "normalization",
+          present = x$norm_present,
+          needed = x$norm_needed
+        )
       )
-    },
-    character(1L)
-  )
-  warning(
-    sprintf(
-      "%d clock(s) score on under %.0f%% of their scoring CpGs:\n%s",
-      length(low),
-      100 * threshold,
-      paste(lines, collapse = "\n")
-    ),
-    call. = FALSE
-  )
-  invisible(ids)
+    )
+  }
+
+  # Worst panel per clock -> "stop", "warn", or "" (fine).
+  classify <- function(x) {
+    worst <- NULL
+    worst_ratio <- Inf
+    for (q in clock_panels_used(x)) {
+      ratio <- length(q$present) / length(q$needed)
+      if (ratio < worst_ratio) {
+        worst_ratio <- ratio
+        worst <- q
+      }
+    }
+    if (is.null(worst)) {
+      return(list(level = "", line = NA_character_))
+    }
+    level <- if (worst_ratio == 0 || worst_ratio < threshold) {
+      "stop"
+    } else if (worst_ratio < warn_below) {
+      # Full coverage is never marginal, whatever the threshold.
+      "warn"
+    } else {
+      ""
+    }
+    list(
+      level = level,
+      line = sprintf(
+        "  %s: %d/%d %s CpGs (%.1f%%)",
+        x$clock_id,
+        length(worst$present),
+        length(worst$needed),
+        worst$label,
+        100 * worst_ratio
+      )
+    )
+  }
+
+  graded <- lapply(cpg_list$per_clock, classify)
+  levels <- vapply(graded, function(g) g$level, character(1L))
+  lines_for <- function(lvl) {
+    vapply(graded[levels == lvl], function(g) g$line, character(1L))
+  }
+
+  # Mass failure is usually one root cause (transposed DNAm, wrong array), so cap.
+  block <- function(lines) {
+    shown <- utils::head(lines, 10L)
+    paste0(
+      paste(shown, collapse = "\n"),
+      if (length(lines) > length(shown)) {
+        sprintf("\n  ... and %d more", length(lines) - length(shown))
+      } else {
+        ""
+      }
+    )
+  }
+
+  fail <- lines_for("stop")
+  if (length(fail)) {
+    stop(
+      sprintf(
+        "%d clock(s) lack the CpG coverage to score (min_coverage = %s):\n%s\nDrop them from `clocks`, or lower `min_coverage` (a clock with 0 observed CpGs never scores).",
+        length(fail),
+        format(threshold),
+        block(fail)
+      ),
+      call. = FALSE
+    )
+  }
+
+  marginal <- lines_for("warn")
+  if (length(marginal)) {
+    warning(
+      sprintf(
+        "%d clock(s) clear min_coverage = %s by under 10%% -- scores are usable but rest on an imputed fraction of the panel:\n%s",
+        length(marginal),
+        format(threshold),
+        block(marginal)
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(names(levels)[levels != ""])
 }

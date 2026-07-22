@@ -169,11 +169,14 @@ for (id in parity_targets()) {
       packs <- load_mc_assets(pack_groups_needed(seq_ids), NULL, FALSE)
       cpgs <- needed_cpgs_union(seq_ids, packs)
       DNAm <- cohort_betas(cohort_con, cpgs)
+      # Parity gates numbers, not coverage policy: the cohort under-covers some
+      # panels (e.g. CausAge 420/585) and the oracle saw the same subset.
       res <- calc_clocks(
         DNAm,
         clock_id,
         pheno = cohort_pheno(),
-        assets = packs
+        assets = packs,
+        min_coverage = 0
       )
       expect_parity(res$scores[, clock_id], clock_id)
     })
@@ -186,7 +189,11 @@ test_that("PhysAge composites match the author fixtures on the EPIC cohort", {
   members <- mc_groups[["PhysAge"]]$members
   cpgs <- unique(unlist(lapply(members, clock_scoring_cpgs)))
   DNAm <- cohort_betas(cohort_con, cpgs)
-  res <- calc_clocks(DNAm, c("DNAmPhysAge", "DNAmPhysAge_years"))
+  res <- calc_clocks(
+    DNAm,
+    c("DNAmPhysAge", "DNAmPhysAge_years"),
+    min_coverage = 0
+  )
   expect_parity(res$scores[, "DNAmPhysAge"], "DNAmPhysAge")
   expect_parity(res$scores[, "DNAmPhysAge_years"], "DNAmPhysAge_years")
 })
