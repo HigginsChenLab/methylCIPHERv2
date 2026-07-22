@@ -1,4 +1,4 @@
-# Cohort-gated golden parity. Requires METHYLCIPHER_PARITY=1 and staged EPIC cohort.
+# Cohort-gated golden parity. Requires MC_PARITY=1 and staged EPIC cohort.
 
 # cohort fixture access
 meta_clone_path <- function(...) {
@@ -77,7 +77,7 @@ expect_parity <- function(got, id) {
 }
 
 # Parity tier flag (gates duckdb, pack scan, and per-test skips).
-parity_on <- nzchar(Sys.getenv("METHYLCIPHER_PARITY"))
+parity_on <- nzchar(Sys.getenv("MC_PARITY"))
 
 # Cached external packs (empty when tier is off).
 cached_pack_groups <- if (parity_on) {
@@ -129,7 +129,7 @@ if (
 skip_if_no_cohort <- function() {
   testthat::skip_if_not(
     parity_on,
-    "parity tier off (set METHYLCIPHER_PARITY=1, e.g. via dev test_parity())"
+    "parity tier off (set MC_PARITY=1, e.g. via dev test_parity())"
   )
   testthat::skip_if(is.null(cohort_con), "EPIC cohort fixture not staged")
 }

@@ -1,13 +1,13 @@
 
 <!-- README.md is generated from README.Rmd. Please edit that file -->
 
-# methylCIPHER
+# methylCIPHERv2
 
 <!-- badges: start -->
 
 <!-- badges: end -->
 
-The goal of methylCIPHER is to …
+The goal of methylCIPHERv2 is to …
 
 ## Installation
 

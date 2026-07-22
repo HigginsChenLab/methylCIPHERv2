@@ -12,6 +12,48 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- package renamed to methylCIPHERv2; v1 repo severed without a redirect
+
+**Decision.** The package is `methylCIPHERv2`, published at `hhp94/methylCIPHERv2`. The old
+`hhp94/methylCIPHER` is retired to private (deletion later), **not renamed**.
+
+**Why not a GitHub rename.** A rename leaves a permanent redirect on the git URL, the API, and
+release-asset downloads. The requirement here is that the old coordinate stop resolving, so a
+redirect defeats the purpose. Private gives the same public 404 as deletion while keeping the
+existing releases and history recoverable during the transition.
+
+**Why a new name at all.** Merging the rewrite back into v1 under the v1 name would break every
+existing caller's API. A distinct name lets v1 keep its contract and v2 keep its own.
+
+**Why `mc_` and not `methylCIPHERv2_` for internals.** The S3 classes are now `mc_result` /
+`mc_sim`, options `mc.cache_dir` / `mc.release_repo`, env vars `MC_*`. `mc_` was already the
+pervasive internal prefix (`mc_catalog`, `mc_cache_dir`, `mc_asset`, ...), and it does not have to
+be renamed again at v3. The R constant became `MC_DEFAULT_RELEASE_REPO` so it does not read as a
+duplicate of the new `MC_RELEASE_REPO` env var in `sync.R`.
+
+**Exception: `R_user_dir` keeps the package name.** `mc_default_cache_dir()` uses
+`tools::R_user_dir("methylCIPHERv2", "cache")` -- CRAN expects the real package name there, not the
+internal shorthand. This orphans any existing cache; one re-download.
+
+**No `sysdata.rda` rebuild.** `mc_provenance$external_assets` holds only `release_tag` + `file`;
+the repo is assembled at runtime in `mc_asset_url()`. Only the constant moved, so the compiled
+catalog is untouched by the rename.
+
+**History kept.** The 184-commit history (inherited tree plus the rewrite) is pushed as-is. It is
+the record of which commits are the rewrite.
+
+**Out of scope, still open.** Licensing. `LICENSE` still names Yale University as copyright holder
+and `DESCRIPTION` still carries `License: BSD_3_clause` and the original `Authors@R`, none of which
+were touched here. Separately, the catalog's per-clock `license` field -- read by no R code -- spans
+14 restrictive clocks (12 `non-commercial`, `Mayne` CC BY-NC-ND, `DunedinPACE` research-use-only),
+8 copyleft (GPL-2/2+/3), and 54 with no clear grant. That is a CRAN blocker to resolve before alpha.
+
+**Entries below this line predate the rename** and refer to the old names (`methylCIPHER.cache_dir`,
+`METHYLCIPHER_PARITY`, class `methylCIPHER`, `R/methylCIPHER_data.R`). This log is append-only, so
+they were left as written.
+
+---
+
 ## 2026-07-22 -- the coverage floor becomes a graded stop/warn gate at 0.75
 
 **Decision.** `warn_low_coverage()` becomes `check_coverage()`, a two-band gate on a clock's worst

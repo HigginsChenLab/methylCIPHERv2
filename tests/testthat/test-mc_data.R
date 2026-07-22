@@ -59,11 +59,11 @@ local_fake_registry <- function(rows, .env = parent.frame()) {
 }
 
 test_that("mc_cache_dir() resolves a default and honours the option override", {
-  withr::local_options(methylCIPHER.cache_dir = NULL)
-  withr::local_envvar(METHYLCIPHER_CACHE_DIR = NA)
+  withr::local_options(mc.cache_dir = NULL)
+  withr::local_envvar(MC_CACHE_DIR = NA)
   expect_identical(mc_cache_dir(), mc_default_cache_dir())
 
-  withr::local_options(methylCIPHER.cache_dir = "from-option")
+  withr::local_options(mc.cache_dir = "from-option")
   expect_identical(mc_cache_dir(), path.expand("from-option"))
 })
 
@@ -89,7 +89,7 @@ test_that("registry lookups reject unknown ids and resolve group sets", {
 test_that("load_mc_assets() refuses to fetch unprompted in a non-interactive session", {
   skip_if(interactive())
   cache <- withr::local_tempdir()
-  withr::local_options(methylCIPHER.cache_dir = cache)
+  withr::local_options(mc.cache_dir = cache)
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
@@ -126,7 +126,7 @@ test_that("a download failure is reported with the URL and leaves nothing behind
 
 test_that("load_mc_assets() downloads missing packs on consent and returns a named registry", {
   cache <- withr::local_tempdir()
-  withr::local_options(methylCIPHER.cache_dir = cache)
+  withr::local_options(mc.cache_dir = cache)
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
@@ -198,12 +198,12 @@ test_that("the real PCBrainAge release asset downloads and verifies", {
   skip_on_cran()
   skip_if_offline()
   skip_if_not(
-    nzchar(Sys.getenv("METHYLCIPHER_TEST_NETWORK")),
-    "set METHYLCIPHER_TEST_NETWORK=1 to run live download tests"
+    nzchar(Sys.getenv("MC_TEST_NETWORK")),
+    "set MC_TEST_NETWORK=1 to run live download tests"
   )
 
   cache <- withr::local_tempdir()
-  withr::local_options(methylCIPHER.cache_dir = cache)
+  withr::local_options(mc.cache_dir = cache)
   packs <- suppressMessages(load_mc_assets("PCBrainAge", ask = FALSE))
   pack <- packs[["PCBrainAge"]]
   row <- mc_asset("PCBrainAge")

@@ -6,7 +6,7 @@ Volatile detail (per-clock status, exact designs, dated reversals) lives in `dev
 
 ## What this package is
 
-`methylCIPHER` scores CpG-based DNA-methylation ("epigenetic clock") ages. One public scorer,
+`methylCIPHERv2` scores CpG-based DNA-methylation ("epigenetic clock") ages. One public scorer,
 `calc_clocks()`, drives everything. The scoring contract (clock catalog + coefficient tensors) is
 synced from the separate `methylCIPHER-meta` repo; fixtures are the scientific gate. Target is
 **CRAN**, not Bioconductor. R (>= 4.4).
@@ -36,7 +36,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
   sex-split, family orchestrator, external, custom). There is **no** recipe interpreter/walker,
   not even as a fallback.
-- **Result is an S3 record over `list`** (class `methylCIPHER`): `$scores` (n x k double),
+- **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double),
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset). All
   verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
 - **Scores only.** No auto-appended phenotype columns. Align pheno by sample id, never row order.
@@ -71,7 +71,7 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
      "asset already present" skip mean unchanged weights are never re-uploaded).
 - **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy packs
   ship **external** as release assets, cached at runtime in
-  `tools::R_user_dir("methylCIPHER", "cache")`. No silent first-use download.
+  `tools::R_user_dir("methylCIPHERv2", "cache")`. No silent first-use download.
 - **Identity key:** `payload_hash` (pack content-address) only -- it sets the pack filename and
   release tag, which is what makes re-upload of unchanged weights a no-op. It stays maintainer-side
   and never reaches a result record. Transfer integrity and bit rot are qs2's own
@@ -91,7 +91,7 @@ output**, not implementation detail (see "Test altitude").
   composites). External-pack scoring is smoke-only here; parity owns those goldens.
 - **Cohort-gated parity fixtures** (science gate; only clock-golden source): run against
   `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`, skipped unless BOTH
-  `METHYLCIPHER_PARITY=1` and the cohort is staged (`file.exists()`). Run locally via the dev-only
+  `MC_PARITY=1` and the cohort is staged (`file.exists()`). Run locally via the dev-only
   `test_parity()` (`R/dev-utils.R`). CRAN skips this tier; CI must stage the cohort + set the flag.
 
 ### Test altitude -- keep tests loose enough to move fast
@@ -116,7 +116,7 @@ refactor is too tight -- loosen or delete it.
   promote to `helper-*.R` only when >= 2 files genuinely share it (currently none). `sim_DNAm` /
   `random_betas` are package functions in `R/`, not test helpers.
 - **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`): a single file-scoped
-  read-only connection behind the `METHYLCIPHER_PARITY` + `file.exists()` guard, torn down with
+  read-only connection behind the `MC_PARITY` + `file.exists()` guard, torn down with
   `withr::defer(..., testthat::teardown_env())` -- not a module-global caching env.
 - **Random inputs are unseeded.** Build DNAm with `random_betas()` (no seed); goldens are computed
   in-test from that same matrix, so they are seed-invariant. Derive the golden from the input, do

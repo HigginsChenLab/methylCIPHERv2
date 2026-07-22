@@ -1,4 +1,4 @@
-# methylCIPHER Rewrite -- Detail Plan
+# methylCIPHERv2 Rewrite -- Detail Plan
 
 Canonical long-form design for the rewrite. Overview: [`migration-plan.md`](migration-plan.md).
 Decisions log: [`DECISIONS.md`](DECISIONS.md).
@@ -37,7 +37,7 @@ their history lives solely in [`DECISIONS.md`](DECISIONS.md).
 
 ### 1.3 Result contract
 
-`calc_clocks()` returns an **S3 record over `list`**, class `"methylCIPHER"`:
+`calc_clocks()` returns an **S3 record over `list`**, class `"mc_result"`:
 
 ```r
 structure(
@@ -46,7 +46,7 @@ structure(
     coverage   = <per-column coverage>,   # see sec 4
     provenance = <clocks, requested, dependencies, covariates_used, batch_set_id>
   ),
-  class = "methylCIPHER"
+  class = "mc_result"
 )
 ```
 
@@ -58,7 +58,7 @@ methods so no operation loses data:
 |---|---|
 | `as.matrix` | `$scores` -- the naked-numbers escape hatch |
 | `as.data.frame` | scores as a data.frame (sample id column + score columns) |
-| `[` | subset rows/cols of `$scores` **and** the matching coverage/provenance -> `methylCIPHER` |
+| `[` | subset rows/cols of `$scores` **and** the matching coverage/provenance -> `mc_result` |
 | `cbind` | bind score columns; check `batch_set_id` compatibility |
 | `augment` | join `$scores` to a table by sample id (generic imported from `generics`) |
 | `summary` | format `$coverage`; never re-touches beta |
@@ -103,7 +103,7 @@ calc_clocks
   |    full-panel warn if needed (localized)
   |- for each work unit -> score_*  (engine or pack)
   |    returns list(score = matrix, coverage = list(...))
-  \- assemble_methylCIPHER -> record (scores + coverage + provenance)
+  \- construct_mc_result -> record (scores + coverage + provenance)
 summary(x)  # pure read of x$coverage
 ```
 
@@ -372,7 +372,7 @@ calc_clocks(DNAm, c("Zhang2019", "GrimAge"), pheno = pheno)
    Female for GrimAge pack.
 3. Zhang: full-matrix row moments -> EN subset -> scale -> linear(drop) -> 1 column + coverage.
 4. GrimAge: orchestrator -> multi-column matrix + per-column coverage.
-5. Assemble -> `methylCIPHER` record; `summary(out)` without re-touching DNAm.
+5. Assemble -> `mc_result` record; `summary(out)` without re-touching DNAm.
 
 ---
 
@@ -484,7 +484,7 @@ threshold reads this matrix — default stays record-and-report.
 maximal front-door defensiveness. The `cbind` footgun this used to
 guard against is closed instead **at the bind step**: positional ids are row-order artifacts, not
 comparable across separate matrices, so such records are flagged `$provenance$positional_ids = TRUE`
-and `cbind.methylCIPHER` **refuses** them (§7.1 gate 0). `allow_positional_ids = FALSE` on
+and `cbind.mc_result` **refuses** them (§7.1 gate 0). `allow_positional_ids = FALSE` on
 `calc_clocks()` restores the strict hard-error contract. A caller with genuine sample duplicates
 must give each its own id; a caller wanting a clock's score twice duplicates the score column, not
 the input rows. `sample_id` is derived **once**, from DNAm (real or positional), stamped on
@@ -530,7 +530,7 @@ Rules:
 - Partial-NA imputation (sec 2.3) is also cohort-dependent by design -- imputation borrows
   within-cohort information -- but it is a fallback, not a scoring op, so it is not listed here.
 - Do not global-union-probe-optimize away Zhang's full panel.
-- Store sample-set id on batch-dependent results; `cbind.methylCIPHER` rejects incompatible
+- Store sample-set id on batch-dependent results; `cbind.mc_result` rejects incompatible
   sets.
 
 ---
@@ -541,7 +541,7 @@ Rules:
 
 - `sample_id`
 - `positional_ids` (logical) -- `TRUE` when `sample_id` was manufactured inline by `calc_clocks()`
-  from a rowname-less DNAm; `cbind.methylCIPHER` refuses records flagged `TRUE` (§7.1 gate 0)
+  from a rowname-less DNAm; `cbind.mc_result` refuses records flagged `TRUE` (§7.1 gate 0)
 - `clocks` — every scored column's catalog id, in `$scores` column order
 - `requested` / `dependencies` — the partition of `clocks` into what the caller asked for and what
   the plan pulled in (§1.3, §2.1). The only place that distinction survives; both are real columns
@@ -559,7 +559,7 @@ overrides optional).
 
 ### 7.1 `cbind` compatibility
 
-`cbind.methylCIPHER` ([`R/generics.R`](../R/generics.R)) binds score columns of two or more records
+`cbind.mc_result` ([`R/generics.R`](../R/generics.R)) binds score columns of two or more records
 only after a **positional guard** then **three** independent gates:
 
 0. **Positional-id guard.** If any record has `$provenance$positional_ids = TRUE`, throw. Its
@@ -660,13 +660,13 @@ paths (never `papers/` or `scripts/`); missing referenced weights path = error.
 
 ### 9.4 External asset resolution
 
-`load_mc_assets(groups, assets = NULL, ask = TRUE)` in [`R/methylCIPHER_data.R`](../R/methylCIPHER_data.R)
+`load_mc_assets(groups, assets = NULL, ask = TRUE)` in [`R/mc_data.R`](../R/mc_data.R)
 is the single runtime entry (deliberately small -- see the 2026-07-21 DECISIONS entries). It returns
 a **named list of packs keyed by `group_id`** (even for one group). `calc_clocks()` calls the
 identical function internally, so a pre-loaded object and an auto-loaded one cannot drift. Flow:
 
-1. **Cache dir precedence:** an `assets` **path** > session option `methylCIPHER.cache_dir` (set via
-   `mc_set_cache_dir()`) > `METHYLCIPHER_CACHE_DIR` (.Renviron) > `tools::R_user_dir(.., "cache")`
+1. **Cache dir precedence:** an `assets` **path** > session option `mc.cache_dir` (set via
+   `mc_set_cache_dir()`) > `MC_CACHE_DIR` (.Renviron) > `tools::R_user_dir(.., "cache")`
    (`mc_default_cache_dir()`).
 2. **Open vs closed set (from `assets`).** `assets = NULL` -> **open**: resolve each group from the
    cache dir; missing packs are consent-downloaded. `assets` **explicitly provided** -> **closed**:
@@ -733,7 +733,7 @@ unexpected value), but the field itself stays on the maintainer side (manifest),
 - **Parity fixtures -- the single clock-golden source, cohort-gated.** Upstream golden fixtures
   vs `fixtures/cohort_EPIC/beta.duckdb` (gitignored; regenerable via `fixtures/build_cohort.R`;
   path under the meta clone `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`).
-  Skipped unless `METHYLCIPHER_PARITY=1` is set and the cohort is staged (`file.exists()`); run
+  Skipped unless `MC_PARITY=1` is set and the cohort is staged (`file.exists()`); run
   locally via the dev-only, build-ignored `test_parity()` (`R/dev-utils.R`). Parity policy `exact` |
   `correlation` | `skipped`; failures print clock id + policy.
 
@@ -811,7 +811,7 @@ methylCIPHER-meta
     calc_clocks()
       prepare | linear engine | pack orchestrators | external/custom
            |
-    methylCIPHER record  --summary()--> coverage data.frame
+    mc_result record  --summary()--> coverage data.frame
            |
         augment() --> analysis join
 ```

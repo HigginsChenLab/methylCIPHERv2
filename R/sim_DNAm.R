@@ -45,13 +45,13 @@ sim_DNAm <- function(
     DNAm = DNAm,
     pheno = pheno
   )
-  class(out) <- c("methylCIPHER_sim", "list")
+  class(out) <- c("mc_sim", "list")
   out
 }
 
-# Print a methylCIPHER_sim list (DNAm + pheno preview).
+# Print a mc_sim list (DNAm + pheno preview).
 #' @export
-print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
+print.mc_sim <- function(x, n = 6, p = 6, ...) {
   DNAm <- x$DNAm
   pheno <- x$pheno
   nr <- nrow(DNAm)
@@ -59,7 +59,7 @@ print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
   ni <- min(n, nr)
   pi <- min(p, nc)
 
-  cat(sprintf("<methylCIPHER_sim> %d sample(s) x %d CpG(s)\n\n", nr, nc))
+  cat(sprintf("<mc_sim> %d sample(s) x %d CpG(s)\n\n", nr, nc))
   cat(sprintf("DNAm [showing %d x %d]:\n", ni, pi))
   print(DNAm[seq_len(ni), seq_len(pi), drop = FALSE])
   if (ni < nr || pi < nc) {

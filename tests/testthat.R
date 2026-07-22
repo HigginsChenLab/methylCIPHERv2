@@ -1,4 +1,4 @@
 library(testthat)
-library(methylCIPHER)
+library(methylCIPHERv2)
 
-test_check("methylCIPHER")
+test_check("methylCIPHERv2")

@@ -1,4 +1,4 @@
-# methylCIPHER Rewrite Plan (overview)
+# methylCIPHERv2 Rewrite Plan (overview)
 
 Compressed product plan for the catalog-driven CRAN rewrite. **Detailed design, contracts,
 and worked examples live in [`detail-plan.md`](detail-plan.md).** Design *why* / reversals:
@@ -57,7 +57,7 @@ calc_clocks(DNAm, clocks, pheno = NULL, ...)
     linear engine       # most cpg_coefficient (+ optional pre-transforms)
     family packs        # GrimAge, SystemsAge, Dunedin (shared intermediates; not generic)
     external / custom   # MiAge
-  assemble              # methylCIPHER record: scores + coverage + provenance
+  assemble              # mc_result record: scores + coverage + provenance
 summary(result)         # data.frame from coverage (free if scorers recorded it)
 augment(result, data)   # join scores to analysis tables
 ```
@@ -90,13 +90,13 @@ Details, imputation table, coverage/`summary()`, GrimAge pack policy, batch rule
 | Function | Purpose |
 |---|---|
 | `list_clocks()` / `get_clock()` / `get_clock_probes()` | Discover and inspect |
-| `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Score -> `methylCIPHER` record |
+| `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Score -> `mc_result` record |
 | `summary(x)` | Coverage table (per-role needed / used / imputed / missing) |
 | `augment()` | Join scores to phenotype / analysis data |
 | `clear_clock_cache()` + download helpers | Heavy assets |
 | Optional legacy `calc*()` | Thin -> `calc_clocks`; not the engine |
 
-`calc_clocks()` returns an S3 record over `list` (class `"methylCIPHER"`): `$scores` (n x k
+`calc_clocks()` returns an S3 record over `list` (class `"mc_result"`): `$scores` (n x k
 double), `$coverage`, `$provenance`. Verbs are methods (`as.matrix`, `as.data.frame`, `[`,
 `cbind`, `augment`, `summary`, `codebook`, `citation`, `print`) -- so subsetting never
 silently drops coverage/provenance. Results are **scores only** (no auto-appended pheno). Align
@@ -128,7 +128,7 @@ external-pack rebuild; not a product pin).
 | Tier | Runs where | Job |
 |---|---|---|
 | Engine units + `sim_DNAm` smoke | Always (no meta dependency) | `linear_score` arithmetic, impute accounting, accessors, coverage math, result methods (golden values hand-authored in-test); plus `sim_DNAm` `expect_no_error` over every shipped clock |
-| Parity fixtures | `METHYLCIPHER_PARITY=1` + cohort staged (`file.exists` gate); dev `test_parity()` | Upstream golden fixtures vs `cohort_EPIC/beta.duckdb` -- the single clock-golden source |
+| Parity fixtures | `MC_PARITY=1` + cohort staged (`file.exists` gate); dev `test_parity()` | Upstream golden fixtures vs `cohort_EPIC/beta.duckdb` -- the single clock-golden source |
 
 No shipped slice of the golden cohort (it would drift). CI may stage the cohort and run parity;
 CRAN skips it. Details -> [`detail-plan.md`](detail-plan.md) sec 10.
