@@ -12,6 +12,65 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- sysdata.rda ships xz, not use_data()'s bzip2 default
+
+**Decision.** `sync()` passes `compress = "xz"` to `usethis::use_data()`, and the committed
+`R/sysdata.rda` was recompressed in place to match (content verified `identical()` per object, so
+no `sync()` re-run was needed).
+
+**Why.** `use_data(internal = TRUE)` defaults to `compress = "bzip2"`, which is the worst of both
+worlds for this blob. Measured on the same five objects: bzip2 11.89 MB / 4.36s load, gzip
+13.40 MB / 2.06s, **xz 2.31 MB / 1.85s**, uncompressed 55.22 MB / 1.34s. xz wins on size *and*
+load; nothing trades off. Relevant to the CRAN target too -- 11.89 MB blew the 5 MB tarball
+guidance on its own, 2.31 MB does not.
+
+**Why this is the lever for the dev loop.** Every `load_all()` / `test()` / `check()` / `document()`
+pays this deserialization eagerly (pkgload `load()`s `sysdata.rda` directly); `document()` in
+particular is ~all sysdata, since parsing all 15 `R/*.R` is 0.015s.
+
+**Sharing SEXPs does nothing; restructuring does.** Making the 114 stored probe-set vectors share
+one SEXP per distinct panel was measured and is a no-op -- 1.79 MB either way, load 2.14s -> 2.01s
+-- because R's serializer writes each vector out in full and only ref-caches the CHARSXPs.
+*Structurally* splitting the panels out of `mc_catalog` into a keyed store is a different thing and
+does work: catalog metadata alone is 0.01 MB / **0.009s**, the 84-panel store is 1.76 MB / **0.385s**,
+versus 1.79 MB / 2.05s monolithic. The win is element count -- 3.1M nested elements collapse to
+590k, so the string-cache does 5x less work. (Supersedes the first version of this entry, which
+concluded from the SEXP-sharing result that catalog dedupe was a dead end. It is not.)
+
+---
+
+## 2026-07-22 -- CpG set math: dedupe identical panels, not special-case external groups
+
+**Decision.** `resolve_cpgs()` runs the present/absent split **once per distinct CpG panel**, not
+once per clock. `clock_panels()` fetches each clock's scoring + norm panels a single time and maps
+identical vectors onto a shared set (`dedup_panels()`, linear scan on `identical()`); member clocks
+then share the resulting `present`/`absent` vectors by reference. `calc_clocks()` calls
+`clock_panels()` once and feeds both `panels_union()` (missingness scan) and `resolve_cpgs()`.
+
+**Why.** Every member of an external pack group carries the *same* panel: PCClocks is 14 clocks x
+one 78,464-CpG panel, SystemsAge 13 x 125,175. The old code hashed that panel once per clock, and
+did the whole fetch twice -- `needed_cpgs_union()` and `resolve_cpgs()` each called
+`clock_scoring_cpgs()` for all 14. Measured on `sim_DNAm("PCClocks")`: `resolve_cpgs` 0.333s ->
+0.022s, whole set-math path 0.486s -> 0.140s. It also drops 14 redundant copies of a 78k character
+vector out of `cpg_list`.
+
+**Why not scope it to PCClocks/SystemsAge.** The obvious fix is a group-keyed branch for external
+packs, but that buys a new special case for a property that is not actually about externality --
+it is about panels being equal. Deduping on `identical()` needs no group knowledge, keeps the
+closed branch set closed, and stays correct if a bundled family ever shares a panel. Bundled groups
+pay only the dedupe scan, which is a no-op for them (GrimAge: 12 clocks / 11 distinct panels, all
+under 1030 CpGs); `clocks = "all"` is 115 clocks / 85 distinct panels and the scan short-circuits
+on length mismatch.
+
+**Verified.** Deduped per-clock sets are `identical()` to the old per-clock math, and cohort parity
+runs green (198 passed / 0 failed), so the shared vectors reach the pack scorers unchanged.
+
+**Not addressed here.** The remaining ~1.1s of a cold `calc_clocks("PCClocks")` is `load_mc_assets()`
+reading the qs2 pack from the runtime cache; passing `assets =` an already-loaded pack drops the call
+to ~0.3s and steady-state scoring is ~0.09s. Pack I/O is a separate question from the set math.
+
+---
+
 ## 2026-07-22 -- Missing Age/Female: propagate NA, warn once in check_pheno
 
 **Decision.** An `NA` in a required covariate (`Age`, `Female`) is a **legal input**. It propagates

@@ -88,9 +88,9 @@ calc_clocks <- function(
   pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids)
 
   # Scan missingness, resolve present/absent CpGs, build partial-NA cache.
-  needed_union <- needed_cpgs_union(clock_sequence)
-  mna <- scan_missing_cpgs(DNAm, needed_union)
-  cpg_list <- resolve_cpgs(mna$usable_cols, clock_sequence)
+  panels <- clock_panels(clock_sequence)
+  mna <- scan_missing_cpgs(DNAm, panels_union(panels))
+  cpg_list <- resolve_cpgs(mna$usable_cols, panels)
   warn_low_coverage(cpg_list, min_coverage)
   partial_cache <- build_partial_cache(
     DNAm,
