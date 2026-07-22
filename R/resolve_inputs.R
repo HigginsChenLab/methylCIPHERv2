@@ -224,53 +224,79 @@ resolve_clocks_sequence <- function(clocks) {
   st$out[seq_len(st$n)]
 }
 
+# Map identical CpG panels onto a shared set. Every member of an external pack
+# group carries the same panel, so the set math runs once instead of once per clock.
+dedup_panels <- function(panels) {
+  uniq <- list()
+  idx <- integer(length(panels))
+  for (i in seq_along(panels)) {
+    hit <- 0L
+    for (j in seq_along(uniq)) {
+      if (identical(panels[[i]], uniq[[j]])) {
+        hit <- j
+        break
+      }
+    }
+    if (!hit) {
+      uniq[[length(uniq) + 1L]] <- panels[[i]]
+      hit <- length(uniq)
+    }
+    idx[[i]] <- hit
+  }
+  list(uniq = uniq, idx = idx)
+}
+
+# Scoring + norm panels for the compute sequence, fetched once and deduped.
+clock_panels <- function(clock_sequence) {
+  list(
+    clock_id = clock_sequence,
+    score = dedup_panels(lapply(clock_sequence, clock_scoring_cpgs)),
+    norm = dedup_panels(lapply(clock_sequence, clock_norm_cpgs))
+  )
+}
+
 # Union of scoring + norm CpGs across the compute sequence.
+panels_union <- function(panels) {
+  unique(unlist(c(panels$score$uniq, panels$norm$uniq), use.names = FALSE))
+}
+
 needed_cpgs_union <- function(clock_sequence) {
-  unique(unlist(
-    lapply(clock_sequence, function(id) {
-      c(clock_scoring_cpgs(id), clock_norm_cpgs(id))
-    }),
-    use.names = FALSE
-  ))
+  panels_union(clock_panels(clock_sequence))
 }
 
 # Per-clock present/absent CpG sets over usable_cols.
-resolve_cpgs <- function(usable_cols, clock_sequence) {
+resolve_cpgs <- function(usable_cols, panels) {
   usable <- unique(usable_cols)
-  n <- length(clock_sequence)
+  clock_sequence <- panels$clock_id
 
-  score_needed <- lapply(clock_sequence, clock_scoring_cpgs)
-  norm_needed <- lapply(clock_sequence, clock_norm_cpgs)
-
-  # Hash usable once per role, then split the hit mask per clock.
-  in_usable <- function(needed) {
-    hit <- match(unlist(needed, use.names = FALSE), usable, 0L) > 0L
-    grp <- factor(rep.int(seq_len(n), lengths(needed)), levels = seq_len(n))
-    split(hit, grp)
+  # Split each distinct panel once; member clocks share the resulting vectors.
+  split_panels <- function(d) {
+    lapply(d$uniq, function(p) {
+      hit <- match(p, usable, 0L) > 0L
+      list(needed = p, present = p[hit], absent = p[!hit])
+    })
   }
-  score_hit <- in_usable(score_needed)
-  norm_hit <- in_usable(norm_needed)
+  score_parts <- split_panels(panels$score)
+  norm_parts <- split_panels(panels$norm)
 
-  per_clock <- lapply(seq_len(n), function(i) {
-    sn <- score_needed[[i]]
-    nn <- norm_needed[[i]]
-    sm <- score_hit[[i]]
-    nm <- norm_hit[[i]]
+  per_clock <- lapply(seq_along(clock_sequence), function(i) {
+    s <- score_parts[[panels$score$idx[[i]]]]
+    nm <- norm_parts[[panels$norm$idx[[i]]]]
     list(
       clock_id = clock_sequence[[i]],
-      score_needed = sn,
-      score_present = sn[sm],
-      score_absent = sn[!sm],
-      norm_needed = nn,
-      norm_present = nn[nm],
-      norm_absent = nn[!nm],
+      score_needed = s$needed,
+      score_present = s$present,
+      score_absent = s$absent,
+      norm_needed = nm$needed,
+      norm_present = nm$present,
+      norm_absent = nm$absent,
       norm_scheme = clock_norm_scheme(clock_sequence[[i]])
     )
   })
   names(per_clock) <- clock_sequence
 
   present_needed_union <- unique(unlist(
-    lapply(per_clock, function(x) c(x$score_present, x$norm_present)),
+    lapply(c(score_parts, norm_parts), function(x) x$present),
     use.names = FALSE
   ))
 

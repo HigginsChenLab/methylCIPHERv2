@@ -3,14 +3,16 @@
 # Shared design over a pack CpG panel: subset matrix, present/absent, vendor ref.
 pack_design <- function(pack, usable, DNAm, partial_cache) {
   panel <- pack$cpgs
-  present <- panel[panel %in% usable]
-  absent <- panel[!(panel %in% usable)]
-  cached <- if (is.null(partial_cache)) {
-    character(0)
+  hit <- match(panel, usable, 0L) > 0L
+  present <- panel[hit]
+  absent <- panel[!hit]
+  cached_hit <- if (is.null(partial_cache)) {
+    logical(length(present))
   } else {
-    present[present %in% colnames(partial_cache)]
+    match(present, colnames(partial_cache), 0L) > 0L
   }
-  raw <- present[!(present %in% cached)]
+  cached <- present[cached_hit]
+  raw <- present[!cached_hit]
   X <- cbind(
     if (length(cached)) partial_cache[, cached, drop = FALSE] else NULL,
     if (length(raw)) DNAm[, raw, drop = FALSE] else NULL
