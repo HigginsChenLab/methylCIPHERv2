@@ -247,10 +247,15 @@ dedup_panels <- function(panels) {
 }
 
 # Scoring + norm panels for the compute sequence, fetched once and deduped.
-clock_panels <- function(clock_sequence) {
+# External panels come from `packs`, so resolve those before calling this.
+clock_panels <- function(clock_sequence, packs = NULL) {
   list(
     clock_id = clock_sequence,
-    score = dedup_panels(lapply(clock_sequence, clock_scoring_cpgs)),
+    score = dedup_panels(lapply(
+      clock_sequence,
+      clock_scoring_cpgs,
+      packs = packs
+    )),
     norm = dedup_panels(lapply(clock_sequence, clock_norm_cpgs))
   )
 }
@@ -260,8 +265,8 @@ panels_union <- function(panels) {
   unique(unlist(c(panels$score$uniq, panels$norm$uniq), use.names = FALSE))
 }
 
-needed_cpgs_union <- function(clock_sequence) {
-  panels_union(clock_panels(clock_sequence))
+needed_cpgs_union <- function(clock_sequence, packs = NULL) {
+  panels_union(clock_panels(clock_sequence, packs))
 }
 
 # Per-clock present/absent CpG sets over usable_cols.

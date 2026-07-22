@@ -390,7 +390,7 @@ usable column universe, the same for every sample:
 |---|---|
 | `clock_id` | Score column / catalog id |
 | `norm_needed` / `norm_present` | Normalization / background panel (Zhang, QN clocks); `NA` when none |
-| `score_needed` | Scoring CpGs (materialized `probe_sets[role=scoring]`) |
+| `score_needed` | Scoring CpGs (materialized `probe_sets[role=scoring]`; external groups: the pack's `$cpgs`) |
 | `score_present` | Scoring CpGs found in `usable_cols` (colnames minus all-NA, §2.3a) |
 | `score_used` | Terms that entered the sum |
 | `score_imputed_partial` | Present-but-NA cells filled from the **cohort** cache |
@@ -705,7 +705,9 @@ unexpected value), but the field itself stays on the maintainer side (manifest),
   accessors, coverage math, and result-class methods. Golden values tie to nothing upstream ->
   zero drift.
 - **`sim_DNAm` smoke -- always run, no meta/cohort dependency, no golden.** `sim_DNAm(n, clocks)`
-  ([`R/sim_DNAm.R`](../R/sim_DNAm.R)) reads the shipped `mc_catalog` scoring probe sets and throws
+  ([`R/sim_DNAm.R`](../R/sim_DNAm.R)) reads scoring probe sets via `clock_scoring_cpgs()` -- the
+  shipped `mc_catalog` for bundled clocks, the pack for external groups, so it takes `assets` /
+  `ask` and requires the pack for an external request -- and throws
   random uniforms at them; scoring is asserted with `expect_no_error` (the data need not be
   scientifically meaningful). This exercises dispatch, coef loading, and assembly over every
   bundled clock -- and it fails loudly if a clock resolved to an empty scoring set -- without any

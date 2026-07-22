@@ -12,6 +12,45 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- External scoring panels live in the pack, not the bundled catalog
+
+**Decision.** `clock_scoring_cpgs(id, packs)` returns `pack$cpgs` for an external clock and never
+consults the catalog; `sync()` correspondingly stops writing those CpGs into `mc_catalog`
+(`drop_external_probe_cpgs()`). Panels for bundled clocks are unchanged. `clock_panels()` and
+`needed_cpgs_union()` gained a `packs` argument, and `calc_clocks()` now resolves packs *before*
+panels, since the panel is in the pack.
+
+**Why -- correctness first.** The panel was stored twice: in `mc_catalog` and in the pack. Verified
+`identical()` for all 28 external clocks today, but nothing enforced it. Packs are content-addressed
+and independently re-uploadable, so a weights update that shifted the panel would silently disagree
+with the bundled copy, and the failure mode is misaligned scoring rather than an error. One source
+kills that class of bug. It also matches the existing convention -- `clock_coefs(id, packs)` and
+`clock_impute_ref(id, packs)` already read external data from the pack; the panel was the outlier.
+
+**Why it is also the big perf lever.** External panels are 3 distinct vectors but **92%** of all
+panel elements (561,491 of 610,619; PCClocks 78,464 x 14 members, SystemsAge 125,175 x 13,
+PCBrainAge 357,852). Dropping them takes `mc_catalog` from 1.79 MB / 1.26s to **0.09 MB / 0.021s**.
+Separately, all 14 PCClocks members now receive the *same SEXP* from `pack$cpgs`, so `dedup_panels()`
+short-circuits on pointer identity and there is no per-clock `unique()` over 78k strings:
+`clock_panels()` 0.112s -> **0.008s**.
+
+**Why not a keyed panel store in sysdata.** The alternative was splitting panels into a separate
+lazy object (or per-group objects) so the catalog stays cheap while pack-free `sim_DNAm("PCClocks")`
+keeps working. Rejected: it preserves the duplication that is the actual hazard, and buys a dev
+convenience that is not worth it -- an external clock cannot be *scored* without its pack anyway, so
+a pack-free simulated panel only ever exercises machinery.
+
+**Consequence.** `sim_DNAm()` takes `assets` / `ask` and requires the pack for external clocks;
+with a cached pack the old call still works. `test-score-external.R` now mints synthetic panels for
+its in-memory packs instead of borrowing the real ones (faster, and it was circular once the pack
+owns the panel). The code change and the data change are independent: until `sync()` is re-run the
+bundled copy is simply ignored, so there is no flag day.
+
+**Not yet landed.** The 0.09 MB / 0.021s catalog needs a `sync()` re-run to regenerate
+`R/sysdata.rda`; that is maintainer-side and was not done here.
+
+---
+
 ## 2026-07-22 -- sysdata.rda ships xz, not use_data()'s bzip2 default
 
 **Decision.** `sync()` passes `compress = "xz"` to `usethis::use_data()`, and the committed

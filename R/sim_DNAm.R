@@ -10,13 +10,23 @@ random_betas <- function(cpgs, n = 10L, seed = NULL) {
   if (is.null(seed)) draw() else withr::with_seed(seed, draw())
 }
 
-sim_DNAm <- function(clocks, n = 10, Age = FALSE, Female = FALSE, remove = 0) {
+sim_DNAm <- function(
+  clocks,
+  n = 10,
+  Age = FALSE,
+  Female = FALSE,
+  remove = 0,
+  assets = NULL,
+  ask = TRUE
+) {
   checkmate::assert_flag(Age)
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
 
   # Include transitive deps so composites have their input CpGs.
-  cpgs <- clock_cpgs(resolve_clocks_sequence(resolve_clocks(clocks)))
+  clock_sequence <- resolve_clocks_sequence(resolve_clocks(clocks))
+  packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
+  cpgs <- clock_cpgs(clock_sequence, packs)
   if (remove > 0) {
     n_drop <- min(remove, length(cpgs))
     cpgs <- cpgs[-sample.int(length(cpgs), n_drop)]
@@ -66,9 +76,9 @@ print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
   invisible(x)
 }
 
-clock_cpgs <- function(clock_ids) {
+clock_cpgs <- function(clock_ids, packs = NULL) {
   results <- lapply(clock_ids, function(cid) {
-    scoring <- clock_scoring_cpgs(cid)
+    scoring <- clock_scoring_cpgs(cid, packs)
     if (!length(scoring)) {
       return(NULL)
     }
