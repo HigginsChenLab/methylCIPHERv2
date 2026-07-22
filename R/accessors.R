@@ -107,7 +107,11 @@ clock_impute_ref <- function(id, packs = NULL) {
 
 # Linear reduction: "mean" if recipe has linear_mean, else "sum".
 clock_reduction <- function(id) {
-  ops <- vapply(clock_entry(id)$recipe, function(s) as.character(s$op), character(1))
+  ops <- vapply(
+    clock_entry(id)$recipe,
+    function(s) as.character(s$op),
+    character(1)
+  )
   if ("linear_mean" %in% ops) "mean" else "sum"
 }
 
@@ -289,7 +293,10 @@ clock_components <- function(id) {
 # GrimAge Cox coef vector; names drive the surrogate stack.
 grimage_cox_coef <- function(id) {
   entry <- clock_entry(id)
-  model <- Filter(function(c) identical(c$row_key, "component"), entry$components)
+  model <- Filter(
+    function(c) identical(c$row_key, "component"),
+    entry$components
+  )
   if (length(model) != 1L) {
     stop(
       "grimage_cox_coef(): ",
@@ -307,7 +314,9 @@ grimage_cox_coef <- function(id) {
 grimage_rescale_params <- function(id) {
   recipe <- clock_entry(id)$recipe
   step <- Filter(
-    function(s) identical(s$op, "transform") && identical(s$name, "grimage_rescale"),
+    function(s) {
+      identical(s$op, "transform") && identical(s$name, "grimage_rescale")
+    },
     recipe
   )
   if (length(step) != 1L) {
@@ -461,7 +470,10 @@ physage_surrogates <- function(id) {
 
   # Map each linear_mean `out` (raw_*) to its coef component tensor.
   lm_ops <- Filter(function(s) identical(s$op, "linear_mean"), recipe)
-  by_out <- stats::setNames(lm_ops, vapply(lm_ops, function(s) s$out, character(1)))
+  by_out <- stats::setNames(
+    lm_ops,
+    vapply(lm_ops, function(s) s$out, character(1))
+  )
 
   lapply(order, function(raw_name) {
     op <- by_out[[raw_name]]
@@ -558,7 +570,11 @@ systemsage_raw_intercepts <- function(id) {
     clock_entry(id)$recipe
   )
   ints <- vapply(steps, function(s) as.numeric(s$intercept), numeric(1))
-  names(ints) <- sub("^raw_", "", vapply(steps, function(s) s$out, character(1)))
+  names(ints) <- sub(
+    "^raw_",
+    "",
+    vapply(steps, function(s) s$out, character(1))
+  )
   ints
 }
 
@@ -567,7 +583,9 @@ systemsage_stack_order <- function(id) {
   inputs <- as.character(unlist(systemsage_step(id, "sysscores")$inputs))
   vapply(
     inputs,
-    function(x) if (identical(x, "ap_scaled")) "Age_prediction" else sub("^raw_", "", x),
+    function(x) {
+      if (identical(x, "ap_scaled")) "Age_prediction" else sub("^raw_", "", x)
+    },
     character(1),
     USE.NAMES = FALSE
   )
@@ -586,7 +604,14 @@ systemsage_pca <- function(id, packs, order) {
   tensor_by_component <- function(name) {
     comp <- Filter(function(c) identical(c$name, name), comps)
     if (length(comp) != 1L) {
-      stop("systemsage_pca(): ", id, " lacks component '", name, "'.", call. = FALSE)
+      stop(
+        "systemsage_pca(): ",
+        id,
+        " lacks component '",
+        name,
+        "'.",
+        call. = FALSE
+      )
     }
     t <- pack$tensors[[comp[[1]]$file]]
     if (is.null(t)) {

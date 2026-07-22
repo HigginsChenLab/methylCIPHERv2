@@ -5,7 +5,7 @@
 test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   co <- clock_coefs("EpiTOC")
   ic <- clock_intercept("EpiTOC")
-  DNAm <- synthetic_betas(names(co))
+  DNAm <- random_betas(names(co), n = 6L)
 
   got <- calc_clocks(DNAm, "EpiTOC")$scores[, "EpiTOC"]
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
@@ -19,7 +19,7 @@ test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
 test_that("plain linear clocks still reduce by sum (unchanged)", {
   co <- clock_coefs("Hannum")
   ic <- clock_intercept("Hannum")
-  DNAm <- synthetic_betas(names(co)) # all present -> no absent, policy irrelevant
+  DNAm <- random_betas(names(co), n = 6L) # all present -> no absent, policy irrelevant
 
   got <- calc_clocks(DNAm, "Hannum")$scores[, "Hannum"]
   sum_form <- ic + as.numeric(DNAm[, names(co)] %*% co)
@@ -29,8 +29,13 @@ test_that("plain linear clocks still reduce by sum (unchanged)", {
 test_that("every catalog clock maps to a known score_type tag", {
   # Every catalog clock maps to an implemented scorer tag or deliberate "unsupported".
   known <- c(
-    "linear", "grimage", "fitage_member", "fitage_composite",
-    "physage", "systemsage", "unsupported"
+    "linear",
+    "grimage",
+    "fitage_member",
+    "fitage_composite",
+    "physage",
+    "systemsage",
+    "unsupported"
   )
   tags <- vapply(mc_index$clock_id, score_type, character(1))
   expect_true(all(tags %in% known))

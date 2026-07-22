@@ -11,7 +11,11 @@ member_models <- function(id) {
 }
 
 fitage_pheno <- function(ids, female, age = NULL) {
-  ph <- data.frame(ID = ids, Female = as.integer(female), stringsAsFactors = FALSE)
+  ph <- data.frame(
+    ID = ids,
+    Female = as.integer(female),
+    stringsAsFactors = FALSE
+  )
   if (!is.null(age)) {
     ph$Age <- age
   }
@@ -21,12 +25,14 @@ fitage_pheno <- function(ids, female, age = NULL) {
 test_that("a linear_sex member routes each sex to its own model and reduces by sum", {
   m <- member_models("DNAmGait_noAge") # noAge -> Female is the splitter, no model covariate
   cpgs <- union(names(m$female), names(m$male))
-  DNAm <- synthetic_betas(cpgs, n = 6L)
+  DNAm <- random_betas(cpgs, n = 6L)
   ids <- rownames(DNAm)
   female <- c(1, 1, 1, 0, 0, 0)
   pheno <- fitage_pheno(ids, female)
 
-  got <- calc_clocks(DNAm, "DNAmGait_noAge", pheno = pheno)$scores[, "DNAmGait_noAge"]
+  got <- calc_clocks(DNAm, "DNAmGait_noAge", pheno = pheno)$scores[,
+    "DNAmGait_noAge"
+  ]
 
   fem <- which(female == 1)
   mal <- which(female == 0)
@@ -46,7 +52,7 @@ test_that("absent member CpGs vendor-fill by sex median (offset, never dropped)"
   m <- member_models("DNAmGait_noAge")
   medians <- fitage_sex_medians("DNAmGait_noAge")
   cpgs <- union(names(m$female), names(m$male))
-  DNAm <- synthetic_betas(cpgs, n = 4L)
+  DNAm <- random_betas(cpgs, n = 4L)
   ids <- rownames(DNAm)
   pheno <- fitage_pheno(ids, female = rep(1L, 4L)) # all female -> one model, easy to reconstruct
 
@@ -72,14 +78,16 @@ test_that("absent member CpGs vendor-fill by sex median (offset, never dropped)"
 
 test_that("a FitAge member requires the Female covariate", {
   m <- member_models("DNAmGait_noAge")
-  DNAm <- synthetic_betas(union(names(m$female), names(m$male)), n = 3L)
+  DNAm <- random_betas(union(names(m$female), names(m$male)), n = 3L)
   expect_error(calc_clocks(DNAm, "DNAmGait_noAge", pheno = NULL))
 })
 
 # Full plan (members + GrimAgeV1): dep expansion, KDM mix, no batch stamp.
 test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stamp", {
-  cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks("DNAmFitAge")))
-  DNAm <- synthetic_betas(cpgs, n = 6L)
+  cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks(
+    "DNAmFitAge"
+  )))
+  DNAm <- random_betas(cpgs, n = 6L)
   ids <- rownames(DNAm)
   female <- c(1, 1, 1, 0, 0, 0)
   pheno <- fitage_pheno(ids, female, age = seq(40, 65, length.out = 6))
@@ -89,7 +97,13 @@ test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stam
 
   # Composite deps are auto-added as their own columns.
   expect_true(all(
-    c("DNAmFitAge", "DNAmGait_noAge", "DNAmGrip_noAge", "DNAmVO2max", "GrimAgeV1") %in%
+    c(
+      "DNAmFitAge",
+      "DNAmGait_noAge",
+      "DNAmGrip_noAge",
+      "DNAmVO2max",
+      "GrimAgeV1"
+    ) %in%
       colnames(sc)
   ))
   expect_true(all(is.finite(sc[, "DNAmFitAge"])))
@@ -103,7 +117,9 @@ test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stam
   expected <- rep(NA_real_, nrow(sc))
   for (sx in c("female", "male")) {
     rows <- if (sx == "female") which(fem_by_id == 1) else which(fem_by_id == 0)
-    if (!length(rows)) next
+    if (!length(rows)) {
+      next
+    }
     krows <- kdm[kdm$sex == sx, , drop = FALSE]
     acc <- numeric(length(rows))
     for (i in seq_len(nrow(krows))) {

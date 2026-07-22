@@ -33,7 +33,9 @@ mc_resolve_groups <- function(groups) {
     return(mc_external_groups())
   }
   groups <- unique(as.character(groups))
-  for (g in groups) mc_asset(g) # errors on any unknown id
+  for (g in groups) {
+    mc_asset(g)
+  } # errors on any unknown id
   groups
 }
 
@@ -101,7 +103,11 @@ mc_payload_hash <- function(x) {
 mc_cached_files <- function(groups = "all", assets = NULL) {
   groups <- mc_resolve_groups(groups)
   dir <- mc_cache_dir(assets)
-  files <- vapply(groups, function(g) file.path(dir, mc_asset(g)$file), character(1))
+  files <- vapply(
+    groups,
+    function(g) file.path(dir, mc_asset(g)$file),
+    character(1)
+  )
   files[file.exists(files)]
 }
 
@@ -150,12 +156,18 @@ mc_consent <- function(rows, dir, ask) {
     function(r) sprintf("%s (%s)", r$group_id, mc_bytes(r$size_bytes)),
     character(1)
   )
-  total <- mc_bytes(sum(vapply(rows, function(r) as.numeric(r$size_bytes), numeric(1))))
+  total <- mc_bytes(sum(vapply(
+    rows,
+    function(r) as.numeric(r$size_bytes),
+    numeric(1)
+  )))
   if (!interactive()) {
     stop(
       "Refusing to download ",
       paste(labels, collapse = ", "),
-      " [", total, " total] without confirmation in a non-interactive session.\n",
+      " [",
+      total,
+      " total] without confirmation in a non-interactive session.\n",
       "Pass ask = FALSE to consent, or pre-stage the file(s) and point `assets` at them.",
       call. = FALSE
     )
@@ -170,7 +182,10 @@ mc_consent <- function(rows, dir, ask) {
   if (!isTRUE(ok)) {
     stop(
       "Download declined for ",
-      paste(vapply(rows, function(r) r$group_id, character(1)), collapse = ", "),
+      paste(
+        vapply(rows, function(r) r$group_id, character(1)),
+        collapse = ", "
+      ),
       ".",
       call. = FALSE
     )
@@ -228,7 +243,11 @@ mc_canonicalize_assets <- function(assets) {
   if (is_pack(assets)) {
     return(stats::setNames(list(assets), assets$group_id))
   }
-  if (is.list(assets) && length(assets) && all(vapply(assets, is_pack, logical(1)))) {
+  if (
+    is.list(assets) &&
+      length(assets) &&
+      all(vapply(assets, is_pack, logical(1)))
+  ) {
     return(stats::setNames(
       assets,
       vapply(assets, function(p) as.character(p$group_id), character(1))
@@ -250,7 +269,9 @@ load_mc_assets <- function(groups, assets = NULL, ask = TRUE) {
   if (!length(groups)) {
     return(stats::setNames(list(), character(0)))
   }
-  for (g in groups) mc_asset(g) # errors on any unknown id
+  for (g in groups) {
+    mc_asset(g)
+  } # errors on any unknown id
 
   canon <- mc_canonicalize_assets(assets)
 

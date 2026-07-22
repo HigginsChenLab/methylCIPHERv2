@@ -165,7 +165,9 @@ calc_clocks <- function(
   }
 
   # Freeze batch id for cohort/sample-dependent clocks so cbind can refuse mismatched batches.
-  batch_set_id <- if (any(vapply(output_ids, clock_batch_dependent, logical(1)))) {
+  batch_set_id <- if (
+    any(vapply(output_ids, clock_batch_dependent, logical(1)))
+  ) {
     digest::digest(sort(sample_id))
   } else {
     NULL
