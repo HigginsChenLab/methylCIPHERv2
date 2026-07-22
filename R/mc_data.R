@@ -1,6 +1,6 @@
 # External clock-data packs: content-addressed qs2 files fetched on demand.
 
-MC_RELEASE_REPO <- "hhp94/methylCIPHER"
+MC_DEFAULT_RELEASE_REPO <- "hhp94/methylCIPHERv2"
 
 # registry
 
@@ -38,7 +38,7 @@ mc_resolve_groups <- function(groups) {
 
 # Public release-asset URL (option override for forks/testing).
 mc_asset_url <- function(row) {
-  repo <- getOption("methylCIPHER.release_repo", MC_RELEASE_REPO)
+  repo <- getOption("mc.release_repo", MC_DEFAULT_RELEASE_REPO)
   sprintf(
     "https://github.com/%s/releases/download/%s/%s",
     repo,
@@ -51,7 +51,7 @@ mc_asset_url <- function(row) {
 
 # CRAN-sanctioned per-user cache directory.
 mc_default_cache_dir <- function() {
-  path.expand(tools::R_user_dir("methylCIPHER", which = "cache"))
+  path.expand(tools::R_user_dir("methylCIPHERv2", which = "cache"))
 }
 
 nz1 <- function(x) length(x) == 1L && !is.na(x) && nzchar(x)
@@ -61,11 +61,11 @@ mc_cache_dir <- function(assets = NULL) {
   if (nz1(assets)) {
     return(path.expand(assets))
   }
-  opt <- getOption("methylCIPHER.cache_dir")
+  opt <- getOption("mc.cache_dir")
   if (nz1(opt)) {
     return(path.expand(opt))
   }
-  env <- Sys.getenv("METHYLCIPHER_CACHE_DIR", unset = "")
+  env <- Sys.getenv("MC_CACHE_DIR", unset = "")
   if (nz1(env)) {
     return(path.expand(env))
   }

@@ -22,7 +22,7 @@ where action is "created" | "uploaded" | "skipped"; every human-readable line
 goes to stderr so it cannot corrupt that stdout contract.
 
 Auth: GITHUB_TOKEN or GH_TOKEN in the environment (sync.R injects the upload PAT,
-sourced from METHYLCIPHER_UPLOAD_PAT, into this child process only). No gh CLI dependency.
+sourced from MC_UPLOAD_PAT, into this child process only). No gh CLI dependency.
 """
 
 from __future__ import annotations
@@ -40,7 +40,7 @@ def log(*args: object) -> None:
 
 def notes_for(group_id: str) -> str:
     return (
-        f"External clock data for `{group_id}` (methylCIPHER). "
+        f"External clock data for `{group_id}` (methylCIPHERv2). "
     )
 
 

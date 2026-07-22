@@ -1219,9 +1219,9 @@ parse_github_owner_repo <- function(url) {
   )
 }
 
-# Release target: env METHYLCIPHER_RELEASE_REPO, else package origin remote.
+# Release target: env MC_RELEASE_REPO, else package origin remote.
 package_release_repo <- function() {
-  env <- Sys.getenv("METHYLCIPHER_RELEASE_REPO", unset = "")
+  env <- Sys.getenv("MC_RELEASE_REPO", unset = "")
   if (nzchar(env)) {
     if (grepl("/", env) && !grepl("github\\.com", env)) {
       return(list(
@@ -1242,7 +1242,7 @@ package_release_repo <- function() {
   parsed <- parse_github_owner_repo(url)
   if (is.null(parsed)) {
     stop(
-      "Cannot resolve package GitHub repo for releases. Set METHYLCIPHER_RELEASE_REPO=owner/repo ",
+      "Cannot resolve package GitHub repo for releases. Set MC_RELEASE_REPO=owner/repo ",
       "or configure git remote origin.",
       call. = FALSE
     )
@@ -1251,7 +1251,7 @@ package_release_repo <- function() {
 }
 
 package_release_target_commitish <- function() {
-  env <- Sys.getenv("METHYLCIPHER_RELEASE_TARGET", unset = "")
+  env <- Sys.getenv("MC_RELEASE_TARGET", unset = "")
   if (nzchar(env)) {
     return(env)
   }
@@ -1281,9 +1281,9 @@ uv_bin <- function() {
   w
 }
 
-# Prefer METHYLCIPHER_UPLOAD_PAT over GITHUB_PAT.
+# Prefer MC_UPLOAD_PAT over GITHUB_PAT.
 upload_pat <- function() {
-  for (v in c("METHYLCIPHER_UPLOAD_PAT", "GITHUB_TOKEN", "GH_TOKEN")) {
+  for (v in c("MC_UPLOAD_PAT", "GITHUB_TOKEN", "GH_TOKEN")) {
     pat <- Sys.getenv(v, unset = "")
     if (nzchar(pat)) return(pat)
   }
@@ -1298,7 +1298,7 @@ upload_external_assets <- function(assets) {
   pat <- upload_pat()
   if (!nzchar(pat)) {
     stop(
-      "upload=TRUE requires a GitHub token in METHYLCIPHER_UPLOAD_PAT ",
+      "upload=TRUE requires a GitHub token in MC_UPLOAD_PAT ",
       "(a fine-grained PAT with Contents:read/write on the package repo). ",
       "Set it in ~/.Renviron, and keep it OUT of GITHUB_PAT/GITHUB_TOKEN so it ",
       "does not shadow the broad token remotes::install_github() reads. ",

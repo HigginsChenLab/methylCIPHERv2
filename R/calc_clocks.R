@@ -200,7 +200,7 @@ calc_clocks <- function(
     NULL
   }
 
-  construct_methylCIPHER(
+  construct_mc_result(
     results[output_ids],
     output_ids,
     clock_ids,
@@ -210,8 +210,8 @@ calc_clocks <- function(
   )
 }
 
-# Stack scorer outputs into the methylCIPHER record.
-construct_methylCIPHER <- function(
+# Stack scorer outputs into the mc_result record.
+construct_mc_result <- function(
   results,
   output_ids,
   requested_ids,
@@ -249,6 +249,6 @@ construct_methylCIPHER <- function(
         batch_set_id = batch_set_id
       )
     ),
-    class = "methylCIPHER_result"
+    class = "mc_result"
   )
 }
