@@ -67,9 +67,6 @@ FIELD_REGISTRY <- c(
 # Build-time only; stripped after resolution.
 CATALOG_BUILD_ONLY_FIELDS <- c("covers", "shared")
 
-# Local paths stripped from catalog embedded in packs.
-CATALOG_PACK_DROP_FIELDS <- c("meta_path", "coef_path")
-
 trim_build_only_fields <- function(clocks) {
   lapply(clocks, function(e) {
     e[CATALOG_BUILD_ONLY_FIELDS] <- NULL
@@ -100,7 +97,6 @@ EXTERNAL_FIELDS <- c(
   "model_key",
   "depends"
 )
-FIXTURE_FIELDS <- c("expected", "oracle", "parity_policy", "parity_metric")
 RECIPE_STEP_DROP <- c("note")
 
 # Keep named fields; preserves explicit JSON nulls.
@@ -808,8 +804,10 @@ cbind_aligned <- function(tensors, rels, cpgs, col_names) {
   mat
 }
 
-# Canonical probe order from longest named vec.
-resolve_cpgs <- function(tensors, group_id) {
+# Canonical probe order for an external pack, from the longest named vec. The pack
+# stores this order once and its matrices are aligned to it, so the per-tensor CpG
+# names are dropped. Bundled groups keep names on each tensor and never need this.
+pack_canonical_cpgs <- function(tensors, group_id) {
   is_named_num <- vapply(
     tensors,
     function(x) {
@@ -868,7 +866,7 @@ residual_tensors <- function(tensors, used_rels) {
 encode_pcclocks <- function(bundle) {
   tensors <- bundle$tensors
   gid <- "PCClocks"
-  resolved <- resolve_cpgs(tensors, gid)
+  resolved <- pack_canonical_cpgs(tensors, gid)
   cpgs <- resolved$cpgs
 
   coef_rels <- grep(
@@ -921,7 +919,7 @@ SYSTEMSAGE_ORGANS <- c(
 encode_systemsage <- function(bundle) {
   tensors <- bundle$tensors
   gid <- "SystemsAge"
-  resolved <- resolve_cpgs(tensors, gid)
+  resolved <- pack_canonical_cpgs(tensors, gid)
   cpgs <- resolved$cpgs
 
   organ_rels <- file.path(
@@ -968,7 +966,7 @@ encode_systemsage <- function(bundle) {
 encode_pcbrainage <- function(bundle) {
   tensors <- bundle$tensors
   gid <- "PCBrainAge"
-  resolved <- resolve_cpgs(tensors, gid)
+  resolved <- pack_canonical_cpgs(tensors, gid)
   cpgs <- resolved$cpgs
 
   coef_rel <- "weights/PCBrainAge/PCBrainAge.csv.gz"
@@ -1009,15 +1007,14 @@ encode_external_asset <- function(bundle) {
   }
 }
 
-# Runtime registry row for mc_provenance.
+# Runtime registry row for mc_provenance. The content address lives in the
+# filename (<group>-<payload_hash>.qs2), so it is not repeated as a field.
 external_asset_registry_row <- function(a) {
   list(
     group_id = a$group_id,
-    payload_hash = a$payload_hash,
     # release_tag is <group>-<hash>; bare 64-hex tags are rejected by GitHub.
     release_tag = a$release_tag %||% sub("\\.qs2$", "", a$file %||% ""),
     file = a$file,
-    file_sha256 = a$file_sha256,
     size_bytes = a$size_bytes,
     encoding = a$encoding,
     encoding_version = a$encoding_version,
@@ -1119,7 +1116,6 @@ build_sysdata <- function(
     external_assets = ext_reg
   )
 
-  # xz over use_data()'s bzip2 default: 5x smaller and 2.4x faster to load.
   usethis::use_data(
     mc_catalog,
     mc_groups,
@@ -1128,7 +1124,7 @@ build_sysdata <- function(
     mc_provenance,
     internal = TRUE,
     overwrite = TRUE,
-    compress = "xz"
+    compress = "gzip"
   )
 
   path <- file.path("R", "sysdata.rda")
@@ -1158,7 +1154,8 @@ build_sysdata <- function(
 QS2_COMPRESS_LEVEL <- 1L
 QS2_SHUFFLE <- FALSE
 
-# Canonical pack for hash + qs_save.
+# Canonical pack for hash + qs_save. Carries weights only: the catalog and group
+# metadata live in sysdata (mc_catalog/mc_groups), which is what the runtime reads.
 stable_external_payload <- function(bundle) {
   for (f in EXTERNAL_PIN_FIELDS) {
     bundle[[f]] <- NULL
@@ -1167,18 +1164,6 @@ stable_external_payload <- function(bundle) {
   tensors <- bundle$tensors %||% list()
   if (length(tensors) && !is.null(names(tensors))) {
     tensors <- tensors[sort(names(tensors))]
-  }
-
-  catalog <- bundle$catalog %||% list()
-  if (length(catalog)) {
-    catalog <- trim_build_only_fields(catalog)
-    catalog <- lapply(catalog, function(e) {
-      e[CATALOG_PACK_DROP_FIELDS] <- NULL
-      e
-    })
-  }
-  if (length(catalog) && !is.null(names(catalog))) {
-    catalog <- catalog[sort(names(catalog))]
   }
 
   clocks <- as.character(bundle$clocks %||% character())
@@ -1194,8 +1179,6 @@ stable_external_payload <- function(bundle) {
     group_id = as.character(bundle$group_id %||% NA_character_),
     clocks = clocks,
     schema_version = bundle$schema_version,
-    catalog = if (length(catalog)) catalog else NULL,
-    group = bundle$group,
     cpgs = bundle$cpgs,
     coefficient_matrix = bundle$coefficient_matrix,
     organs = bundle$organs,
@@ -1214,10 +1197,6 @@ payload_hash_of <- function(payload) {
     algo = "sha256",
     serialize = FALSE
   )
-}
-
-file_sha256_of <- function(path) {
-  digest::digest(file = path, algo = "sha256")
 }
 
 # GitHub release target
@@ -1337,8 +1316,7 @@ upload_external_assets <- function(assets) {
       group_id = as.character(a$group_id %||% ""),
       tag = as.character(a$release_tag %||% ""),
       path = as.character(fs::path_real(fpath)),
-      name = as.character(a$file %||% basename(fpath)),
-      sha256 = as.character(a$file_sha256 %||% "")
+      name = as.character(a$file %||% basename(fpath))
     )
   })
 
@@ -1409,8 +1387,6 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
     bundle <- encode_external_asset(raw_bundle)
     bundle$schema_version <- catalog$schema_version
     bundle$encoding_version <- EXTERNAL_ENCODING_VERSION
-    bundle$catalog <- catalog$clocks[bundle$clocks]
-    bundle$group <- catalog$groups[[gid]]
 
     payload <- stable_external_payload(bundle)
     phash <- payload_hash_of(payload)
@@ -1427,7 +1403,6 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
     )
 
     sz <- file.info(fpath)$size
-    fsha <- file_sha256_of(fpath)
     n_cpgs <- length(payload$cpgs %||% character())
     message(sprintf(
       "sync: wrote %s (%.2f MB; payload_hash=%s; n_cpgs=%s)",
@@ -1442,7 +1417,6 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
       file = fname,
       payload_hash = phash,
       release_tag = rtag,
-      file_sha256 = fsha,
       size_bytes = as.integer(sz),
       n_clocks = length(payload$clocks %||% character()),
       n_cpgs = n_cpgs,

@@ -12,6 +12,92 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- one hash, not four: `file_sha256` and the runtime drift re-hash are gone
+
+**Decision.** The external-pack layer keeps exactly two integrity mechanisms, and neither costs
+anything at score time:
+
+- **`payload_hash`** (maintainer-side, build) -> pack filename + release tag. This *is* the
+  "don't re-upload unchanged weights" guard, via the content-addressed name plus `gh_upload.py`'s
+  `get_release(tag)` + asset-name skip. Kept.
+- **qs2's `validate_checksum`** on read -> transfer integrity and bit rot. Kept; free.
+
+Removed:
+
+1. **`file_sha256` entirely** -- `file_sha256_of()`, the field on the shipped registry row, and the
+   `sha256` key in the `gh_upload.py` stdin manifest. It was dead in both directions: no R code read
+   it out of `mc_provenance`, and `gh_upload.py` only ever used `group_id`/`tag`/`path`/`name` --
+   the `sha256` it was handed was never referenced. The 2026-07-21 entry already called it a
+   "candidate for later removal"; this completes that.
+2. **The runtime `payload_hash` drift check** (`mc_payload_hash()` + the WARN in `mc_read_pack()`,
+   both deleted; `load_mc_assets()` now calls `qs2::qs_read()` directly). This reverses the
+   2026-07-21 "the recompute is cheap belt-and-braces" line, which measurement did not support:
+   re-serializing and hashing the PCClocks payload cost **0.204s against 0.203s for the entire
+   `qs_read`**, i.e. it doubled every load. What it bought was near-zero -- the filename is
+   `<group>-<payload_hash>.qs2`, so a name match already asserts the content address, and the only
+   scenario it caught was a deliberately mis-named cache file.
+3. **`payload_hash` as a registry-row field** -- redundant with `file`/`release_tag`, which embed it.
+
+**Why now.** The package is pre-alpha and moving fast; layered hashes and warn-only checks are
+friction on the path that has to stay quick, and they were guarding against failure modes that
+either cannot happen (content-addressed names) or are already covered (qs2 checksum). Correctness is
+the parity fixtures' job, not a hash's.
+
+**Cost.** Changes the shape of `mc_provenance$external_assets` rows. Nothing reads the dropped
+fields, so the currently shipped `sysdata.rda` stays loadable until the next `sync()`.
+
+**Also swept in the same pass** (all confirmed unreferenced across `R/` and `tests/`):
+`mc_set_cache_dir()` (the `methylCIPHER.cache_dir` option is still honored by `mc_cache_dir()`),
+`FIXTURE_FIELDS` in sync.R (`prune_fixture()` hand-builds its stub and never used it), and
+`R/generics.R` -- whose `rbind.methylCIPHER` was an empty stub registered on class `methylCIPHER`
+while records are actually classed `methylCIPHER_result`, so it could never have dispatched.
+
+---
+
+## 2026-07-22 -- external packs carry weights only; scorer tags name the branch they run
+
+**Decision.** Three related cleanups, all found by tracing sync.R -> `calc_clocks()` end to end.
+
+1. **`catalog` and `group` are dropped from the external pack payload**
+   (`stable_external_payload()` in [sync.R](../data-raw/sync.R)). This completes the 2026-07-21
+   "external scoring panels come from the pack, not the catalog" split, which only did half the
+   job: `drop_external_probe_cpgs()` stripped the resolved panels from the shipped `mc_catalog`,
+   but `bundle$catalog <- catalog$clocks[...]` put a *second*, unstripped copy back inside the
+   pack. Measured on the PCClocks pack: `pack$catalog` was **75.5 MB of an 89.9 MB in-memory
+   pack**, because all 14 member entries each carried a full 78,464-element `probe_sets$cpgs`
+   vector that is `identical()` to the `pack$cpgs` sitting next to it. The genuine metadata is
+   71.8 KB. Nothing in `R/` or `tests/` ever read `pack$catalog` or `pack$group` -- the runtime
+   reads `mc_catalog`/`mc_groups`, per the "accessors are the executable schema" invariant.
+   Same reasoning as the 2026-07-17 F1 entry (write-only fields leaking into `payload_hash`).
+
+2. **`payload_hash` gets closer to "moves only when the weights move."** Dropping the embedded
+   catalog removes the largest source of hash churn that is not a weight: previously any catalog
+   metadata edit (a `pmid`, a fixture stub, a recipe `note`) re-minted all three release tags.
+   `schema_version` and `encoding_version` remain in the payload and still churn it; that is
+   intentional (a layout change *must* re-mint) but it means a schema bump alone re-uploads
+   unchanged weights.
+
+3. **Scorer tags name their branch.** `score_type()` returned `"linear"` for PCClocks/PCBrainAge
+   members and `"linear"`/`"systemsage"` for SystemsAge members, but `calc_clocks()` discarded
+   the value for every external clock and dispatched on `clock_is_external()` + `group_id`
+   instead -- so the tag documented a branch that never ran. Tags are now `pack_linear` and
+   `pack_systemsage`, `is_pack_scored()` is the single predicate behind both `pack_groups_needed()`
+   and the `is_pack` split, and `score_pack_group()` switches on the tag. No behavior change:
+   SystemsAge organ sub-clocks were already routed to `score_systemsage_group()` (which splits
+   organs from composites internally) despite being tagged `"linear"`.
+
+**Cost.** (1) changes `payload_hash` for all three groups, so the next `sync(upload = TRUE)`
+re-mints and re-uploads them once. Worth it: it is also a large cut to the download and to
+resident memory per pack.
+
+**Also.** Renamed sync's `resolve_cpgs()` -> `pack_canonical_cpgs()` (it only exists because packs
+store one CpG-name vector for a set of order-aligned numeric tensors); the name now belongs solely
+to the runtime present/absent splitter in `R/resolve_inputs.R`. Deleted the empty `impute_DNAm()`
+stub and renamed `R/impute_DNAm.R` -> `R/missingness.R` to match what the file actually holds
+(`scan_missing_cpgs()`, `build_partial_cache()`).
+
+---
+
 ## 2026-07-22 -- External scoring panels live in the pack, not the bundled catalog
 
 **Decision.** `clock_scoring_cpgs(id, packs)` returns `pack$cpgs` for an external clock and never

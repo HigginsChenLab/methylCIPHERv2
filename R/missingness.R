@@ -50,6 +50,3 @@ build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
   sub <- DNAm[, cache_cpgs, drop = FALSE]
   slideimp::mean_imp_col(sub, cores = cores)
 }
-
-# Apply resolved fill values to a scoring subset (caller chooses sources).
-impute_DNAm <- function(DNAm, impute_cpgs, impute_values) {}

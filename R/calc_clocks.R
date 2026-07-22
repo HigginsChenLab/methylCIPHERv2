@@ -1,13 +1,22 @@
-# Closed scorer tag for calc_clocks() dispatch.
+# Closed scorer tag for calc_clocks() dispatch. Every tag names the branch that
+# actually runs: pack_* go to score_pack_group() batched per group, the rest to
+# the per-clock switch below.
 score_type <- function(p) {
-  if (clock_is_external(p) && identical(clock_group_id(p), "SystemsAge")) {
-    if (identical(clock_weights_format(p), "cpg_coefficient")) {
-      return("linear")
-    }
-    return("systemsage")
-  }
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
+
+  # External groups route on the group, not on weights_format: every member of a
+  # pack is scored by one batched call regardless of its own format.
+  if (clock_is_external(p)) {
+    if (identical(clock_group_id(p), "SystemsAge")) {
+      return("pack_systemsage")
+    }
+    if (wf == "cpg_coefficient" && ct %in% c("linear", "linear_transformed")) {
+      return("pack_linear")
+    }
+    return("unsupported")
+  }
+
   if (identical(clock_group_id(p), "Dunedin")) {
     return("dunedin")
   }
@@ -34,14 +43,17 @@ score_type <- function(p) {
   )
 }
 
+# Tags scored by score_pack_group() rather than the per-clock switch.
+PACK_SCORE_TYPES <- c("pack_linear", "pack_systemsage")
+
+is_pack_scored <- function(p) {
+  score_type(p) %in% PACK_SCORE_TYPES
+}
+
 # External pack groups a compute sequence needs loaded.
 pack_groups_needed <- function(clock_sequence) {
   unique(unlist(lapply(clock_sequence, function(p) {
-    if (clock_is_external(p) && !identical(score_type(p), "unsupported")) {
-      clock_group_id(p)
-    } else {
-      NULL
-    }
+    if (is_pack_scored(p)) clock_group_id(p) else NULL
   })))
 }
 
@@ -116,13 +128,7 @@ calc_clocks <- function(
   names(results) <- clock_sequence
 
   # External-pack groups: one batched matmul per group.
-  is_pack <- vapply(
-    clock_sequence,
-    function(p) {
-      clock_is_external(p) && !identical(score_type(p), "unsupported")
-    },
-    logical(1)
-  )
+  is_pack <- vapply(clock_sequence, is_pack_scored, logical(1))
   if (any(is_pack)) {
     pack_ids <- clock_sequence[is_pack]
     pgroups <- vapply(pack_ids, clock_group_id, character(1))

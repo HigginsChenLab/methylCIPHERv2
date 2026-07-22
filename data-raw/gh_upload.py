@@ -5,15 +5,15 @@ Called from data-raw/sync.R (upload = TRUE) as:
     uv run python data-raw/gh_upload.py   # upload manifest arrives on stdin
 
 Replaces the former `gh` CLI path: PyGithub hits the REST API directly, so there
-are no Windows argv-quoting workarounds. Identity is decided upstream in R --
-`tag` is the release_tag (<group>-<hash>, since GitHub rejects a bare 40/64-hex tag)
-and `sha256` the file hash -- so this script only *publishes*; it never computes or
-reasons about content identity.
+are no Windows argv-quoting workarounds. Identity is decided upstream in R -- `tag`
+is the release_tag (<group>-<hash>, since GitHub rejects a bare 40/64-hex tag) and
+the content address is already in `name` -- so this script only *publishes*; it
+never computes or reasons about content identity.
 
 stdin manifest:
     {"slug": "owner/repo",
      "target_commitish": "main",
-     "assets": [{"group_id","tag","path","name","sha256"}, ...]}
+     "assets": [{"group_id","tag","path","name"}, ...]}
 
 Per asset: ensure a release for `tag` exists (create with notes if missing), then
 attach `name` if not already present (else skip). The ONLY thing written to
