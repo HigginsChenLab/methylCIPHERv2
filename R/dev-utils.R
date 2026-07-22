@@ -7,3 +7,10 @@ test_parity <- function(filter = "fixtures-parity", ...) {
     devtools::test(filter = filter, ...)
   )
 }
+
+scratch <- function() {
+  if(!dir.exists("dev")) {
+    dir.create("dev")
+  }
+  file.edit("dev/scratch.R")
+}
