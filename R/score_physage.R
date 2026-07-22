@@ -46,7 +46,11 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
         partial_cache = partial_cache,
         id = s$name
       )
-      absent_offset <- if (length(absent)) sum(coef[absent] * ref[absent]) else 0
+      absent_offset <- if (length(absent)) {
+        sum(coef[absent] * ref[absent])
+      } else {
+        0
+      }
       raw <- (as.numeric(lp$cpg_contrib) + absent_offset) / length(coef)
       if (s$negate) -raw else raw
     },

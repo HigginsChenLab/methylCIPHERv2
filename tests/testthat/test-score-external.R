@@ -25,13 +25,14 @@ test_that("calc_clocks() scores an external clock from an in-memory pack (closed
   cpgs <- clock_scoring_cpgs("PCBrainAge")
   coef_vec <- withr::with_seed(42, stats::rnorm(length(cpgs)))
   pack <- fake_pcbrainage_pack(coef_vec)
-  DNAm <- synthetic_betas(cpgs, n = 3L)
+  DNAm <- random_betas(cpgs, n = 3L)
 
   res <- calc_clocks(DNAm, "PCBrainAge", assets = pack)
   got <- res$scores[, "PCBrainAge"]
 
   # Full coverage -> no impute; sum reduction, identity transform.
-  expected <- clock_intercept("PCBrainAge") + as.numeric(DNAm[, cpgs] %*% coef_vec)
+  expected <- clock_intercept("PCBrainAge") +
+    as.numeric(DNAm[, cpgs] %*% coef_vec)
   expect_equal(unname(got), unname(expected), tolerance = 1e-9)
   # No absent CpGs were vendor-filled.
   expect_identical(res$coverage$per_clock$PCBrainAge$score_imputed_full, 0L)
@@ -48,7 +49,7 @@ test_that("calc_clocks() vendor-fills absent external CpGs from the pack $impute
   # Drop a handful of CpGs from the input so they must be vendor-filled.
   drop <- cpgs[1:5]
   present <- setdiff(cpgs, drop)
-  DNAm <- synthetic_betas(cpgs, n = 3L)[, present, drop = FALSE]
+  DNAm <- random_betas(cpgs, n = 3L)[, present, drop = FALSE]
 
   res <- calc_clocks(DNAm, "PCBrainAge", assets = pack)
   got <- res$scores[, "PCBrainAge"]
@@ -62,7 +63,7 @@ test_that("calc_clocks() vendor-fills absent external CpGs from the pack $impute
 
 test_that("calc_clocks() on an external clock errors (closed set) when its pack is absent", {
   cpgs <- clock_scoring_cpgs("PCBrainAge")
-  DNAm <- synthetic_betas(cpgs, n = 2L)
+  DNAm <- random_betas(cpgs, n = 2L)
   # A closed set that carries the wrong group cannot satisfy PCBrainAge; no download.
   wrong <- list(
     group_id = "PCClocks",
@@ -78,10 +79,69 @@ test_that("calc_clocks() on an external clock errors (closed set) when its pack 
 # is re-derived in-test for the golden; real cohort parity is the science gate
 # (test-fixtures-parity.R, pack-gated).
 
+# Synthetic SystemsAge pack over `cpgs`: organ/system coef columns, an age vector, and
+# vendor means, plus a small self-consistent systems_PCA tensor tree keyed by the
+# catalog's component file paths. Values are deterministic (seeded); goldens are the
+# recipe math computed in-test. Mirrors the real encode_systemsage() layout.
+fake_systemsage_pack <- function(cpgs, seed = 1L) {
+  order <- systemsage_stack_order("SystemsAge") # 12 labels, stack order
+  organs <- setdiff(order, "Age_prediction") # 11 organ labels
+  ncpg <- length(cpgs)
+  pcs <- paste0("PC", seq_len(12L))
+  comp_file <- function(name) {
+    comp <- Filter(
+      function(x) identical(x$name, name),
+      clock_components("SystemsAge")
+    )
+    comp[[1]]$file
+  }
+  withr::with_seed(seed, {
+    organs_mat <- matrix(
+      stats::rnorm(ncpg * 11L),
+      ncpg,
+      11L,
+      dimnames = list(NULL, organs)
+    )
+    systems_mat <- matrix(
+      stats::rnorm(ncpg * 11L),
+      ncpg,
+      11L,
+      dimnames = list(NULL, organs)
+    )
+    age_vec <- stats::rnorm(ncpg)
+    impute_vec <- stats::runif(ncpg)
+    rot <- matrix(stats::rnorm(144L), 12L, 12L)
+    center <- stats::setNames(stats::rnorm(12L), order)
+    scale <- stats::setNames(stats::runif(12L, 0.5, 1.5), order)
+    model <- stats::setNames(stats::rnorm(12L), pcs)
+  })
+  rot_df <- cbind(
+    data.frame(system = order, stringsAsFactors = FALSE),
+    stats::setNames(as.data.frame(rot), pcs)
+  )
+  list(
+    group_id = "SystemsAge",
+    cpgs = cpgs,
+    organs = organs_mat,
+    systems = systems_mat,
+    age = age_vec,
+    impute = impute_vec,
+    tensors = stats::setNames(
+      list(center, scale, rot_df, model),
+      c(
+        comp_file("systems_pca_center"),
+        comp_file("systems_pca_scale"),
+        comp_file("systems_pca_rotation"),
+        comp_file("systems_model")
+      )
+    )
+  )
+}
+
 test_that("calc_clocks() scores a SystemsAge organ sub-clock via the pack $organs column", {
   cpgs <- clock_scoring_cpgs("SystemsAge")
   pack <- fake_systemsage_pack(cpgs)
-  DNAm <- synthetic_betas(cpgs, n = 3L)
+  DNAm <- random_betas(cpgs, n = 3L)
 
   res <- calc_clocks(DNAm, "Blood", assets = pack)
   got <- res$scores[, "Blood"]
@@ -96,7 +156,7 @@ test_that("calc_clocks() scores a SystemsAge organ sub-clock via the pack $organ
 test_that("calc_clocks() scores Age_prediction (age-linear front + quadratic) from the pack", {
   cpgs <- clock_scoring_cpgs("SystemsAge")
   pack <- fake_systemsage_pack(cpgs)
-  DNAm <- synthetic_betas(cpgs, n = 3L)
+  DNAm <- random_betas(cpgs, n = 3L)
 
   res <- calc_clocks(DNAm, "Age_prediction", assets = pack)
   got <- res$scores[, "Age_prediction"]
@@ -114,7 +174,7 @@ test_that("calc_clocks() scores Age_prediction (age-linear front + quadratic) fr
 test_that("calc_clocks('SystemsAge') scores the whole group (13 columns) in one closed-set call", {
   cpgs <- clock_scoring_cpgs("SystemsAge")
   pack <- fake_systemsage_pack(cpgs)
-  DNAm <- synthetic_betas(cpgs, n = 3L)
+  DNAm <- random_betas(cpgs, n = 3L)
 
   res <- calc_clocks(DNAm, "SystemsAge", assets = pack)
   members <- mc_index$clock_id[mc_index$group_id == "SystemsAge"]
@@ -128,7 +188,7 @@ test_that("calc_clocks() vendor-fills absent SystemsAge CpGs from the pack $impu
   pack <- fake_systemsage_pack(cpgs)
   drop <- cpgs[1:4]
   present <- setdiff(cpgs, drop)
-  DNAm <- synthetic_betas(cpgs, n = 3L)[, present, drop = FALSE]
+  DNAm <- random_betas(cpgs, n = 3L)[, present, drop = FALSE]
 
   res <- calc_clocks(DNAm, "Age_prediction", assets = pack)
   got <- res$scores[, "Age_prediction"]

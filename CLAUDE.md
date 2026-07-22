@@ -118,6 +118,16 @@ refactor with no behavior change is too tight -- loosen or delete it.
   is allowed where parity is still skip-listed for that clock -- it is the only numeric gate meanwhile.
 - **Coverage counts and provenance flags are output, not internals** -- asserting
   `res$coverage$...$score_imputed_full` or `res$provenance$batch_set_id` is fair game.
+- **Minimize test-helper files.** A fixture builder or mock lives at the top of the one test file
+  that uses it; promote to a `helper-*.R` only when >= 2 test files genuinely share it. There are
+  currently no `helper-*.R` files -- cross-file helper sprawl is the smell to avoid. (`sim_DNAm` /
+  `random_betas` are shared, but they are package functions in `R/`, not test helpers.)
+- **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`). It owns a single
+  file-scoped read-only duckdb connection, opened behind a `file.exists()` guard and torn down with
+  `withr::defer(..., testthat::teardown_env())` -- not a module-global caching env.
+- **Random inputs are unseeded.** Build DNAm with `random_betas()` (no seed); value goldens are
+  computed in-test from that same matrix, so they are seed-invariant. Do not add a seed to pin a
+  value -- derive the golden from the input instead.
 
 ## ASCII-only
 

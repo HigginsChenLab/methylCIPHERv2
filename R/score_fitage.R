@@ -2,7 +2,13 @@
 # Partial NA uses the cohort cache; absent CpGs use sex-specific vendor medians.
 
 # One fitness biomarker (sex-split on Female; DNAmVO2max shares one model).
-score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NULL) {
+score_fitage_member <- function(
+  id,
+  cpgs,
+  DNAm,
+  partial_cache = NULL,
+  pheno = NULL
+) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
 
@@ -55,7 +61,11 @@ score_fitage_member <- function(id, cpgs, DNAm, partial_cache = NULL, pheno = NU
   names(sample_miss) <- sample_id
 
   sexes <- list(
-    list(rows = which(female == 1), model = models$female, med = medians$female),
+    list(
+      rows = which(female == 1),
+      model = models$female,
+      med = medians$female
+    ),
     list(rows = which(female == 0), model = models$male, med = medians$male)
   )
   for (grp in sexes) {

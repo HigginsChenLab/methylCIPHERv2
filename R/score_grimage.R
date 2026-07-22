@@ -119,7 +119,8 @@ score_grimage <- function(
 
 # Cox scale -> years: (cox - m_cox) / sd_cox * sd_age + m_age.
 grimage_rescale <- function(cox_score, params) {
-  (cox_score - params[["m_cox"]]) / params[["sd_cox"]] *
+  (cox_score - params[["m_cox"]]) /
+    params[["sd_cox"]] *
     params[["sd_age"]] +
     params[["m_age"]]
 }

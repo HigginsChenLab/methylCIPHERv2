@@ -1,5 +1,65 @@
 # External clock-data cache. Download path uses file://; live network is opt-in.
 
+# Fake external pack on disk (tiny qs2 over file://, never the network); returns the
+# provenance row it corresponds to.
+fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
+  if (is.null(payload)) {
+    payload <- list(
+      group_id = group,
+      encoding = "canonical_matrices",
+      encoding_version = 3L,
+      cpgs = c("cg00000029", "cg00000108"),
+      coefficient_matrix = matrix(1:4, 2)
+    )
+  }
+  dir.create(dir, recursive = TRUE, showWarnings = FALSE)
+  # Content hash matches the package's mc_payload_hash(): no drift warning on load.
+  phash <- mc_payload_hash(payload)
+  file <- sprintf("%s-%s.qs2", tolower(group), phash)
+  rtag <- sub("\\.qs2$", "", file) # tag = filename stem; bare hex tags rejected by GitHub.
+  src <- file.path(dir, file)
+  qs2::qs_save(payload, src)
+  list(
+    group_id = group,
+    payload_hash = phash,
+    release_tag = rtag,
+    file = file,
+    size_bytes = as.numeric(file.size(src)),
+    encoding = payload$encoding,
+    encoding_version = payload$encoding_version,
+    n_clocks = 1L,
+    n_cpgs = length(payload$cpgs),
+    .payload = payload,
+    .src = as.character(src)
+  )
+}
+
+# Mock the provenance registry + file:// download URLs for the calling test.
+local_fake_registry <- function(rows, .env = parent.frame()) {
+  if (!is.null(rows$group_id)) {
+    rows <- stats::setNames(list(rows), rows$group_id)
+  }
+  testthat::local_mocked_bindings(
+    mc_external_groups = function() names(rows),
+    mc_asset = function(group_id) {
+      row <- rows[[group_id]]
+      if (is.null(row)) {
+        stop("Not an external clock group: ", group_id, call. = FALSE)
+      }
+      row
+    },
+    # mustWork=FALSE so a deleted source still yields a URL and the download 404s.
+    mc_asset_url = function(row) {
+      paste0(
+        "file:///",
+        normalizePath(row$.src, winslash = "/", mustWork = FALSE)
+      )
+    },
+    .env = .env
+  )
+  invisible(rows)
+}
+
 test_that("mc_cache_dir() resolves a default and honours the option override", {
   withr::local_options(methylCIPHER.cache_dir = NULL)
   withr::local_envvar(METHYLCIPHER_CACHE_DIR = NA)
@@ -10,7 +70,10 @@ test_that("mc_cache_dir() resolves a default and honours the option override", {
 })
 
 test_that("the shipped registry covers the three external groups", {
-  expect_setequal(mc_external_groups(), c("SystemsAge", "PCClocks", "PCBrainAge"))
+  expect_setequal(
+    mc_external_groups(),
+    c("SystemsAge", "PCClocks", "PCBrainAge")
+  )
   for (gid in mc_external_groups()) {
     row <- mc_asset(gid)
     expect_identical(row$group_id, gid)

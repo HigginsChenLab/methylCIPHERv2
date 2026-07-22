@@ -45,5 +45,8 @@ test_that("clock_coefs() errors when the external clock is not a pack column", {
 
 test_that("bundled clocks ignore `packs` and still resolve from mc_bundles", {
   # A bundled clock's coef must be identical whether or not a (spurious) registry is passed.
-  expect_identical(clock_coefs("Hannum"), clock_coefs("Hannum", list(PCClocks = 1)))
+  expect_identical(
+    clock_coefs("Hannum"),
+    clock_coefs("Hannum", list(PCClocks = 1))
+  )
 })

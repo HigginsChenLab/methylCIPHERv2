@@ -11,7 +11,9 @@ resolve_output_transform <- function(name) {
     identity = function(x) x,
     anti.trafo = anti_trafo,
     stop(
-      "Unknown output_transform '", name, "' -- add it to the registry in score.R.",
+      "Unknown output_transform '",
+      name,
+      "' -- add it to the registry in score.R.",
       call. = FALSE
     )
   )
@@ -78,7 +80,13 @@ linear_predictor <- function(
 
 # Linear engine for one cpg_coefficient clock. Partial NA -> cohort; absent -> vendor or drop.
 # `packs` (from load_mc_assets) sources coef/impute for external clocks; NULL for bundled.
-linear_score <- function(cpgs, DNAm, partial_cache = NULL, pheno = NULL, packs = NULL) {
+linear_score <- function(
+  cpgs,
+  DNAm,
+  partial_cache = NULL,
+  pheno = NULL,
+  packs = NULL
+) {
   id <- cpgs$clock_id
   policy <- clock_impute(id)$policy
   reduction <- clock_reduction(id)
