@@ -55,8 +55,8 @@ calc_clocks(DNAm, clocks, pheno = NULL, ...)
   expand aliases        # e.g. "GrimAge" pack -- not user-facing V1/V2
   route each unit on (weights_format, computation_type):
     linear engine       # most cpg_coefficient (+ optional pre-transforms)
-    family packs        # GrimAge, SystemsAge (shared intermediates; not generic)
-    external / custom   # Dunedin*, MiAge
+    family packs        # GrimAge, SystemsAge, Dunedin (shared intermediates; not generic)
+    external / custom   # MiAge
   assemble              # methylCIPHER record: scores + coverage + provenance
 summary(result)         # data.frame from coverage (free if scorers recorded it)
 augment(result, data)   # join scores to analysis tables
@@ -128,7 +128,7 @@ external-pack rebuild; not a product pin).
 | Tier | Runs where | Job |
 |---|---|---|
 | Engine units + `sim_DNAm` smoke | Always (no meta dependency) | `linear_score` arithmetic, impute accounting, accessors, coverage math, result methods (golden values hand-authored in-test); plus `sim_DNAm` `expect_no_error` over every shipped clock |
-| Parity fixtures | Cohort staged only (`file.exists` gate) | Upstream golden fixtures vs `cohort_EPIC/beta.duckdb` -- the single clock-golden source |
+| Parity fixtures | `METHYLCIPHER_PARITY=1` + cohort staged (`file.exists` gate); dev `test_parity()` | Upstream golden fixtures vs `cohort_EPIC/beta.duckdb` -- the single clock-golden source |
 
 No shipped slice of the golden cohort (it would drift). CI may stage the cohort and run parity;
 CRAN skips it. Details -> [`detail-plan.md`](detail-plan.md) sec 10.

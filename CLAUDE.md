@@ -1,186 +1,172 @@
 # CLAUDE.md
 
-Guidance for Claude Code working in this repository. This file holds **invariants** that
-rarely change. Volatile detail (per-clock status, exact designs, dated reversals) lives in the
-`dev/` planning docs -- see "Source-of-truth docs" below and prefer those for specifics.
+Guidance for Claude Code in this repo. This file holds **invariants** that rarely change.
+Volatile detail (per-clock status, exact designs, dated reversals) lives in `dev/` -- see
+"Source-of-truth docs" and prefer it for specifics.
 
 ## What this package is
 
 `methylCIPHER` scores CpG-based DNA-methylation ("epigenetic clock") ages. One public scorer,
-`calc_clocks()`, drives everything. The scoring contract (clock catalog + coefficient tensors)
-is synced from the separate `methylCIPHER-meta` repo; fixtures are the scientific gate.
-Target is **CRAN**, not Bioconductor. R (>= 4.4).
+`calc_clocks()`, drives everything. The scoring contract (clock catalog + coefficient tensors) is
+synced from the separate `methylCIPHER-meta` repo; fixtures are the scientific gate. Target is
+**CRAN**, not Bioconductor. R (>= 4.4).
 
 ## Getting started (collaborators)
 
-`R/sysdata.rda` (the compiled clock catalog) is **committed**, so you can develop, load, and test
-without the `methylCIPHER-meta` repo or any downloads. Only regenerating the catalog needs `sync()`
-(see below), and you do not need that to contribute.
+`R/sysdata.rda` (the compiled catalog) is **committed**, so you can develop, load, and test with no
+meta repo and no downloads. Only regenerating it needs `sync()` (below), which you do not need to
+contribute.
 
 ```r
 # from the package root, in R:
 install.packages("pak")
 pak::local_install_deps(dependencies = TRUE)  # reads DESCRIPTION incl. GitHub-only Remotes
-devtools::load_all()      # attach the package for interactive work
-# no devtools::document() yet -- roxygen is deferred until the alpha (see invariants)
-devtools::test()          # always-on test tiers (cohort parity auto-skips if not staged)
-devtools::check()         # full R CMD check
+devtools::load_all()   # attach for interactive work (no document() -- roxygen deferred)
+devtools::test()       # always-on tiers (cohort parity auto-skips if not staged)
+devtools::check()      # full R CMD check
 ```
 
-Optional/soft deps (`betanorm`, `duckdb`, `DBI`, `curl`) back specific paths only; tests skip
-cleanly when they are absent.
+Soft deps (`betanorm`, `duckdb`, `DBI`, `curl`) back specific paths only; tests skip when absent.
 
 ## Non-negotiable invariants
 
 Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 
 - **One engine + a finite, closed branch set.** Every work unit routes on the catalog pair
-  `(weights_format, computation_type)` to a shared `linear_score()` or a named branch
-  (pre-transform, sex-split, family orchestrator, external, custom). There is **no** recipe
-  interpreter / walker, not even as a fallback.
+  `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
+  sex-split, family orchestrator, external, custom). There is **no** recipe interpreter/walker,
+  not even as a fallback.
 - **Result is an S3 record over `list`** (class `methylCIPHER`): `$scores` (n x k double),
-  `$coverage`, `$provenance`. Never a `matrix` subclass (it drops class + attrs on first subset).
-  All verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
+  `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset). All
+  verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
 - **Scores only.** No auto-appended phenotype columns. Align pheno by sample id, never row order.
-- **Imputation lives in one place and never crosses sources.** Partial NA on a present probe ->
-  cohort mean (shared cache); a fully absent probe -> the clock's vendored ref, or drop by policy.
-- **Accessors are the executable schema.** `calc_clocks` consumes accessors
-  (`get_clock`, `clock_coefs`, ...), never raw nested catalog lists. No hand-written `schema.md`.
-- **No network at install / build / check / CRAN test.** Double-precision coefficients only.
+- **Imputation in one place, never crossing sources.** Partial NA on a present probe -> cohort mean
+  (shared cache); a fully absent probe -> the clock's vendored ref, or drop by policy.
+- **Accessors are the executable schema.** `calc_clocks` consumes accessors (`get_clock`,
+  `clock_coefs`, ...), never raw nested catalog lists. No hand-written `schema.md`.
+- **No network at install/build/check/CRAN test.** Double-precision coefficients only.
 - **No commit SHA / pin as result provenance.** Correctness is proven by fixtures.
-- **No roxygen yet.** Do **not** write roxygen blocks or run `devtools::document()`. Document code
-  with short `#` comments only (see "Comments" below). Turning roxygen on is a **human-decided
-  override** tied to the alpha release -- there is no automatic trigger; do not add it on your own.
-  `NAMESPACE` and `man/*.Rd` are still hand-managed leftovers until then; do not regenerate them.
+- **No roxygen yet.** Do not write roxygen blocks or run `devtools::document()`; use short `#`
+  comments (see "Comments"). Turning roxygen on is a human-decided override tied to the alpha --
+  no automatic trigger. `NAMESPACE` and `man/*.Rd` stay hand-managed; do not regenerate them.
 
 ## sync.R workflow (`data-raw/sync.R`)
 
-Pulls the scoring contract from `methylCIPHER-meta` into the package. Not run at build/check --
-a maintainer runs it explicitly and commits the regenerated `R/sysdata.rda`. **You do not need
-this to contribute** (the catalog is committed). Running `sync()` needs read access to
-`methylCIPHER-meta` (private, pre-release); `sync(upload = TRUE)` additionally needs a GitHub
-token with release-write scope and is maintainer-only.
+Pulls the scoring contract from `methylCIPHER-meta` into the package. Not run at build/check -- a
+maintainer runs it and commits the regenerated `R/sysdata.rda`. **You do not need this to
+contribute** (the catalog is committed). `sync()` needs read access to `methylCIPHER-meta`
+(private, pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer-only).
 
 - **Remote:** `https://github.com/hhp94/methylCIPHER-meta.git`.
 - **Inputs R may read:** `manifest.json`, `weights/**`, `bibliography/{papers.csv,clocks.bib}`.
   **Never** `control/`, `papers/`, or `scripts/`.
 - **Entry point:** `sync(source_git_sha = NULL, upload = FALSE, force = FALSE)`.
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
-  2. **Always** rebuild catalog + accessor backing objects + small bundles -> `R/sysdata.rda`.
-     There is no build-skip cache; the rebuild is ~2s. (`manifest_key` was removed 2026-07-20.)
-  3. **External packs** (SystemsAge, PCClocks, PCBrainAge): if `force = FALSE` and
-     `data-raw/assets/lockfile.rds` hits (same `source_git_sha` and every staged pack still on
-     disk), reuse them; else rebuild the three content-addressed `<group>-<payload_hash>.qs2`
-     packs and rewrite the lockfile.
-  4. `upload = TRUE` publishes packs to GitHub Releases. Reupload is idempotent: the
-     `payload_hash` content-address (filename -> release tag) plus the remote "asset already
-     present" skip mean unchanged weights are never re-uploaded.
-- **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy
-  packs ship **external** as release assets, cached at runtime in
+  2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
+     build-skip cache).
+  3. **External packs** (SystemsAge, PCClocks, PCBrainAge): reuse when `force = FALSE` and
+     `data-raw/assets/lockfile.rds` hits (same `source_git_sha`, every staged pack on disk); else
+     rebuild the three content-addressed `<group>-<payload_hash>.qs2` packs and rewrite the lockfile.
+  4. `upload = TRUE` publishes packs to GitHub Releases; idempotent (content-address + remote
+     "asset already present" skip mean unchanged weights are never re-uploaded).
+- **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy packs
+  ship **external** as release assets, cached at runtime in
   `tools::R_user_dir("methylCIPHER", "cache")`. No silent first-use download.
-- **Identity keys:** `payload_hash` (external-pack content-address) and `file_sha256` (runtime
-  download integrity, shipped in `mc_provenance`). Both stay maintainer-side; neither reaches a
-  result record.
+- **Identity keys:** `payload_hash` (pack content-address) and `file_sha256` (download integrity,
+  shipped in `mc_provenance`). Both stay maintainer-side; neither reaches a result record.
 - **Gitignored, do not commit:** `data-raw/assets/` and `data-raw/methylCIPHER-meta/`.
 
 ## Testing
 
-Three tiers. The package is fast-moving pre-alpha, so tests guard **core functionality and
-observable output**, not implementation detail -- see "Test altitude" below.
+Three tiers. Pre-alpha and fast-moving, so tests guard **core functionality and observable
+output**, not implementation detail (see "Test altitude").
 
-- **Crash smoke (always run):** `test-sim-smoke.R` scores every bundled, supported clock through
-  `sim_DNAm()` + `calc_clocks()` with `expect_no_error`. The cheapest, most refactor-robust net --
-  it catches "a clock stopped running" without pinning any value. External clocks are excluded
-  (pack-only; `sim_DNAm()` has no scoring CpGs for them).
-- **Value goldens (always run, no meta dependency):** hand-authored engine/machinery unit tests
-  with golden values written in-test, one per scoring path (linear sum/mean, sex-split, imputation
-  offset, external pack, composites).
-- **Cohort-gated parity fixtures** (the science gate; the only clock-golden source): run against
-  `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`, skipped via `file.exists()`
-  when the cohort is not staged. CRAN skips this tier; CI may stage it.
+- **Crash smoke (always):** `test-sim-smoke.R` scores every bundled, supported clock through
+  `sim_DNAm()` + `calc_clocks()` with `expect_no_error`. Cheapest, most refactor-robust net;
+  catches "a clock stopped running" without pinning a value. External clocks excluded (pack-only).
+- **Value goldens (always, no meta dep):** hand-authored engine/machinery unit tests with goldens
+  written in-test, one per scoring path (linear sum/mean, sex-split, imputation offset, bundled
+  composites). External-pack scoring is smoke-only here; parity owns those goldens.
+- **Cohort-gated parity fixtures** (science gate; only clock-golden source): run against
+  `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`, skipped unless BOTH
+  `METHYLCIPHER_PARITY=1` and the cohort is staged (`file.exists()`). Run locally via the dev-only
+  `test_parity()` (`R/dev-utils.R`). CRAN skips this tier; CI must stage the cohort + set the flag.
 
 ### Test altitude -- keep tests loose enough to move fast
 
-Assert on what `calc_clocks()` *produces*, not on how it is wired. A test that breaks on a
-refactor with no behavior change is too tight -- loosen or delete it.
+Assert what `calc_clocks()` *produces*, not how it is wired. A test that breaks on a no-behavior
+refactor is too tight -- loosen or delete it.
 
-- **Errors: assert *that*, not the wording.** `expect_error(expr)` with no regex. Error/warning
-  text is UI; pin a message (or a condition class) only when a test must otherwise confuse two
-  distinct failure modes.
+- **Errors: assert *that*, not the wording.** `expect_error(expr)` with no regex. Pin a message or
+  condition class only when a test must otherwise confuse two distinct failure modes.
 - **No internal dispatch-tag tables.** Do not hard-code `clock_reduction()` / `score_type()` per
-  clock; prove routing through `calc_clocks()` output. The one allowed invariant is the closed-set
-  guard "every catalog clock maps to a *known* tag".
+  clock; prove routing through output. The one allowed invariant: every catalog clock maps to a
+  *known* tag.
 - **No maintainer-side plumbing shapes.** Do not assert asset filenames, release tags, download
-  URLs, or cache-dir precedence order -- none reach a result record. Test the *behavior* instead
-  (verifies on fetch, leaves no scratch, warns-not-stops on hash drift, closed set never downloads).
+  URLs, or cache-dir order -- none reach a result. Test behavior (verifies on fetch, leaves no
+  scratch, warns-not-stops on hash drift, closed set never downloads).
 - **Re-derive a recipe in-test only until parity covers it.** Once a clock has a passing parity
-  fixture, that fixture owns the numeric golden and only a smoke stays here. In-test re-derivation
-  is allowed where parity is still skip-listed for that clock -- it is the only numeric gate meanwhile.
-- **Coverage counts and provenance flags are output, not internals** -- asserting
+  fixture, that fixture owns the numeric golden and only a smoke stays. In-test re-derivation is
+  allowed where parity is still skip-listed -- the only numeric gate meanwhile.
+- **Coverage counts and provenance flags are output** -- asserting
   `res$coverage$...$score_imputed_full` or `res$provenance$batch_set_id` is fair game.
-- **Minimize test-helper files.** A fixture builder or mock lives at the top of the one test file
-  that uses it; promote to a `helper-*.R` only when >= 2 test files genuinely share it. There are
-  currently no `helper-*.R` files -- cross-file helper sprawl is the smell to avoid. (`sim_DNAm` /
-  `random_betas` are shared, but they are package functions in `R/`, not test helpers.)
-- **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`). It owns a single
-  file-scoped read-only duckdb connection, opened behind a `file.exists()` guard and torn down with
+- **Minimize test-helper files.** A fixture builder/mock lives atop the one test file that uses it;
+  promote to `helper-*.R` only when >= 2 files genuinely share it (currently none). `sim_DNAm` /
+  `random_betas` are package functions in `R/`, not test helpers.
+- **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`): a single file-scoped
+  read-only connection behind the `METHYLCIPHER_PARITY` + `file.exists()` guard, torn down with
   `withr::defer(..., testthat::teardown_env())` -- not a module-global caching env.
-- **Random inputs are unseeded.** Build DNAm with `random_betas()` (no seed); value goldens are
-  computed in-test from that same matrix, so they are seed-invariant. Do not add a seed to pin a
-  value -- derive the golden from the input instead.
+- **Random inputs are unseeded.** Build DNAm with `random_betas()` (no seed); goldens are computed
+  in-test from that same matrix, so they are seed-invariant. Derive the golden from the input, do
+  not add a seed to pin a value.
 
 ## ASCII-only
 
 Write **plain ASCII** in every file you create or edit -- no "smart" punctuation or symbols.
+Use `--`, `->`, `<=` / `>=`, `x` (not em-dash, arrow, inequality/multiplication glyphs), and spell
+out set notation.
 
 - **Hard requirement** in package sources (`R/`, `man/`, `DESCRIPTION`, `NAMESPACE`, `tests/`,
   `data-raw/*.R`): non-ASCII triggers R CMD check warnings and breaks on Windows encodings.
-- **Default everywhere else** (markdown, commit messages) too, for portability on this Windows /
-  PowerShell setup. Use `--` not an em-dash, `->` not an arrow, `"section" / "sec"` not a section
-  sign, `<=` / `>=` not the inequality glyphs, `x` not the multiplication sign, `<=` set-notation
-  spelled out. (Some existing `dev/*.md` predate this rule and still contain such glyphs; do not
-  add more, and prefer ASCII when editing those lines.)
+- **Default everywhere else** (markdown, commit messages) too, for portability. Some old `dev/*.md`
+  lines predate this rule -- do not add more, and prefer ASCII when editing them.
 
 ## Comments
 
-- Plain `#` comments are the **only** in-source documentation right now -- no roxygen (see the
-  "No roxygen yet" invariant).
-- Code comments are **short**: 1-2 sentences saying *what* the code does, not a rationale essay.
-- The *why* behind a design, and every decision or reversal, goes **only** in `dev/DECISIONS.md` --
-  never as a long explanatory comment in the source.
+- Plain `#` comments are the only in-source docs right now -- no roxygen (see invariants).
+- Keep them **short**: 1-2 sentences on *what* the code does, not a rationale essay.
+- The *why*, and every decision or reversal, goes only in `dev/DECISIONS.md`.
 
 ## Source-of-truth docs (`dev/`)
 
-The whole `dev/` folder is local-only **except** these three, which are tracked (see `.gitignore`):
+The `dev/` folder is local-only **except** these three, which are tracked:
 
 - `dev/migration-plan.md` -- compressed overview and pointers.
 - `dev/detail-plan.md` -- **canonical** long-form design (API, engine, memory, packs, sync,
-  fixtures). Prefer updating behavior specs **here**; keep the overview short.
-- `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of **why** / reversals. Add
-  an entry when a decision reverses a prior approach or is likely to be second-guessed; do not
-  restate rules already in the plans.
+  fixtures). Put behavior specs here; keep the overview short.
+- `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals. Add an
+  entry when a decision reverses a prior approach or is likely second-guessed; do not restate rules
+  already in the plans.
 
-The plans state **current truth only** -- superseded design is not annotated inline; its history
-lives solely in `dev/DECISIONS.md`. When code and a plan disagree, the code is truth: fix the
-plan and record the reconciliation in `dev/DECISIONS.md`.
+Plans state **current truth only** -- superseded design is not annotated inline; its history lives
+solely in `dev/DECISIONS.md`. When code and a plan disagree, the code is truth: fix the plan and
+record the reconciliation in `dev/DECISIONS.md`.
 
-Local-only (gitignored, not on a fresh clone): `dev/legacy/` (frozen pre-rewrite sources),
-`dev/scratch.R`, `dev/clock_tracker.csv`, and the `dev/*.py` build scripts.
+Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratch.R`,
+`dev/clock_tracker.csv`, and the `dev/*.py` build scripts.
 
 ## Contributing
 
-- Branch off `main` and open a PR; do not push directly to `main`.
+- Branch off `main` and open a PR; do not push to `main`.
 - Run `devtools::test()` before pushing. Do **not** run `devtools::document()` (no roxygen yet).
-- Reversing or second-guessing a design? Add a dated, newest-first entry to `dev/DECISIONS.md`.
-- Keep new or edited content ASCII (see above).
+- Reversing or second-guessing a design? Add a dated, newest-first `dev/DECISIONS.md` entry.
+- Keep new or edited content ASCII.
 
 ## Environment and personal overrides
 
-Keep **this** file environment-agnostic -- it is shared with collaborators on other operating
-systems and shells, so it must not assume any one machine.
+Keep **this** file environment-agnostic -- it is shared across operating systems and shells.
 
 - The tracked `.Rprofile` auto-attaches `devtools` + `testthat` in interactive sessions. For a
   clean, profile-free parse or check, use `Rscript --vanilla` or `R CMD check`.
-- Put machine-specific or personal notes (your OS, shell, local paths, private scratch workflow)
-  in `CLAUDE.local.md`. It is gitignored and loaded automatically alongside this file, so it
-  never reaches a collaborator.
+- Put machine-specific or personal notes (OS, shell, local paths, private scratch) in
+  `CLAUDE.local.md` -- gitignored, loaded automatically, never reaches a collaborator.

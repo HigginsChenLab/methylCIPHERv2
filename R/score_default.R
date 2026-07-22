@@ -19,7 +19,7 @@ resolve_output_transform <- function(name) {
   )
 }
 
-# linpred = intercept + sum(coef * beta) + covariates. Uses partial_cache when present.
+# linpred = intercept + sum(coef * beta) + covariates.
 linear_predictor <- function(
   coef,
   intercept,
@@ -68,7 +68,6 @@ linear_predictor <- function(
   }
 
   linpred <- cpg_contrib + cov_contrib + intercept
-  # Expose cpg/cov terms so callers can mean-reduce or add a vendor offset.
   list(
     linpred = linpred,
     cpg_contrib = cpg_contrib,
@@ -78,8 +77,7 @@ linear_predictor <- function(
   )
 }
 
-# Linear engine for one cpg_coefficient clock. Partial NA -> cohort; absent -> vendor or drop.
-# `packs` (from load_mc_assets) sources coef/impute for external clocks; NULL for bundled.
+# Linear engine for one cpg_coefficient clock.
 linear_score <- function(
   cpgs,
   DNAm,

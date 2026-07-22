@@ -1,18 +1,15 @@
-# External clock-data packs (SystemsAge, PCClocks, PCBrainAge): content-addressed qs2
-# files fetched on demand. No silent download; no write without consent. The shipped
-# provenance (mc_provenance$external_assets) names each pack; qs2's own checksum
-# (validate_checksum) guards transfer integrity.
+# External clock-data packs: content-addressed qs2 files fetched on demand.
 
 MC_RELEASE_REPO <- "hhp94/methylCIPHER"
 
-# --- registry (our own compiled provenance, not untrusted input) ---
+# registry
 
 mc_external_groups <- function() {
   assets <- mc_provenance$external_assets
   if (is.null(assets)) character(0) else names(assets)
 }
 
-# One provenance row: $file, $payload_hash, $release_tag, $size_bytes, ...
+# One provenance row for an external group.
 mc_asset <- function(group_id) {
   row <- mc_provenance$external_assets[[group_id]]
   if (is.null(row)) {
@@ -50,7 +47,7 @@ mc_asset_url <- function(row) {
   )
 }
 
-# --- cache location ---
+# cache location
 
 # CRAN-sanctioned per-user cache directory.
 mc_default_cache_dir <- function() {
@@ -59,7 +56,7 @@ mc_default_cache_dir <- function() {
 
 nz1 <- function(x) length(x) == 1L && !is.na(x) && nzchar(x)
 
-# Active cache dir. Precedence: `assets` arg > session option > env > default.
+# Active cache dir: assets arg, session option, env, then default.
 mc_cache_dir <- function(assets = NULL) {
   if (nz1(assets)) {
     return(path.expand(assets))
@@ -75,7 +72,7 @@ mc_cache_dir <- function(assets = NULL) {
   mc_default_cache_dir()
 }
 
-# Set the cache dir for the rest of the session; returns the previous value.
+# Set the session cache dir; returns the previous value.
 mc_set_cache_dir <- function(path) {
   old <- getOption("methylCIPHER.cache_dir")
   options(
@@ -84,13 +81,13 @@ mc_set_cache_dir <- function(path) {
   invisible(old)
 }
 
-# --- helpers ---
+# helpers
 
 mc_bytes <- function(x) {
   format(structure(as.numeric(x), class = "object_size"), units = "auto")
 }
 
-# Stable content hash; mirrors sync's payload_hash_of() (version 2, xdr).
+# Stable content hash (serialize version 2, xdr).
 mc_payload_hash <- function(x) {
   digest::digest(
     serialize(x, connection = NULL, version = 2L, xdr = TRUE),
@@ -99,7 +96,7 @@ mc_payload_hash <- function(x) {
   )
 }
 
-# Which packs are present in the cache. Pure query; never downloads or writes.
+# Which packs are present in the cache (query only).
 mc_cached_files <- function(groups = "all", assets = NULL) {
   groups <- mc_resolve_groups(groups)
   dir <- mc_cache_dir(assets)
@@ -111,9 +108,9 @@ mc_cached_files <- function(groups = "all", assets = NULL) {
   files[file.exists(files)]
 }
 
-# --- download ---
+# download
 
-# Pure fetch of one pack: stage -> validate via qs2 checksum -> atomic rename. No prompting.
+# Fetch one pack: stage, validate qs2 checksum, atomic rename.
 mc_fetch <- function(row, dir) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
   url <- mc_asset_url(row)
@@ -121,12 +118,18 @@ mc_fetch <- function(row, dir) {
   tmp <- paste0(dest, ".part")
   on.exit(if (file.exists(tmp)) unlink(tmp), add = TRUE)
 
-  # Big packs exceed download.file()'s default 60s whole-transfer timeout.
+  # Large packs need a longer whole-transfer timeout.
   old_to <- options(timeout = max(getOption("timeout", 60L), 1800L))
   on.exit(options(old_to), add = TRUE)
 
   tryCatch(
-    utils::download.file(url, destfile = tmp, mode = "wb"),
+    # quiet in tests / R CMD check; progress bar when interactive.
+    utils::download.file(
+      url,
+      destfile = tmp,
+      mode = "wb",
+      quiet = !interactive()
+    ),
     error = function(e) {
       stop(
         "Download failed for ",
@@ -139,14 +142,12 @@ mc_fetch <- function(row, dir) {
       )
     }
   )
-  # A corrupt/truncated transfer fails the checksum here, before it counts as cached.
   qs2::qs_read(tmp, validate_checksum = TRUE)
   file.rename(tmp, dest)
   dest
 }
 
-# Consent for downloading a set of missing packs (one batched prompt), or stop.
-# ask = TRUE prompts interactively and refuses non-interactively; ask = FALSE consents.
+# Consent for downloading missing packs, or stop.
 mc_consent <- function(rows, dir, ask) {
   if (!length(rows) || !isTRUE(ask)) {
     return(invisible(TRUE))
@@ -193,7 +194,7 @@ mc_consent <- function(rows, dir, ask) {
   invisible(TRUE)
 }
 
-# Pre-fetch packs into the cache (nothing is re-downloaded if already present).
+# Pre-fetch packs into the cache (skips already-present files).
 mc_data_download <- function(groups = "all", assets = NULL, ask = TRUE) {
   groups <- mc_resolve_groups(groups)
   dir <- mc_cache_dir(assets)
@@ -209,9 +210,9 @@ mc_data_download <- function(groups = "all", assets = NULL, ask = TRUE) {
   invisible(files)
 }
 
-# --- load ---
+# load
 
-# Read a pack (qs2-verified) and warn (never stop) if its content hash drifts.
+# Read a pack and warn (never stop) if its content hash drifts.
 mc_read_pack <- function(file, row) {
   pack <- qs2::qs_read(file, validate_checksum = TRUE)
   if (!identical(mc_payload_hash(pack), row$payload_hash)) {
@@ -227,8 +228,7 @@ mc_read_pack <- function(file, row) {
   pack
 }
 
-# Canonicalize `assets` -> NULL (open: cache + consent download) or a closed set:
-# a cache-dir path (character), or a registry (named list of packs keyed by group_id).
+# Canonicalize assets: NULL (open), cache-dir path, or loaded pack registry.
 mc_canonicalize_assets <- function(assets) {
   if (is.null(assets)) {
     return(NULL)
@@ -259,10 +259,7 @@ mc_canonicalize_assets <- function(assets) {
   )
 }
 
-# Resolve the external groups a plan needs to a named list of loaded packs (keyed by
-# group_id). assets = NULL -> read from the cache dir, downloading missing packs on
-# consent (open set). assets provided (path or loaded pack[s]) -> closed set: resolve only
-# from what is given, never download; a needed group not covered is a hard error.
+# Load packs for needed groups (open set may download; closed set never does).
 load_mc_assets <- function(groups, assets = NULL, ask = TRUE) {
   groups <- unique(as.character(groups))
   groups <- groups[nzchar(groups)]
@@ -275,9 +272,8 @@ load_mc_assets <- function(groups, assets = NULL, ask = TRUE) {
 
   canon <- mc_canonicalize_assets(assets)
 
-  # Closed set from in-memory pack(s): satisfy from the given registry, never touch disk.
+  # Closed set from in-memory pack(s).
   if (is.list(canon)) {
-    # Resolve needed groups first (a missing one is fatal), then warn about extras.
     packs <- lapply(groups, function(g) {
       pack <- canon[[g]]
       if (is.null(pack)) {
@@ -329,9 +325,9 @@ load_mc_assets <- function(groups, assets = NULL, ask = TRUE) {
   stats::setNames(packs, groups)
 }
 
-# --- clear (stub: reports what is cached; deletion is always consent-gated) ---
+# clear (stub; deletion is consent-gated)
 
-# TODO: interactive delete flow to be designed. Never unlinks automatically.
+# TODO: interactive delete flow. Never unlinks automatically.
 clear_clock_cache <- function(groups = "all", assets = NULL) {
   files <- mc_cached_files(groups, assets)
   if (!length(files)) {

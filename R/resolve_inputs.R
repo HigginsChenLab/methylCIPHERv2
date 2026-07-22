@@ -1,4 +1,4 @@
-# DNAm/pheno validation and clock-id resolution (identity settled in calc_clocks).
+# DNAm/pheno validation and clock-id resolution.
 
 check_DNAm <- function(DNAm) {
   checkmate::assert_matrix(
@@ -9,23 +9,22 @@ check_DNAm <- function(DNAm) {
   )
   checkmate::assert_character(colnames(DNAm), unique = TRUE, null.ok = FALSE)
   checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
-  # Orientation heuristics; skip on wide panels where orientation is unambiguous.
-  if (ncol(DNAm) < 2e5) {
-    if (nrow(DNAm) > ncol(DNAm)) {
-      warning(
-        "DNAm should be formatted as samples * CpG. Currently DNAm has more rows (samples) than columns (CpGs), which is highly unlikely. Pass the full DNAm matrix without pre-subsetting to `calc_clock()`."
-      )
-    }
-    if (!any(startsWith(colnames(DNAm), "cg"))) {
-      warning(
-        "It looks like you may need to format DNAm using t(DNAm) to get samples as rows!"
-      )
-    }
+  # Orientation guard: CpG ids belong in columns (cg prefix).
+  if (ncol(DNAm) < 2e5 && !any(startsWith(colnames(DNAm), "cg"))) {
+    warning(
+      if (any(startsWith(rownames(DNAm), "cg"))) {
+        "DNAm looks transposed: CpG ids (cg...) are in the rows. "
+      } else {
+        "No DNAm column names look like CpG ids (cg...). "
+      },
+      "calc_clocks() expects samples in rows and CpGs in columns; pass t(DNAm) to transpose.",
+      call. = FALSE
+    )
   }
   invisible(TRUE)
 }
 
-# Zhang2019 full-panel notice only (side effect).
+# Zhang2019 full-panel notice only.
 resolve_DNAm_extra <- function(clock_ids) {
   if ("Zhang2019" %in% clock_ids) {
     message(
@@ -36,12 +35,13 @@ resolve_DNAm_extra <- function(clock_ids) {
   invisible(TRUE)
 }
 
-# Structure/dtype validation; identity alignment is resolve_pheno()'s job.
+# Structure/dtype validation for pheno.
 check_pheno <- function(
   pheno,
   ID = NULL,
   extra_columns = NULL,
-  positional = FALSE
+  positional = FALSE,
+  sample_id = NULL
 ) {
   if (is.null(pheno)) {
     return(invisible(TRUE))
@@ -74,10 +74,46 @@ check_pheno <- function(
       any.missing = TRUE
     )
   }
+  warn_missing_covariates(pheno, ID, extra_columns, positional, sample_id)
   invisible(TRUE)
 }
 
-# Align pheno onto sample_id (id-join, or row-order when positional). Returns ordered pheno or NULL.
+# Warn once when required covariates contain NA.
+warn_missing_covariates <- function(
+  pheno,
+  ID,
+  extra_columns,
+  positional,
+  sample_id
+) {
+  cols <- intersect(extra_columns, names(pheno))
+  if (!length(cols)) {
+    return(invisible(character(0)))
+  }
+  # Count only rows that will survive the id-join.
+  rows <- if (positional || is.null(sample_id)) {
+    seq_len(nrow(pheno))
+  } else {
+    idx <- match(sample_id, pheno[[ID]])
+    idx[!is.na(idx)]
+  }
+
+  n_na <- vapply(cols, function(cl) sum(is.na(pheno[[cl]][rows])), integer(1L))
+  n_na <- n_na[n_na > 0L]
+  if (!length(n_na)) {
+    return(invisible(character(0)))
+  }
+
+  warning(
+    "pheno has missing values in covariate(s) ",
+    paste0(names(n_na), " (", n_na, " sample(s))", collapse = ", "),
+    ". Clocks that need them return NA for those samples; every other sample scores normally.",
+    call. = FALSE
+  )
+  invisible(names(n_na))
+}
+
+# Align pheno onto sample_id (id-join, or row-order when positional).
 resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
   if (is.null(pheno)) {
     return(NULL)
@@ -155,7 +191,7 @@ resolve_clocks <- function(clocks) {
   out[!duplicated(out)]
 }
 
-# Transitive depends_on_clocks closure, deps before dependents. Input must be catalog ids.
+# Transitive depends_on_clocks closure, deps before dependents.
 resolve_clocks_sequence <- function(clocks) {
   st <- new.env(parent = emptyenv())
   st$out <- character(length(mc_index$clock_id))
@@ -198,30 +234,43 @@ needed_cpgs_union <- function(clock_sequence) {
   ))
 }
 
-# Per-clock present/absent CpG sets over usable_cols (pure set math).
+# Per-clock present/absent CpG sets over usable_cols.
 resolve_cpgs <- function(usable_cols, clock_sequence) {
   usable <- unique(usable_cols)
+  n <- length(clock_sequence)
 
-  one <- function(id) {
-    score_needed <- clock_scoring_cpgs(id)
-    norm_needed <- clock_norm_cpgs(id)
-    list(
-      clock_id = id,
-      score_needed = score_needed,
-      score_present = intersect(score_needed, usable),
-      score_absent = setdiff(score_needed, usable),
-      norm_needed = norm_needed,
-      norm_present = intersect(norm_needed, usable),
-      norm_absent = setdiff(norm_needed, usable),
-      norm_scheme = clock_norm_scheme(id)
-    )
+  score_needed <- lapply(clock_sequence, clock_scoring_cpgs)
+  norm_needed <- lapply(clock_sequence, clock_norm_cpgs)
+
+  # Hash usable once per role, then split the hit mask per clock.
+  in_usable <- function(needed) {
+    hit <- match(unlist(needed, use.names = FALSE), usable, 0L) > 0L
+    grp <- factor(rep.int(seq_len(n), lengths(needed)), levels = seq_len(n))
+    split(hit, grp)
   }
+  score_hit <- in_usable(score_needed)
+  norm_hit <- in_usable(norm_needed)
 
-  per_clock <- lapply(clock_sequence, one)
+  per_clock <- lapply(seq_len(n), function(i) {
+    sn <- score_needed[[i]]
+    nn <- norm_needed[[i]]
+    sm <- score_hit[[i]]
+    nm <- norm_hit[[i]]
+    list(
+      clock_id = clock_sequence[[i]],
+      score_needed = sn,
+      score_present = sn[sm],
+      score_absent = sn[!sm],
+      norm_needed = nn,
+      norm_present = nn[nm],
+      norm_absent = nn[!nm],
+      norm_scheme = clock_norm_scheme(clock_sequence[[i]])
+    )
+  })
   names(per_clock) <- clock_sequence
 
   present_needed_union <- unique(unlist(
-    lapply(per_clock, function(x) x$score_present),
+    lapply(per_clock, function(x) c(x$score_present, x$norm_present)),
     use.names = FALSE
   ))
 

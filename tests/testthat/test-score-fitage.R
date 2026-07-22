@@ -1,5 +1,4 @@
-# DNAmFitAge engine wiring (self-contained synthetic betas; CRAN-safe).
-# Author parity is test-fixtures-parity.R (currently skip-listed).
+# DNAmFitAge engine wiring (synthetic betas).
 
 member_models <- function(id) {
   op <- fitage_score_op(id)
@@ -82,7 +81,7 @@ test_that("a FitAge member requires the Female covariate", {
   expect_error(calc_clocks(DNAm, "DNAmGait_noAge", pheno = NULL))
 })
 
-# Full plan (members + GrimAgeV1): dep expansion, KDM mix, no batch stamp.
+# Full plan: members + GrimAgeV1.
 test_that("DNAmFitAge expands deps, mixes them by KDM, and carries no batch stamp", {
   cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks(
     "DNAmFitAge"

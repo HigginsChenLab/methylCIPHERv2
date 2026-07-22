@@ -1,6 +1,6 @@
-# External clocks source coef/impute from the loaded pack, not mc_bundles.
+# External clocks source coef/impute from the loaded pack.
 
-# Minimal PCClocks pack: two member columns over two CpGs, plus a vendor-mean vector.
+# Minimal PCClocks pack for tests.
 fake_pcclocks_pack <- function() {
   list(
     group_id = "PCClocks",

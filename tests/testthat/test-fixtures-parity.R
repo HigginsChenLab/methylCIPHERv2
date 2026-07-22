@@ -1,15 +1,6 @@
-# Cohort-gated golden parity -- the science gate. One test_that per fixtured clock, plus
-# the two PhysAge composites scored together. Skips entirely when the EPIC cohort is not
-# staged. External clocks are additionally pack-gated (skip_if_no_pack): their downloaded
-# pack must be cached, and open-mode calc_clocks() then reads it without a download prompt.
-#
-# To stage the cohort fixture (dev machines only -- never at build / check / CRAN):
-#   clone methylCIPHER-meta, then from its fixtures/ dir run build_cohort.R. That needs
-#   network (a ~400MB GEO download) and a MANUAL Horvath-server submit for the oracle --
-#   see the meta repo's weights_extraction.md sec 7 / sec 7a. The generated beta.duckdb is
-#   gitignored + regenerable; when it is absent this whole file skips.
+# Cohort-gated golden parity. Requires METHYLCIPHER_PARITY=1 and staged EPIC cohort.
 
-# --- cohort fixture access (gitignored meta clone under data-raw/) --------------------
+# cohort fixture access
 meta_clone_path <- function(...) {
   testthat::test_path("..", "..", "data-raw", "methylCIPHER-meta", ...)
 }
@@ -18,7 +9,7 @@ cohort_beta_db <- function() {
   meta_clone_path("fixtures", "cohort_EPIC", "beta.duckdb")
 }
 
-# Samples x CpGs from the tall beta table. Absent CpGs are omitted (scorer imputes).
+# Samples x CpGs from the tall beta table.
 cohort_betas <- function(con, cpgs) {
   raw <- DBI::dbGetQuery(
     con,
@@ -58,7 +49,7 @@ expected_scores <- function(id) {
 PARITY_EXACT_TOL <- 1e-6
 PARITY_COR_MIN <- 0.99
 
-# Assert scores vs golden: exact, correlation, or skipped per fixture parity_policy.
+# Assert scores vs golden per fixture parity_policy.
 expect_parity <- function(got, id) {
   policy <- clock_fixture(id)$parity_policy
   if (identical(policy, "skipped")) {
@@ -85,28 +76,45 @@ expect_parity <- function(got, id) {
   }
 }
 
-# External clocks need their downloaded pack; skip when it is absent from the cache
-# (parity is cohort- AND pack-gated). No-op for bundled clocks.
+# Parity tier flag (gates duckdb, pack scan, and per-test skips).
+parity_on <- nzchar(Sys.getenv("METHYLCIPHER_PARITY"))
+
+# Cached external packs (empty when tier is off).
+cached_pack_groups <- if (parity_on) {
+  Filter(function(g) length(mc_cached_files(g)) > 0L, mc_external_groups())
+} else {
+  character(0)
+}
+
+# Skip external clocks whose pack is not cached.
 skip_if_no_pack <- function(clock_id) {
   if (!clock_is_external(clock_id)) {
     return(invisible())
   }
   gid <- clock_group_id(clock_id)
   testthat::skip_if_not(
-    length(mc_cached_files(gid)) > 0L,
+    gid %in% cached_pack_groups,
     paste0("external pack for '", gid, "' not cached")
   )
 }
 
-# One read-only duckdb connection for the whole file, opened once when the cohort is
-# staged and torn down after this file's tests (withr::defer on teardown_env). Left NULL
-# when duckdb/DBI are missing or the fixture is absent -> every parity test skips.
+# One read-only duckdb connection for this file when parity is on and cohort is staged.
 cohort_con <- NULL
 if (
-  requireNamespace("duckdb", quietly = TRUE) &&
+  parity_on &&
+    requireNamespace("duckdb", quietly = TRUE) &&
     requireNamespace("DBI", quietly = TRUE) &&
     file.exists(cohort_beta_db())
 ) {
+  # duckdb extensions in a throwaway temp dir.
+  withr::local_options(
+    list(
+      duckdb.extension_directory = withr::local_tempdir(
+        .local_envir = testthat::teardown_env()
+      )
+    ),
+    .local_envir = testthat::teardown_env()
+  )
   cohort_con <- DBI::dbConnect(
     duckdb::duckdb(),
     cohort_beta_db(),
@@ -119,18 +127,19 @@ if (
 }
 
 skip_if_no_cohort <- function() {
+  testthat::skip_if_not(
+    parity_on,
+    "parity tier off (set METHYLCIPHER_PARITY=1, e.g. via dev test_parity())"
+  )
   testthat::skip_if(is.null(cohort_con), "EPIC cohort fixture not staged")
 }
 
-# Known gaps: emit skip() so the suite stays green; trim as scorers settle.
+# Known gaps: skip so the suite stays green.
 KNOWN_PARITY_GAPS <- c(
-  # Float accumulation; parked until exact-tolerance policy is decided.
   DNAmADM = "exact-tolerance policy under development (max_abs_diff ~4e-5)",
   DNAmPACKYRS = "exact-tolerance policy under development (max_abs_diff ~2e-5)",
   GrimAgeV2 = "exact-tolerance policy under development (max_abs_diff ~7e-6)",
-  # Zhang2019 sample_scale moments over needed-CpG subset, not full panel.
   Zhang2019 = "sample_scale moments over needed-CpG subset, not full panel; exact parity unreachable",
-  # Scorers under active development.
   DNAmGrip_noAge = "fitage member under development (max_abs_diff ~9)",
   DNAmGrip_wAge = "fitage member under development (max_abs_diff ~0.03)",
   DNAmFitAge = "fitage composite under development (correlation 0.989 < 0.99)"
@@ -155,7 +164,6 @@ for (id in parity_targets()) {
       if (clock_id %in% names(KNOWN_PARITY_GAPS)) {
         skip(paste0("known parity gap -- ", KNOWN_PARITY_GAPS[[clock_id]]))
       }
-
       cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks(
         clock_id
       )))
@@ -166,8 +174,7 @@ for (id in parity_targets()) {
   })
 }
 
-# Both PhysAge composites in one call (the loop above scores each alone). The non-cohort
-# PhysAge machinery tests live in test-score-physage.R.
+# Both PhysAge composites in one call.
 test_that("PhysAge composites match the author fixtures on the EPIC cohort", {
   skip_if_no_cohort()
   members <- mc_groups[["PhysAge"]]$members

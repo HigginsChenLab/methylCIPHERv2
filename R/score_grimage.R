@@ -1,5 +1,4 @@
 # GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years.
-# V1 uses standalone surrogates; V2 scores `_internal` surrogates inline.
 score_grimage <- function(
   id,
   cpgs,
@@ -37,7 +36,7 @@ score_grimage <- function(
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
-      # V2 surrogate: score inline; absent CpGs dropped (omit policy).
+      # V2 surrogate scored inline; absent CpGs dropped.
       comp <- Filter(function(c) identical(c$name, nm), comps)
       if (length(comp) != 1L) {
         stop(
@@ -117,7 +116,7 @@ score_grimage <- function(
   list(score = score, coverage = coverage, sample_miss = sample_miss)
 }
 
-# Cox scale -> years: (cox - m_cox) / sd_cox * sd_age + m_age.
+# Cox scale -> years.
 grimage_rescale <- function(cox_score, params) {
   (cox_score - params[["m_cox"]]) /
     params[["sd_cox"]] *

@@ -1,7 +1,6 @@
-# External clock-data cache. Download path uses file://; live network is opt-in.
+# External clock-data cache tests (file://; live network opt-in).
 
-# Fake external pack on disk (tiny qs2 over file://, never the network); returns the
-# provenance row it corresponds to.
+# Fake external pack on disk; returns its provenance row.
 fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   if (is.null(payload)) {
     payload <- list(
@@ -13,7 +12,7 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
     )
   }
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  # Content hash matches the package's mc_payload_hash(): no drift warning on load.
+  # Content hash matches mc_payload_hash().
   phash <- mc_payload_hash(payload)
   file <- sprintf("%s-%s.qs2", tolower(group), phash)
   rtag <- sub("\\.qs2$", "", file) # tag = filename stem; bare hex tags rejected by GitHub.
@@ -34,7 +33,7 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   )
 }
 
-# Mock the provenance registry + file:// download URLs for the calling test.
+# Mock provenance registry + file:// download URLs.
 local_fake_registry <- function(rows, .env = parent.frame()) {
   if (!is.null(rows$group_id)) {
     rows <- stats::setNames(list(rows), rows$group_id)
