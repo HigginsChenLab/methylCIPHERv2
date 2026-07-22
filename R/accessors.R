@@ -42,9 +42,14 @@ probe_sets_cpgs <- function(entry, role) {
   unique(unlist(lapply(hits, function(p) p$cpgs), use.names = FALSE))
 }
 
-# Scoring CpGs for one clock.
-clock_scoring_cpgs <- function(id) {
-  probe_sets_cpgs(clock_entry(id), "scoring")
+# Scoring CpGs for one clock. External groups keep the panel in their pack, so
+# the pack is the single source there and the catalog never carries a copy.
+clock_scoring_cpgs <- function(id, packs = NULL) {
+  entry <- clock_entry(id)
+  if (isTRUE(entry$external_group)) {
+    return(clock_pack(id, packs)$cpgs)
+  }
+  probe_sets_cpgs(entry, "scoring")
 }
 
 # Normalization/background panel; character(0) when none.

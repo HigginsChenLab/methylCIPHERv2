@@ -1069,6 +1069,23 @@ build_index <- function(catalog) {
   idx
 }
 
+# External groups keep their scoring panel in the pack (clock_scoring_cpgs()
+# reads it from there), so the bundled catalog drops its copy: 92% of all panel
+# elements, and the only other place they could drift from the weights.
+drop_external_probe_cpgs <- function(clocks) {
+  for (cid in names(clocks)) {
+    if (!isTRUE(clocks[[cid]]$external_group)) {
+      next
+    }
+    ps <- clocks[[cid]]$probe_sets
+    for (k in seq_along(ps)) {
+      ps[[k]]$cpgs <- NULL
+    }
+    clocks[[cid]]$probe_sets <- ps
+  }
+  clocks
+}
+
 build_sysdata <- function(
   repo_path,
   catalog,
@@ -1084,7 +1101,7 @@ build_sysdata <- function(
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog$clocks <- trim_build_only_fields(catalog$clocks)
 
-  mc_catalog <- catalog$clocks
+  mc_catalog <- drop_external_probe_cpgs(catalog$clocks)
   mc_groups <- catalog$groups
   mc_bundles <- bundles
   mc_index <- build_index(catalog)

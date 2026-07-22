@@ -1,7 +1,7 @@
 # External pack scorers via in-memory assets (closed set; CRAN-safe smoke/shape).
 
 # shared fixtures
-# Synthetic packs over each clock's real scoring panel.
+# Synthetic packs over a synthetic scoring panel.
 
 fake_pcbrainage_pack <- function(cpgs, seed = 42L) {
   withr::with_seed(seed, {
@@ -95,14 +95,18 @@ fake_systemsage_pack <- function(cpgs, seed = 1L) {
   )
 }
 
-pcba_cpgs <- clock_scoring_cpgs("PCBrainAge")
+# The pack owns its CpG panel, so these closed-set tests mint their own instead
+# of borrowing the real 78k-357k panels. Sizes differ so cross-wiring shows.
+fake_panel <- function(n) sprintf("cg%08d", seq_len(n))
+
+pcba_cpgs <- fake_panel(400L)
 pcba_pack <- fake_pcbrainage_pack(pcba_cpgs)
 
-pcc_cpgs <- clock_scoring_cpgs("PCADM") # shared PCClocks panel
+pcc_cpgs <- fake_panel(300L) # shared PCClocks panel
 pcc_pack <- fake_pcclocks_pack(pcc_cpgs)
 pcc_members <- mc_index$clock_id[mc_index$group_id == "PCClocks"]
 
-sa_cpgs <- clock_scoring_cpgs("SystemsAge")
+sa_cpgs <- fake_panel(200L)
 sa_pack <- fake_systemsage_pack(sa_cpgs)
 sa_members <- mc_index$clock_id[mc_index$group_id == "SystemsAge"]
 

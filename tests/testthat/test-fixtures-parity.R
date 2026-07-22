@@ -164,11 +164,17 @@ for (id in parity_targets()) {
       if (clock_id %in% names(KNOWN_PARITY_GAPS)) {
         skip(paste0("known parity gap -- ", KNOWN_PARITY_GAPS[[clock_id]]))
       }
-      cpgs <- needed_cpgs_union(resolve_clocks_sequence(resolve_clocks(
-        clock_id
-      )))
+      # Packs carry their group's scoring panel, so resolve them before the union.
+      seq_ids <- resolve_clocks_sequence(resolve_clocks(clock_id))
+      packs <- load_mc_assets(pack_groups_needed(seq_ids), NULL, FALSE)
+      cpgs <- needed_cpgs_union(seq_ids, packs)
       DNAm <- cohort_betas(cohort_con, cpgs)
-      res <- calc_clocks(DNAm, clock_id, pheno = cohort_pheno())
+      res <- calc_clocks(
+        DNAm,
+        clock_id,
+        pheno = cohort_pheno(),
+        assets = packs
+      )
       expect_parity(res$scores[, clock_id], clock_id)
     })
   })

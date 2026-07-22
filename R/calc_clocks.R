@@ -34,6 +34,17 @@ score_type <- function(p) {
   )
 }
 
+# External pack groups a compute sequence needs loaded.
+pack_groups_needed <- function(clock_sequence) {
+  unique(unlist(lapply(clock_sequence, function(p) {
+    if (clock_is_external(p) && !identical(score_type(p), "unsupported")) {
+      clock_group_id(p)
+    } else {
+      NULL
+    }
+  })))
+}
+
 # Public scorer: resolve, prepare once, score each unit, assemble record.
 calc_clocks <- function(
   DNAm,
@@ -87,8 +98,11 @@ calc_clocks <- function(
   )
   pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids)
 
+  # External packs first: they carry the scoring panels for their groups.
+  packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
+
   # Scan missingness, resolve present/absent CpGs, build partial-NA cache.
-  panels <- clock_panels(clock_sequence)
+  panels <- clock_panels(clock_sequence, packs)
   mna <- scan_missing_cpgs(DNAm, panels_union(panels))
   cpg_list <- resolve_cpgs(mna$usable_cols, panels)
   warn_low_coverage(cpg_list, min_coverage)
@@ -96,16 +110,6 @@ calc_clocks <- function(
     DNAm,
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
   )
-
-  # External packs for the plan, resolved once.
-  pack_groups <- unique(unlist(lapply(clock_sequence, function(p) {
-    if (clock_is_external(p) && !identical(score_type(p), "unsupported")) {
-      clock_group_id(p)
-    } else {
-      NULL
-    }
-  })))
-  packs <- load_mc_assets(pack_groups, assets, ask)
 
   # Deps precede composites so pack scorers find upstream results.
   results <- vector("list", length(clock_sequence))
