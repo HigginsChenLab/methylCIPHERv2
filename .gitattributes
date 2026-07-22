@@ -1,0 +1,14 @@
+# LF in the repo and in every working tree, on every platform.
+* text=auto eol=lf
+
+# Binary payloads: never touch line endings.
+*.rda binary
+*.rds binary
+*.RData binary
+*.qs2 binary
+*.duckdb binary
+*.png binary
+*.jpg binary
+*.pdf binary
+*.gz binary
+*.zip binary
