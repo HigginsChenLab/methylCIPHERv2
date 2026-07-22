@@ -1,11 +1,6 @@
-# Batched scorers for external packs (PCClocks, PCBrainAge, SystemsAge). Every member
-# of a pack scores on one shared CpG panel, so the expensive DNAm subset is done once
-# and reused across a single matmul over all requested columns -- instead of one subset
-# + matvec per clock. Results are numerically identical to the per-clock linear engine.
+# Batched scorers for external packs (PCClocks, PCBrainAge, SystemsAge).
 
-# One shared design over a pack's CpG panel: the partial-cache/DNAm substituted matrix
-# (built once), the present/absent split, the vendor ref, and per-sample partial-miss.
-# Panel members share this, so every coefficient block reuses it.
+# Shared design over a pack CpG panel: subset matrix, present/absent, vendor ref.
 pack_design <- function(pack, usable, DNAm, partial_cache) {
   panel <- pack$cpgs
   present <- panel[panel %in% usable]
@@ -40,8 +35,7 @@ pack_design <- function(pack, usable, DNAm, partial_cache) {
   )
 }
 
-# Vendor-mean-filled linear predictors (n x length(cols)) for coef matrix M (rows named
-# by pack cpgs) over `cols`, reusing a shared pack_design. No intercept/covariates.
+# Vendor-mean-filled linear predictors over cols, reusing pack_design.
 pack_linpred <- function(design, M, cols) {
   contrib <- design$X %*% M[design$used, cols, drop = FALSE]
   if (length(design$absent)) {
@@ -54,8 +48,7 @@ pack_linpred <- function(design, M, cols) {
   contrib
 }
 
-# Per-clock covariate contributions as one n x k matrix (0 when no clock needs any).
-# Mirrors linear_predictor()'s covariate term, batched over the requested columns.
+# Per-clock covariate contributions as one n x k matrix.
 pack_cov_contrib <- function(ids, pheno, n) {
   cc <- lapply(ids, clock_covariate_coefs)
   need <- unique(unlist(lapply(cc, names), use.names = FALSE))
@@ -80,7 +73,7 @@ pack_cov_contrib <- function(ids, pheno, n) {
   as.matrix(pheno[, need, drop = FALSE]) %*% Cmat
 }
 
-# Coverage record for a vendor-mean linear pack member (matches linear_score()).
+# Coverage record for a vendor-mean linear pack member.
 pack_linear_coverage <- function(cpgs, sample_miss) {
   list(
     clock_id = cpgs$clock_id,
@@ -110,18 +103,28 @@ score_pack_group <- function(
 ) {
   if (identical(group_id, "SystemsAge")) {
     score_systemsage_group(
-      ids, cpg_list, usable, DNAm, partial_cache, pheno, packs
+      ids,
+      cpg_list,
+      usable,
+      DNAm,
+      partial_cache,
+      pheno,
+      packs
     )
   } else {
     score_linear_pack(
-      ids, cpg_list, usable, DNAm, partial_cache, pheno, packs
+      ids,
+      cpg_list,
+      usable,
+      DNAm,
+      partial_cache,
+      pheno,
+      packs
     )
   }
 }
 
-# Batched scorer for coefficient_matrix packs (PCClocks, PCBrainAge): one shared subset,
-# one gemm over the requested columns, then per-clock intercept + covariate + output
-# transform. Numerically matches per-clock linear_score() (vendor_mean, sum reduction).
+# Batched scorer for coefficient_matrix packs (PCClocks, PCBrainAge).
 score_linear_pack <- function(
   ids,
   cpg_list,
@@ -134,7 +137,12 @@ score_linear_pack <- function(
   pack <- clock_pack(ids[[1]], packs)
   for (id in ids) {
     if (!identical(clock_impute(id)$policy, "vendor_mean")) {
-      stop("score_linear_pack(): '", id, "' policy != vendor_mean.", call. = FALSE)
+      stop(
+        "score_linear_pack(): '",
+        id,
+        "' policy != vendor_mean.",
+        call. = FALSE
+      )
     }
     if (!identical(clock_reduction(id), "sum")) {
       stop("score_linear_pack(): '", id, "' reduction != sum.", call. = FALSE)
@@ -165,7 +173,10 @@ score_linear_pack <- function(
     )
     out[[id]] <- list(
       score = score,
-      coverage = pack_linear_coverage(cpg_list$per_clock[[id]], design$sample_miss),
+      coverage = pack_linear_coverage(
+        cpg_list$per_clock[[id]],
+        design$sample_miss
+      ),
       sample_miss = design$sample_miss
     )
   }

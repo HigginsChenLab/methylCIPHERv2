@@ -1,6 +1,4 @@
-# DNAmPhysAge: surrogate means -> reverse-code -> cohort z-score -> row sum.
-# Batch-dependent; years variant rescales via author poly. Absent CpGs use vendor means.
-
+# DNAmPhysAge: surrogate means, reverse-code, cohort z-score, row sum.
 score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
@@ -18,7 +16,7 @@ score_physage <- function(id, cpgs, DNAm, partial_cache = NULL) {
   surrogates <- physage_surrogates(id)
   ref <- clock_impute_ref(id)
 
-  # Each surrogate: mean of coef*beta over full coef set (present + vendor-filled absent).
+  # Each surrogate: mean of coef*beta over present + vendor-filled absent.
   raws <- vapply(
     surrogates,
     function(s) {

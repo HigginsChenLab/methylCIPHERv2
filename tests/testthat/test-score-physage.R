@@ -1,4 +1,4 @@
-# PhysAge: vendor-mean fill + cohort_zscore composites (synthetic CRAN-safe; parity cohort-gated).
+# PhysAge: vendor-mean fill + cohort_zscore composites (synthetic).
 
 physage_union <- function() {
   members <- mc_groups[["PhysAge"]]$members

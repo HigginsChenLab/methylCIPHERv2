@@ -1,10 +1,5 @@
-# Map catalog fields to a closed scorer tag for calc_clocks() dispatch.
-# group_id matters for component_matrices (GrimAge/FitAge/PhysAge fan-out).
+# Closed scorer tag for calc_clocks() dispatch.
 score_type <- function(p) {
-  # External cpg_coefficient clocks (PCClocks, PCBrainAge) score on the shared linear
-  # engine from the loaded pack. SystemsAge organ sub-clocks are also plain linear
-  # (coef from pack$organs); its two component_matrices composites (Age_prediction,
-  # SystemsAge) route to the family orchestrator.
   if (clock_is_external(p) && identical(clock_group_id(p), "SystemsAge")) {
     if (identical(clock_weights_format(p), "cpg_coefficient")) {
       return("linear")
@@ -13,6 +8,9 @@ score_type <- function(p) {
   }
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
+  if (identical(clock_group_id(p), "Dunedin")) {
+    return("dunedin")
+  }
   if (wf == "cpg_coefficient" && ct %in% c("linear", "linear_transformed")) {
     return("linear")
   }
@@ -30,23 +28,13 @@ score_type <- function(p) {
       linear_transformed = "fitage_composite",
       "unsupported"
     ),
-    # PhysAge surrogates are already "linear" above; only composites reach here.
+    # PhysAge composites only (surrogates are linear above).
     PhysAge = switch(ct, linear_transformed = "physage", "unsupported"),
     "unsupported"
   )
 }
 
-# Public scorer: resolve clocks, prepare once, score each unit, assemble a record.
-# @param DNAm n x p matrix (samples x CpGs); rownames = sample_id.
-# @param clocks "all", group_ids, and/or clock_ids.
-# @param pheno optional covariates (Age, Female), aligned onto sample_id.
-# @param pheno_id sample-id column in pheno (default "ID").
-# @param allow_positional_ids score rowname-less DNAm by row order (default TRUE).
-# @param min_coverage warn below this fraction of scoring CpGs (default 0.8).
-# @param assets external-pack source: NULL = default cache (consent download of missing
-#   packs); a cache-dir path or loaded pack(s) = closed set, no download (see load_mc_assets).
-# @param ask prompt before downloading missing external packs (default TRUE).
-# @return "methylCIPHER" S3 record: list(scores, coverage, provenance).
+# Public scorer: resolve, prepare once, score each unit, assemble record.
 calc_clocks <- function(
   DNAm,
   clocks,
@@ -55,10 +43,9 @@ calc_clocks <- function(
   allow_positional_ids = TRUE,
   min_coverage = 0.8,
   assets = NULL,
-  ask = TRUE,
-  ...
+  ask = TRUE
 ) {
-  # Requested clocks + transitive deps (deps first). Auto-deps are returned too.
+  # Requested clocks plus transitive deps (deps first).
   clock_ids <- resolve_clocks(clocks)
   clock_sequence <- resolve_clocks_sequence(clock_ids)
   output_ids <- c(clock_ids, setdiff(clock_sequence, clock_ids))
@@ -95,7 +82,8 @@ calc_clocks <- function(
     pheno,
     ID = pheno_id,
     extra_columns = extra_columns,
-    positional = positional_ids
+    positional = positional_ids,
+    sample_id = sample_id
   )
   pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids)
 
@@ -109,10 +97,7 @@ calc_clocks <- function(
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
   )
 
-  # External packs needed by the plan, resolved once (sole download/consent site) and
-  # threaded into the pure scoring loop. Only groups whose clocks route to a pack-consuming
-  # scorer are fetched, so a still-unimplemented external clock (e.g. SystemsAge) never
-  # triggers a download that would only be followed by an "unsupported" error.
+  # External packs for the plan, resolved once.
   pack_groups <- unique(unlist(lapply(clock_sequence, function(p) {
     if (clock_is_external(p) && !identical(score_type(p), "unsupported")) {
       clock_group_id(p)
@@ -126,12 +111,12 @@ calc_clocks <- function(
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
 
-  # External-pack clocks share one CpG panel per group; score each group in a single
-  # batched matmul (one subset reused across members) rather than one matmul per clock.
-  # Packs are dependency-isolated, so they can be scored apart from the per-clock loop.
+  # External-pack groups: one batched matmul per group.
   is_pack <- vapply(
     clock_sequence,
-    function(p) clock_is_external(p) && !identical(score_type(p), "unsupported"),
+    function(p) {
+      clock_is_external(p) && !identical(score_type(p), "unsupported")
+    },
     logical(1)
   )
   if (any(is_pack)) {
@@ -152,7 +137,7 @@ calc_clocks <- function(
     }
   }
 
-  # Bundled clocks keep the per-clock engine (deps precede dependents).
+  # Bundled clocks: per-clock engine (deps before dependents).
   for (p in clock_sequence[!is_pack]) {
     cpgs <- cpg_list$per_clock[[p]]
     results[[p]] <- switch(
@@ -177,6 +162,7 @@ calc_clocks <- function(
         pheno
       ),
       physage = score_physage(p, cpgs, DNAm, partial_cache),
+      dunedin = score_dunedin(p, cpgs, DNAm, partial_cache, min_coverage),
       stop(
         "calc_clocks(): clock '",
         p,
@@ -185,13 +171,13 @@ calc_clocks <- function(
         "', computation_type '",
         clock_type(p),
         "') is not implemented yet -- only cpg_coefficient/{linear,linear_transformed}, ",
-        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge packs are supported so far.",
+        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge / Dunedin families are supported so far.",
         call. = FALSE
       )
     )
   }
 
-  # Freeze batch id for cohort/sample-dependent clocks so cbind can refuse mismatched batches.
+  # Batch id for cohort/sample-dependent clocks (cbind gate).
   batch_set_id <- if (
     any(vapply(output_ids, clock_batch_dependent, logical(1)))
   ) {
@@ -210,7 +196,7 @@ calc_clocks <- function(
   )
 }
 
-# Stack scorer outputs into the methylCIPHER record (pure reshape).
+# Stack scorer outputs into the methylCIPHER record.
 construct_methylCIPHER <- function(
   results,
   output_ids,

@@ -1,8 +1,6 @@
-# Vendor methylCIPHER-meta -> package snapshot. source("data-raw/sync.R"); sync().
-# sync(force=TRUE) rebuilds external qs2 packs; upload=TRUE publishes them to GitHub Releases.
-# Outputs: R/sysdata.rda + data-raw/assets/*.qs2. Upstream integrity is owned by methylCIPHER-meta.
+# Vendor methylCIPHER-meta into the package. source("data-raw/sync.R"); sync().
 
-# --- setup -------------------------------------------------------------------
+# setup
 
 for (pkg in c(
   "jsonlite",
@@ -23,12 +21,12 @@ for (pkg in c(
 asset_dir <- file.path("data-raw", "assets")
 meta_dir <- file.path("data-raw", "methylCIPHER-meta")
 
-# Gitignored lockfile: skip external rebuild when source sha and staged packs still match.
+# Gitignored lockfile for external pack rebuild skip.
 LOCKFILE <- file.path(asset_dir, "lockfile.rds")
 
 META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
 
-# Large external families ship as release assets; the rest ride in sysdata.
+# External families as release assets; rest in sysdata.
 EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
 
 # Bump when pack layout changes (new payload_hash).
@@ -40,8 +38,7 @@ EXTERNAL_PIN_FIELDS <- c("source_git_sha", "manifest_generated_at_sha")
 # Anchored weights/ tensor path pattern.
 WEIGHTS_REF_RE <- "^weights/.+\\.(csv\\.gz|csv|[Rr])$"
 
-# --- field registries (meta JSON -> shipped catalog) ---
-# Keep scoring contract + thin license/fixture stub; drop upstream provenance.
+# field registries (meta JSON -> shipped catalog)
 
 FIELD_REGISTRY <- c(
   "clock_id",
@@ -67,10 +64,10 @@ FIELD_REGISTRY <- c(
   "license"
 )
 
-# Build-time only; stripped after resolution, never shipped.
+# Build-time only; stripped after resolution.
 CATALOG_BUILD_ONLY_FIELDS <- c("covers", "shared")
 
-# Local paths stripped from catalog embedded in content-addressed packs.
+# Local paths stripped from catalog embedded in packs.
 CATALOG_PACK_DROP_FIELDS <- c("meta_path", "coef_path")
 
 trim_build_only_fields <- function(clocks) {
@@ -194,8 +191,7 @@ prune_group_meta <- function(gmeta) {
   keep_fields(gmeta, GROUP_FIELD_REGISTRY) %||% list()
 }
 
-# --- bibliography ---
-# Vendor clocks.bib as-is; pmid->bib_key joined in memory (papers.csv never ships).
+# bibliography
 
 read_papers_csv <- function(repo_path) {
   path <- file.path(repo_path, "bibliography", "papers.csv")
@@ -219,7 +215,7 @@ vendor_bibliography <- function(repo_path) {
   invisible(list(path = BIB_INST_PATH, size_bytes = sz))
 }
 
-# --- resolve SoT (GitHub -> data-raw/methylCIPHER-meta) ----------------------
+# resolve SoT
 
 git_exec <- function(..., dir = NULL) {
   args <- c(...)
@@ -255,7 +251,7 @@ git_value <- function(..., dir = NULL) {
   out
 }
 
-# Clone/fetch into meta_dir and checkout a commit (NULL = origin default tip).
+# Clone/fetch meta_dir and checkout a commit (NULL = origin tip).
 resolve_source <- function(source_git_sha = NULL) {
   fs::dir_create(dirname(meta_dir))
 
@@ -303,7 +299,7 @@ resolve_source <- function(source_git_sha = NULL) {
   list(path = path, source_git_sha = sha)
 }
 
-# --- manifest ----------------------------------------------------------------
+# manifest
 
 read_manifest <- function(repo_path) {
   jsonlite::fromJSON(
@@ -312,7 +308,7 @@ read_manifest <- function(repo_path) {
   )
 }
 
-# --- catalog crawl -----------------------------------------------------------
+# catalog crawl
 
 # List meta files under weights/; clock vs group by basename.
 list_meta_files <- function(repo_path) {
@@ -486,10 +482,9 @@ build_catalog <- function(repo_path, manifest) {
   )
 }
 
-# --- tensor IO ---------------------------------------------------------------
+# tensor IO
 
 # Load weights/*.csv.gz as named numeric, character vector, or data.frame.
-# Type from column contents; never re-coerce by position.
 read_tensor_csv <- function(path) {
   df <- utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
   if (!nrow(df)) {
@@ -539,7 +534,7 @@ collect_file_refs <- function(entry, repo_path) {
   unique(paths[nzchar(paths) & !is.na(paths)])
 }
 
-# --- materialize -------------------------------------------------------------
+# materialize
 
 # Per-group tensor payload for the given group_ids.
 build_group_bundles <- function(repo_path, catalog, group_ids) {
@@ -595,7 +590,7 @@ build_group_bundles <- function(repo_path, catalog, group_ids) {
   bundles
 }
 
-# --- scoring CpG resolution ---
+# scoring CpG resolution
 # Materialize each clock's scoring CpGs as probe_sets {name, role, cpgs}.
 
 # Row labels of one loaded tensor (cpg col or names).
@@ -616,7 +611,7 @@ tensor_row_keys <- function(t) {
   character()
 }
 
-# Materialize one probe_set from a file pointer; empty resolution is a hard error.
+# Materialize one probe_set from a file pointer.
 materialize_probe_set <- function(ps, tensors, cid = NA_character_) {
   where <- paste0(
     "probe_set '",
@@ -670,7 +665,7 @@ group_shared_cpg_list <- function(gside, tensors) {
   character()
 }
 
-# Resolve scoring CpGs via tiers 2-6 (tier 1 handled by the driver).
+# Resolve scoring CpGs via tiers 2-6.
 resolve_scoring_cpgs <- function(
   cid,
   catalog,
@@ -719,7 +714,7 @@ resolve_scoring_cpgs <- function(
   character() # unresolved (e.g. custom MiAge)
 }
 
-# Materialize probe_sets, then synthesize role=scoring when still missing.
+# Materialize probe_sets; synthesize role=scoring when missing.
 resolve_group_scoring_probe_sets <- function(catalog, bundles) {
   for (gid in names(bundles)) {
     tensors <- bundles[[gid]]$tensors
@@ -765,8 +760,7 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
   catalog
 }
 
-# --- external asset encoding ---
-# One probe-order carrier ($cpgs); cpg-aligned values as unnamed matrices/doubles.
+# external asset encoding
 
 # Named numeric -> double[n] in cpgs order.
 align_double <- function(x, cpgs, label) {
@@ -814,7 +808,7 @@ cbind_aligned <- function(tensors, rels, cpgs, col_names) {
   mat
 }
 
-# Canonical probe order: longest named vec, cross-checked for agreement.
+# Canonical probe order from longest named vec.
 resolve_cpgs <- function(tensors, group_id) {
   is_named_num <- vapply(
     tensors,
@@ -1015,7 +1009,7 @@ encode_external_asset <- function(bundle) {
   }
 }
 
-# Runtime registry row for mc_provenance (file_sha256 gates integrity).
+# Runtime registry row for mc_provenance.
 external_asset_registry_row <- function(a) {
   list(
     group_id = a$group_id,
@@ -1032,9 +1026,9 @@ external_asset_registry_row <- function(a) {
   )
 }
 
-# --- sysdata -----------------------------------------------------------------
+# sysdata
 
-# Flat per-clock index rebuilt every sync for list_clocks() filters.
+# Flat per-clock index for list_clocks() filters.
 build_index <- function(catalog) {
   clocks <- catalog$clocks
   ids <- names(clocks)
@@ -1139,13 +1133,13 @@ build_sysdata <- function(
   ))
 }
 
-# --- content-addressed external packs ----------------------------------------
+# content-addressed external packs
 
-# Low ZSTD, no shuffle: prioritize load speed over size.
+# Low ZSTD, no shuffle.
 QS2_COMPRESS_LEVEL <- 1L
 QS2_SHUFFLE <- FALSE
 
-# Canonical pack for hash + qs_save; excludes pin-only fields.
+# Canonical pack for hash + qs_save.
 stable_external_payload <- function(bundle) {
   for (f in EXTERNAL_PIN_FIELDS) {
     bundle[[f]] <- NULL
@@ -1194,7 +1188,7 @@ stable_external_payload <- function(bundle) {
   out[!vapply(out, is.null, logical(1L))]
 }
 
-# Stable serialize (version=2L, xdr=TRUE) so content-address survives R upgrades.
+# Stable serialize (version=2L, xdr=TRUE).
 payload_hash_of <- function(payload) {
   digest::digest(
     serialize(payload, connection = NULL, version = 2L, xdr = TRUE),
@@ -1207,7 +1201,7 @@ file_sha256_of <- function(path) {
   digest::digest(file = path, algo = "sha256")
 }
 
-# --- GitHub release target ---------------------------------------------------
+# GitHub release target
 
 parse_github_owner_repo <- function(url) {
   url <- trimws(as.character(url %||% ""))
@@ -1289,7 +1283,7 @@ uv_bin <- function() {
   w
 }
 
-# Prefer METHYLCIPHER_UPLOAD_PAT so it never shadows GITHUB_PAT for remotes/gh.
+# Prefer METHYLCIPHER_UPLOAD_PAT over GITHUB_PAT.
 upload_pat <- function() {
   for (v in c("METHYLCIPHER_UPLOAD_PAT", "GITHUB_TOKEN", "GH_TOKEN")) {
     pat <- Sys.getenv(v, unset = "")
@@ -1456,7 +1450,7 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
   list(assets = assets, catalog = catalog)
 }
 
-# --- asset lockfile ---
+# asset lockfile
 
 read_lockfile <- function() {
   if (!file.exists(LOCKFILE)) {
@@ -1465,7 +1459,7 @@ read_lockfile <- function() {
   tryCatch(readRDS(LOCKFILE), error = function(e) NULL)
 }
 
-# Hit only if source sha matches and every recorded pack still exists on disk.
+# Hit when source sha matches and every recorded pack exists on disk.
 lockfile_hit <- function(lock, current_sha) {
   if (
     is.null(lock) ||
@@ -1483,7 +1477,7 @@ lockfile_hit <- function(lock, current_sha) {
     all(file.exists(file.path(asset_dir, files)))
 }
 
-# Store pre-trim external catalog entries so lockfile reuse rebuilds mc_catalog.
+# Store pre-trim external catalog entries for lockfile reuse.
 write_lockfile <- function(sha, assets, ext_clocks) {
   saveRDS(
     list(source_git_sha = sha, assets = assets, ext_clocks = ext_clocks),
@@ -1492,7 +1486,7 @@ write_lockfile <- function(sha, assets, ext_clocks) {
   message("sync: wrote ", LOCKFILE, " (asset lockfile @ ", sha, ")")
 }
 
-# --- main --------------------------------------------------------------------
+# main
 
 sync <- function(source_git_sha = NULL, upload = FALSE, force = FALSE) {
   src <- resolve_source(source_git_sha = source_git_sha)

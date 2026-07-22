@@ -1,4 +1,4 @@
-# Missingness front end. Partial NA fills from cohort; fully absent fills from vendor.
+# Missingness front end. Partial NA fills from cohort; fully absent from vendor.
 
 # One NA scan over needed columns; errors on fully-empty samples.
 scan_missing_cpgs <- function(DNAm, needed_cpgs) {

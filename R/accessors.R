@@ -1,6 +1,6 @@
-# Catalog/bundle accessors: scorers read clocks only through these, never raw mc_catalog lists.
+# Catalog accessors for scorers; never read raw mc_catalog lists.
 
-# One catalog entry, or a clear error.
+# One catalog entry, or error.
 clock_entry <- function(id) {
   if (length(id) != 1L) {
     stop(
@@ -16,7 +16,7 @@ clock_entry <- function(id) {
   entry
 }
 
-# Map a weights/ path to its named numeric tensor.
+# Named numeric tensor for a weights/ path.
 bundle_tensor <- function(group_id, path) {
   bundle <- mc_bundles[[group_id]]
   if (is.null(bundle)) {
@@ -49,10 +49,43 @@ clock_scoring_cpgs <- function(id) {
 
 # Normalization/background panel; character(0) when none.
 clock_norm_cpgs <- function(id) {
-  probe_sets_cpgs(clock_entry(id), "quantile_normalization_background")
+  cpgs <- probe_sets_cpgs(clock_entry(id), "quantile_normalization_background")
+  if (length(cpgs)) {
+    return(cpgs)
+  }
+  gm <- dunedin_gold_means(id)
+  if (is.null(gm)) character(0) else names(gm)
 }
 
-# Paper-assumed array-normalization scheme (annotation only; never executed).
+# Gold-standard QN means for a Dunedin clock, or NULL.
+dunedin_gold_means <- function(id) {
+  if (!identical(clock_norm_scheme(id), "quantile")) {
+    return(NULL)
+  }
+  entry <- clock_entry(id)
+  bundle <- mc_bundles[[entry$group_id]]
+  if (is.null(bundle)) {
+    stop("No shipped bundle for group: ", entry$group_id, call. = FALSE)
+  }
+  key <- grep(
+    paste0("(^|/)", id, "/gold_standard_means"),
+    names(bundle$tensors),
+    value = TRUE
+  )
+  if (length(key) != 1L) {
+    stop(
+      "dunedin_gold_means(): '",
+      id,
+      "' resolves to ",
+      length(key),
+      " gold_standard_means tensor(s) (expected 1).",
+      call. = FALSE
+    )
+  }
+  bundle$tensors[[key]]
+}
+
+# Paper-assumed array-normalization scheme (annotation only).
 clock_norm_scheme <- function(id) {
   scheme <- clock_entry(id)$normalization
   if (is.null(scheme)) {
@@ -61,18 +94,17 @@ clock_norm_scheme <- function(id) {
   as.character(scheme)
 }
 
-# Parity fixture stub for tests, or NULL if none. Scorers never read this.
+# Parity fixture stub for tests, or NULL.
 clock_fixture <- function(id) {
   clock_entry(id)$fixture
 }
 
-# Imputation policy + ref. Sex-keyed refs need Female at score time.
+# Imputation policy and ref.
 clock_impute <- function(id) {
   clock_entry(id)$imputation
 }
 
-# Vendor-mean ref vector for absent-CpG fill (scalar path only; FitAge uses fitage_sex_medians).
-# External clocks read the vendor means from the loaded pack's $impute vector.
+# Vendor-mean ref for absent-CpG fill.
 clock_impute_ref <- function(id, packs = NULL) {
   entry <- clock_entry(id)
   if (isTRUE(entry$external_group)) {
@@ -120,16 +152,13 @@ clock_batch_dependent <- function(id) {
   isTRUE(clock_entry(id)$batch_dependent)
 }
 
-# Named cpg->coef for single-vector clocks (and single-cpg GrimAge surrogates).
-# External clocks pull their column from the loaded pack (`packs`), not mc_bundles.
+# Named cpg->coef for single-vector clocks.
 clock_coefs <- function(id, packs = NULL) {
   entry <- clock_entry(id)
   wf <- entry$weights_format
   if (identical(wf, "cpg_coefficient")) {
     if (isTRUE(entry$external_group)) {
       pack <- clock_pack(id, packs)
-      # SystemsAge organ sub-clocks are the pack's $organs columns; other external
-      # groups (PCClocks, PCBrainAge) carry a single $coefficient_matrix.
       m <- if (identical(entry$group_id, "SystemsAge")) {
         pack$organs
       } else {
@@ -180,7 +209,7 @@ clock_coefs <- function(id, packs = NULL) {
   )
 }
 
-# {name: coef} list -> named numeric; numeric(0) if empty or name-less.
+# {name: coef} list -> named numeric; numeric(0) if empty.
 covariate_coefs_from <- function(cov) {
   empty <- stats::setNames(numeric(0), character(0))
   if (is.null(cov) || !length(cov)) {
@@ -198,13 +227,13 @@ clock_covariate_coefs <- function(id) {
   covariate_coefs_from(clock_entry(id)$covariates)
 }
 
-# Covariate names required for prepare/pheno checks.
+# Covariate names required for pheno checks.
 clock_covariates_required <- function(id) {
   covs <- clock_entry(id)$covariates_required
   if (is.null(covs) || length(covs) == 0) character(0) else as.character(covs)
 }
 
-# Clock ids this clock consumes as compute inputs.
+# Clock ids this clock consumes as inputs.
 clock_depends_on <- function(id) {
   deps <- clock_entry(id)$depends_on_clocks
   if (is.null(deps) || length(deps) == 0) character(0) else as.character(deps)
@@ -225,13 +254,13 @@ clock_type <- function(id) {
   }
 }
 
-# Catalog output_transform name; defaults to "identity".
+# Catalog output_transform name; default "identity".
 clock_output_transform <- function(id) {
   ot <- clock_entry(id)$output_transform
   if (is.null(ot)) "identity" else as.character(ot)
 }
 
-# weights_format: cpg_coefficient | component_matrices | external_package | custom.
+# weights_format from the catalog.
 clock_weights_format <- function(id) {
   weights_format <- clock_entry(id)$weights_format
   if (is.null(weights_format)) {
@@ -241,13 +270,12 @@ clock_weights_format <- function(id) {
   }
 }
 
-# TRUE for external groups whose weights are not in mc_bundles.
+# TRUE when weights are not in mc_bundles.
 clock_is_external <- function(id) {
   isTRUE(clock_entry(id)$external_group)
 }
 
-# The loaded pack for an external clock's group, from the resolved registry.
-# `packs` is the named list from load_mc_assets(); errors if the group is absent.
+# Loaded pack for an external clock's group.
 clock_pack <- function(id, packs) {
   gid <- clock_group_id(id)
   pack <- if (is.null(packs)) NULL else packs[[gid]]
@@ -274,7 +302,7 @@ clock_group_bundle <- function(id) {
   bundle
 }
 
-# Family label used for pack dispatch.
+# Family/group label for pack dispatch.
 clock_group_id <- function(id) {
   gid <- clock_entry(id)$group_id
   if (is.null(gid)) {
@@ -283,14 +311,13 @@ clock_group_id <- function(id) {
   gid
 }
 
-# GrimAge: component list and Cox/rescale pieces for score_grimage().
-
+# GrimAge components for score_grimage().
 clock_components <- function(id) {
   comps <- clock_entry(id)$components
   if (is.null(comps)) list() else comps
 }
 
-# GrimAge Cox coef vector; names drive the surrogate stack.
+# GrimAge Cox coef vector.
 grimage_cox_coef <- function(id) {
   entry <- clock_entry(id)
   model <- Filter(
@@ -343,8 +370,6 @@ grimage_rescale_params <- function(id) {
   vapply(p[need], as.numeric, numeric(1))
 }
 
-# FitAge: sex-split scoring op, components, KDM params, and sex medians.
-
 # FitAge member scoring op (out == "score").
 fitage_score_op <- function(id) {
   recipe <- clock_entry(id)$recipe
@@ -362,7 +387,7 @@ fitage_score_op <- function(id) {
   step[[1]]
 }
 
-# Resolve a named FitAge component to its coef tensor.
+# Coef tensor for a named FitAge component.
 fitage_component_tensor <- function(id, comp_name) {
   entry <- clock_entry(id)
   comp <- Filter(function(c) identical(c$name, comp_name), entry$components)
@@ -398,7 +423,7 @@ fitage_kdm_params <- function(id) {
   bundle_tensor(entry$group_id, comp[[1]]$file)
 }
 
-# GrimAge dep id for the FitAge composite (exactly one expected).
+# GrimAge dependency id for the FitAge composite.
 fitage_grim_dep <- function(id) {
   dep <- grep("^GrimAge", clock_depends_on(id), value = TRUE)
   if (length(dep) != 1L) {
@@ -432,9 +457,7 @@ fitage_sex_medians <- function(id) {
   )
 }
 
-# PhysAge: ordered surrogates and optional poly years rescale.
-
-# Ordered surrogate list: each {name, coef, negate}; stack order is stable.
+# Ordered surrogates: each {name, coef, negate}.
 physage_surrogates <- function(id) {
   entry <- clock_entry(id)
   recipe <- entry$recipe
@@ -468,7 +491,6 @@ physage_surrogates <- function(id) {
   }
   negate_set <- as.character(unlist(zs[[1]]$negate))
 
-  # Map each linear_mean `out` (raw_*) to its coef component tensor.
   lm_ops <- Filter(function(s) identical(s$op, "linear_mean"), recipe)
   by_out <- stats::setNames(
     lm_ops,
@@ -508,7 +530,7 @@ physage_surrogates <- function(id) {
   })
 }
 
-# Poly coef for DNAmPhysAge_years rescale, or NULL if none.
+# Poly coef for DNAmPhysAge_years, or NULL.
 physage_poly_coef <- function(id) {
   step <- Filter(function(s) identical(s$op, "poly"), clock_entry(id)$recipe)
   if (!length(step)) {
@@ -527,11 +549,7 @@ physage_poly_coef <- function(id) {
   as.numeric(unlist(step[[1]]$coef))
 }
 
-# SystemsAge: recipe constants + the small systems_PCA tensor tree for the two
-# composites (Age_prediction, SystemsAge). Organ sub-clocks are plain cpg_coefficient
-# linear (clock_coefs -> pack$organs); only the composites read these.
-
-# Unique recipe step producing `out`, or a clear error.
+# Unique recipe step producing out, or error.
 systemsage_step <- function(id, out) {
   step <- Filter(function(s) identical(s$out, out), clock_entry(id)$recipe)
   if (length(step) != 1L) {
@@ -549,17 +567,17 @@ systemsage_step <- function(id, out) {
   step[[1]]
 }
 
-# Intercept of the age-linear front: L = intercept + sum(age_pc_coef * beta).
+# Intercept of the age-linear front.
 systemsage_age_intercept <- function(id) {
   as.numeric(systemsage_step(id, "L")$intercept)
 }
 
-# Quadratic poly coef [c0, c1, c2] for the poly step producing `out`.
+# Quadratic poly coef for the poly step producing out.
 systemsage_poly <- function(id, out) {
   as.numeric(unlist(systemsage_step(id, out)$coef))
 }
 
-# 11 raw-system linear intercepts, named by organ (recipe out = raw_<organ>).
+# Raw-system linear intercepts, named by organ.
 systemsage_raw_intercepts <- function(id) {
   steps <- Filter(
     function(s) {
@@ -578,7 +596,7 @@ systemsage_raw_intercepts <- function(id) {
   ints
 }
 
-# Stack column order as system labels (raw_<organ> -> <organ>, ap_scaled -> Age_prediction).
+# Stack column order as system labels.
 systemsage_stack_order <- function(id) {
   inputs <- as.character(unlist(systemsage_step(id, "sysscores")$inputs))
   vapply(
@@ -596,8 +614,7 @@ systemsage_final_intercept <- function(id) {
   as.numeric(systemsage_step(id, "score")$intercept)
 }
 
-# systems_PCA tensor tree from the pack, aligned to the stack system order (rows) and
-# PC order (cols): list(center, scale, rotation [systems x PCs], model [over PCs]).
+# systems_PCA tensors from the pack, ordered to stack rows/PC cols.
 systemsage_pca <- function(id, packs, order) {
   pack <- clock_pack(id, packs)
   comps <- clock_components(id)

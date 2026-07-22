@@ -1,6 +1,4 @@
-# Engine reduction (sum vs mean) + linear_mean regression (synthetic betas; CRAN-safe).
-# Reduction is proven through calc_clocks() output below, not by asserting the internal
-# clock_reduction() tag per clock.
+# Engine reduction (sum vs mean) via calc_clocks() output.
 
 test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   co <- clock_coefs("EpiTOC")
@@ -11,7 +9,7 @@ test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(got), unname(mean_form), tolerance = 1e-10)
 
-  # Guard against regression to the old sum reduction.
+  # Guard against sum reduction regression.
   sum_form <- ic + as.numeric(DNAm[, names(co)] %*% co)
   expect_false(isTRUE(all.equal(unname(got), unname(sum_form))))
 })
@@ -35,6 +33,7 @@ test_that("every catalog clock maps to a known score_type tag", {
     "fitage_composite",
     "physage",
     "systemsage",
+    "dunedin",
     "unsupported"
   )
   tags <- vapply(mc_index$clock_id, score_type, character(1))

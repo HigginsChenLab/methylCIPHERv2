@@ -68,15 +68,12 @@ print.methylCIPHER_sim <- function(x, n = 6, p = 6, ...) {
 
 clock_cpgs <- function(clock_ids) {
   results <- lapply(clock_ids, function(cid) {
-    entry <- mc_catalog[[cid]]
-    scoring <- Filter(
-      function(p) identical(p$role, "scoring"),
-      entry$probe_sets
-    )
+    scoring <- clock_scoring_cpgs(cid)
     if (!length(scoring)) {
       return(NULL)
     }
-    unlist(lapply(scoring, function(ps) ps$cpgs), use.names = FALSE)
+    # Include norm panel so simulated data exercises QN.
+    c(scoring, clock_norm_cpgs(cid))
   })
   unresolved <- clock_ids[vapply(results, is.null, logical(1))]
 

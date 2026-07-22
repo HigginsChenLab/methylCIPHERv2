@@ -1,5 +1,4 @@
 # DNAmFitAge: sex-split biomarker members + Klemera-Doubal composite.
-# Partial NA uses the cohort cache; absent CpGs use sex-specific vendor medians.
 
 # One fitness biomarker (sex-split on Female; DNAmVO2max shares one model).
 score_fitage_member <- function(
@@ -88,7 +87,6 @@ score_fitage_member <- function(
       )
     }
 
-    # Slice rows+cols so linear_predictor does not materialize a full-width sex subset.
     lp <- linear_predictor(
       coef = m$coef,
       intercept = m$intercept,
@@ -138,7 +136,7 @@ score_fitage_member <- function(
   list(score = score_mat, coverage = coverage, sample_miss = sample_miss)
 }
 
-# DNAmFitAge composite: KDM mix of member + GrimAgeV1 scores from `results`.
+# DNAmFitAge composite: KDM mix of member + GrimAgeV1 scores from results.
 score_fitage_composite <- function(
   id,
   cpgs,
@@ -201,7 +199,7 @@ score_fitage_composite <- function(
     dimnames = list(sample_id, id)
   )
 
-  # Coverage over the composite's CpG union (reads member scores, not CpGs).
+  # Coverage over the composite's CpG union.
   cached <- if (is.null(partial_cache)) {
     character(0)
   } else {

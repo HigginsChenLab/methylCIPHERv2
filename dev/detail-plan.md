@@ -138,8 +138,9 @@ scoring, both run exactly once — never inside the per-clock loop:
     ids `sample1..N` (or a hard error if `allow_positional_ids = FALSE`), flagged
     `$provenance$positional_ids` so `cbind` can refuse it (§5.1, §7.1).
   - `check_DNAm(DNAm)` — *universal* invariants only: double matrix; unique CpG colnames; unique
-    sample-id rownames (non-NULL by now — real or positional); orientation and `^cg`-prefix
-    warnings. Carries no clock knowledge.
+    sample-id rownames (non-NULL by now — real or positional); a `^cg`-prefix orientation
+    warning (the `nrow > ncol` dimensional guess was dropped -- it false-positives on small
+    panels). Carries no clock knowledge.
   - covariate check is a **union over the compute plan** (requested + auto-added deps):
     `extra_columns <- unique(unlist(lapply(plan, clock_covariates_required)))`, fed once to
     `check_pheno(pheno, ID, extra_columns)`. Unioning over `plan` (not the raw `clock_ids`) is
@@ -148,6 +149,11 @@ scoring, both run exactly once — never inside the per-clock loop:
     a per-clock catalog field (`covariates_required`), so requesting a single component vs. a whole
     group is automatically correct — **no per-clock/per-group check registry, nothing hand-coded per
     clock.**
+  - **missing covariates** — an `NA` in a required covariate is legal and propagates: that sample's
+    score is `NA` for every clock consuming the covariate, the row is never dropped, and no error is
+    raised. `check_pheno()` warns **once**, naming each affected column and its NA count, scoped to
+    rows that survive the id-join (an `NA` on an unscored cohort row does not warn). Clocks that do
+    not declare the covariate still score finite for that sample.
   - **coverage floor** — `warn_low_coverage(cpg_list, min_coverage = 0.8)`, run once on the
     `resolve_cpgs()` skeleton (§2.3a): one warning naming every clock whose
     `score_present / score_needed` falls under `min_coverage`, with counts and percentage.
@@ -177,9 +183,8 @@ are pragmatic, hand-optimized implementations of that contract.
 | Linear engine | Shared `linear_score()` | Most `cpg_coefficient` clocks |
 | Pre-transforms | Small modules feeding linear | Zhang `sample_scale` (stats on full panel -> apply to coef subset) |
 | Sex-split | Linear engine, female/male coef selected on `Female` | DNAmFitAge surrogates |
-| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock) |
+| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`) |
 | Batched pack scorers | One shared subset + one matmul per group | **PCClocks**, **SystemsAge** packs |
-| External | Soft dependency adapters | DunedinPoAm38, DunedinPACE |
 | Custom | Dedicated helper | MiAge |
 
 Bundled packs may own their orchestration (shared intermediates, multi-column assembly) but call
@@ -294,15 +299,18 @@ no other clock exercises it.
 
 `sample_scale` above is a *scoring-recipe* transform, not array normalization. Array
 normalization proper is the per-clock `normalization` field: `none` ×104, `BMIQ` ×7,
-`quantile` ×1 (DunedinPACE), `noob` ×1 (Horvath2). **The package executes none of it.**
+`quantile` ×1 (DunedinPACE), `noob` ×1 (Horvath2). **The package executes none of it, except
+DunedinPACE's `quantile`** (see below).
 
-- BMIQ / noob / quantile are squarely **upstream** (sesame / minfi) — the user's responsibility.
+- BMIQ / noob are squarely **upstream** (sesame / minfi) — the user's responsibility.
 - Horvath's BMIQ-to-golden-mean is **deliberately skipped**: a correctness bug in RPMM. Parity
   fixtures show ~0.9999 correlation of no-BMIQ vs the Horvath server, so re-implementing it buys
   nothing and inherits the bug. Users who want BMIQ run the RPMM pipeline themselves first
   (most won't).
-- DunedinPACE's `quantile` runs **inside its external wrapper** (`computation_type=wrapper`), not
-  ours.
+- DunedinPACE's `quantile` is the **one executed** normalization: the `score_dunedin` branch
+  quantile-normalizes the gold panel to `gold_standard_means` via `betanorm::quantile_norm`
+  (bit-exact with the author's `preprocessCore`) before the linear score. It is intrinsic to the
+  clock (the score is defined on normalized betas), not array prep, so it cannot be pushed upstream.
 
 So `normalization` is a **coverage / provenance annotation** — surfaced via a (future)
 `clock_norm_scheme()` accessor feeding `norm_needed` (§4) — **not a compute step and not a
@@ -711,7 +719,8 @@ unexpected value), but the field itself stays on the maintainer side (manifest),
 - **Parity fixtures -- the single clock-golden source, cohort-gated.** Upstream golden fixtures
   vs `fixtures/cohort_EPIC/beta.duckdb` (gitignored; regenerable via `fixtures/build_cohort.R`;
   path under the meta clone `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`).
-  Skipped via `file.exists()` when the cohort is not staged. Parity policy `exact` |
+  Skipped unless `METHYLCIPHER_PARITY=1` is set and the cohort is staged (`file.exists()`); run
+  locally via the dev-only, build-ignored `test_parity()` (`R/dev-utils.R`). Parity policy `exact` |
   `correlation` | `skipped`; failures print clock id + policy.
 
 No slice of the golden cohort is committed into `tests/` -- that is a second copy of upstream

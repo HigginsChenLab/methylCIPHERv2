@@ -12,6 +12,132 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- Missing Age/Female: propagate NA, warn once in check_pheno
+
+**Decision.** An `NA` in a required covariate (`Age`, `Female`) is a **legal input**. It propagates
+through the linear algebra to an `NA` score for that sample and nothing else: the row is never
+dropped, no error is thrown, and every other sample scores normally. `check_pheno()` emits **one**
+warning naming each affected covariate column and its NA sample count.
+
+**Why warn upstream, not per clock.** Propagation already worked (`X %*% cox` in `score_grimage()`,
+`cov_mat %*% cov_coefs` in `linear_predictor()`), but it was *silent* -- a user with a few missing
+ages got an `NA` column with no pointer back to `pheno`. Warning at the single validation site is
+succinct and clock-count-invariant: one message regardless of how many clocks consume the covariate,
+emitted before any scoring. A per-clock or per-scorer warning would fire N times for the same root
+cause and would have to be threaded through every branch.
+
+**Why not error or drop.** Dropping rows silently changes `nrow(scores)` and breaks id alignment
+against the caller's pheno; erroring makes one bad row block a whole cohort. `NA` in, `NA` out is
+the least surprising contract and keeps the result rectangular.
+
+**Scoping.** The count is taken over rows that survive the id-join (`match(sample_id, pheno[[ID]])`),
+so an `NA` on a cohort row that is not being scored does not warn. Under positional alignment all
+rows count, since all are scored.
+
+**Consequence.** Surrogates inherit the `NA` only where they declare the covariate: with `Age`
+missing, `DNAmPAI1` / `DNAmLeptin` / `DNAmlogCRP` (no covariates) still score finite while the
+Age-consuming surrogates and both GrimAge composites go `NA`. Coverage counters are unaffected --
+they track CpGs, not covariates.
+
+**Sites.** `check_pheno()` / `warn_missing_covariates()` in `R/resolve_inputs.R`; call site in
+`calc_clocks()` now passes `sample_id`. Tests in `tests/testthat/test-score-grimage.R`.
+
+---
+
+## 2026-07-21 -- Dunedin is a bundled QN family (not an external adapter); Hybrid missing data
+
+**Decision (routing).** DunedinPoAm38 and DunedinPACE ship **bundled** (`cpg_coefficient` /
+`linear`, group `Dunedin`), not as external `computation_type=wrapper` adapters as the early
+plan assumed. Both route to a shared `score_dunedin()` branch. PoAm38 is plain linear; PACE
+quantile-normalizes a 20000-CpG gold panel to `gold_standard_means` (via `betanorm::quantile_norm`,
+bit-exact with the author's `preprocessCore::normalize.quantiles.use.target`) and then scores
+linearly on its 173 model CpGs (a subset of the panel). The gold panel ships as the
+`gold_standard_means` tensor; its names are the QN background (there is no inlined
+`quantile_normalization_background` probe_set in the compiled catalog), so `clock_norm_cpgs()`
+falls back to those names and `dunedin_gold_means()` reads the tensor. `present_needed_union`
+now also unions `norm_present`, so partial-NA gold-panel CpGs get the shared cohort cache.
+
+**Why bundled + betanorm.** Both clocks reproduce the author fixtures to machine epsilon on the
+EPIC cohort (PoAm38 4.4e-16; PACE 1.8e-15). `betanorm` stays a **Suggests** soft dep: it is a
+GitHub-only (`hhp94/betanorm`) compiled package, so a CRAN target cannot Import it; PACE errors
+cleanly and sim-smoke / value goldens skip when it is absent. Reimplementing preprocessCore's QN
+in pure R was rejected -- betanorm already matches it exactly and is the maintainer's own package.
+
+**Decision (missing data -- Hybrid).** The author's `PACEProjector`/`PoAmProjector` cascade uses a
+single `proportionOfProbesRequired` threshold to (a) NA a whole clock under-covered on its model
+(PACE also gold) panel, (b) NA a sample observing too few panel cells, (c) impute lightly-missing
+present probes to the cohort mean, (d) replace heavily-missing present probes with vendor means,
+and PACE fills fully-absent gold probes with `gold_standard_means` before QN. We adopt a **Hybrid**:
+keep methylCIPHER-native imputation (partial NA -> shared cohort cache; fully-absent -> vendor
+means (PoAm) / gold fill (PACE)), and add only the two coarse **NA-gates** (a) and (b). We drop the
+per-probe threshold split (d) and the author's quirk that leaves heavily-missing non-model gold
+probes as NA. The gates reuse the existing `min_coverage` argument (default 0.8) -- it *is* the
+author's proportion-of-probes-required -- so no new per-clock argument was added; `min_coverage = 0`
+disables warning and gating together. The parity cohort has full coverage, so the divergent
+degraded-coverage rules are exercised only by always-on value goldens, not parity.
+
+**Decision (error handling -- deliberately not defensive).** `score_dunedin()` mirrors the author
+projectors' stance: **fill or drop to NA, never stop.** Insufficient coverage yields NA (whole clock
+or per sample); a missing scoring CpG is filled. The author's only `stop()` is a non-numeric-matrix
+check, and ours is likewise a single one -- `betanorm` missing -- placed at the **point of use**
+(inside the scoring block) so an under-covered PACE call still returns NA without needing the
+package, exactly as the author reaches `preprocessCore` only after its NA-gate. Three earlier guards
+were removed as dead defensiveness: "model CpGs absent from the gold panel" and "absent CpG lacks a
+fill value" can never fire (model CpGs are a subset of the gold panel; `gold_standard_means` and
+`model_means` are complete by construction), and a `cov_ratio()` divide-by-zero helper guarded a
+panel that is never empty. Catalog-integrity assertions belong to sync, not to a scorer.
+
+**Why not a general per-clock arg mechanism / `...`.** Only one override (the coverage threshold)
+exists and it already had a home (`min_coverage`), so a `clock_args` dict or a `...`-intersection
+dispatch would be speculative. A `...` that silently swallows a mistyped argument is a correctness
+hazard in a scoring package (a typo'd threshold changes results with no signal) and is the same
+arg-walker anti-pattern the engine forbids -- the dead `...` in `calc_clocks()` was removed. If a
+general mechanism is ever needed (>= 2-3 real params), it will be an explicit `clock_args` list that
+errors on an unknown clock id or arg name, never `...`.
+
+**Parity.** PACE's catalog `fixture$parity_policy` is still `skipped` (a meta-repo value that the
+portable path could not previously recompute). Now that betanorm makes it bit-exact, flipping it to
+`exact` is a meta.json + re-`sync()` step (maintainer-side); until then PACE's numeric correctness
+rests on the always-on value goldens (allowed while parity is skip-listed). PoAm38 (policy `exact`)
+is picked up automatically by `parity_targets()` and passes.
+
+**Also fixed here.** `test-fixtures-parity.R` wrapped its parity loop in
+`if (skip_if_no_cohort() | skip_if_no_pack(clock_id))`, referencing an undefined `clock_id` at file
+scope -- it errored on any enabled parity run. Moved both skips inside each `test_that` (matching the
+PhysAge block), which is what the 2026-07-21 parity-gating entry below intended.
+
+## 2026-07-21 -- External clock tests smoke-only; check_DNAm orientation keys on ^cg
+
+**Decision (external tests).** `test-score-external.R` no longer re-derives scoring values. Every
+external member (PCClocks, PCBrainAge, SystemsAge, incl. the SystemsAge systems_PCA composite) has
+a passing `exact` cohort-parity fixture, so parity owns the goldens; this file keeps only always-on
+coverage parity cannot give: the in-memory `assets=pack` closed-set path runs and returns the right
+shape (smoke), the wrong-pack error, the PCClocks no-family-expansion subset contract, and the
+vendor-fill coverage flags (`score_imputed_full`). Completes the partial removal in the "test
+altitude" entry below -- the composite golden had survived in the tree; now all external in-test
+goldens are gone. Trade-off: external numeric correctness now rests entirely on the (CRAN-skipped,
+pack-gated) parity tier, mirroring how bundled clocks lean on sim-smoke + parity. Shared per-group
+packs are built once at file scope (they were rebuilt byte-identically per test).
+
+**Decision (check_DNAm).** The orientation guard drops the `nrow > ncol` dimensional heuristic --
+it false-positived whenever samples outnumber a small CpG panel (every parity fixture) -- and keys
+solely on the `^cg` prefix: warn when no column looks like a CpG, naming the transposed case when
+the rows do. A genuinely transposed matrix is also caught downstream by `warn_low_coverage`.
+
+## 2026-07-21 -- Cohort parity tier gated behind METHYLCIPHER_PARITY, not just file.exists()
+
+**Decision.** `test-fixtures-parity.R` now skips unless `METHYLCIPHER_PARITY=1` is set (in
+addition to the cohort duckdb being staged). The env flag gates both the file-scoped duckdb
+connection and each test's `skip_if_no_cohort()`. A dev-only, build-ignored helper
+`test_parity()` (`R/dev-utils.R`) sets the flag via `withr::with_envvar()` for one run.
+
+**Why.** The parity tier is ~34s of a ~37s suite (one duckdb query + a real `calc_clocks()`
+per fixtured clock), so on a machine with the cohort staged every `devtools::test()` paid it
+on each change. Default runs are now ~4s; the science gate runs on demand via `test_parity()`
+(or any env set). No CI workflow exists yet; whatever runs the gate must export the flag.
+`R/dev-utils.R` is git-tracked but `.Rbuildignore`d, so it is available after `load_all()`
+yet never ships to CRAN.
+
 ## 2026-07-21 -- Batched pack scorers for PCClocks / SystemsAge; no general grouping layer
 
 **Decision.** External groups whose members share one large CpG panel (PCClocks, SystemsAge) are

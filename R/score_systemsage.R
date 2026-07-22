@@ -1,12 +1,6 @@
-# SystemsAge (Sehgal 2024): organ sub-clocks are plain linear (pack$organs columns).
-# The two composites are:
-#   Age_prediction: L = age-linear predictor; score = quadratic(L).
-#   SystemsAge:     11 raw system predictors + quadratic-scaled age -> systems_PCA -> linear head.
-# All members share one CpG panel, so the whole group scores off a single pack_design
-# (one DNAm subset) reused across the age / organs / systems matmuls. Absent CpGs are
-# vendor-mean filled from the pack $impute vector (shared across stages).
+# SystemsAge: organ sub-clocks linear; Age_prediction and SystemsAge composites.
 
-# c0 + c1*L + c2*L^2 (poly coef ascending in L).
+# c0 + c1*L + c2*L^2.
 sa_poly <- function(L, coef) {
   out <- rep(0, length(L))
   for (k in seq_along(coef)) {
@@ -15,7 +9,7 @@ sa_poly <- function(L, coef) {
   out
 }
 
-# Coverage record for a SystemsAge composite (matches the pre-batch score_systemsage()).
+# Coverage record for a SystemsAge composite.
 systemsage_composite_coverage <- function(cpgs, sample_miss) {
   list(
     clock_id = cpgs$clock_id,
@@ -32,9 +26,7 @@ systemsage_composite_coverage <- function(cpgs, sample_miss) {
   )
 }
 
-# Batched scorer for the SystemsAge group: one shared subset, then only the coef blocks
-# the requested members need (organs for sub-clocks, age front for either composite,
-# systems for the SystemsAge composite). The age front matmul is computed once and reused.
+# Batched scorer for the SystemsAge group.
 score_systemsage_group <- function(
   ids,
   cpg_list,
@@ -67,7 +59,7 @@ score_systemsage_group <- function(
   out <- vector("list", length(ids))
   names(out) <- ids
 
-  # Organ sub-clocks: plain linear over pack$organs (intercept per organ, identity).
+  # Organ sub-clocks: plain linear over pack$organs.
   if (length(organs_req)) {
     Mo <- pack$organs
     rownames(Mo) <- pack$cpgs
@@ -81,7 +73,7 @@ score_systemsage_group <- function(
     }
   }
 
-  # Composites share the age-linear front L (one matmul over pack$age).
+  # Composites share the age-linear front L.
   if (length(composites)) {
     Ma <- matrix(
       as.numeric(pack$age),
