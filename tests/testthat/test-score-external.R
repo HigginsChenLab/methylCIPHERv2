@@ -74,6 +74,86 @@ test_that("calc_clocks() on an external clock errors (closed set) when its pack 
   expect_error(calc_clocks(DNAm, "PCBrainAge", assets = wrong))
 })
 
+# --- PCClocks: the batched multi-member matmul --------------------------------------
+# The whole PCClocks group scores in one shared subset + one gemm over all columns,
+# with per-clock intercept, covariate term, and output transform (anti.trafo for the
+# Horvath members). Golden = the per-clock linear formula computed in-test per column.
+
+# Synthetic PCClocks pack over the shared panel: a coef column per member, vendor means.
+fake_pcclocks_pack <- function(cpgs, seed = 3L) {
+  members <- mc_index$clock_id[mc_index$group_id == "PCClocks"]
+  withr::with_seed(seed, {
+    M <- matrix(
+      stats::rnorm(length(cpgs) * length(members)),
+      length(cpgs),
+      length(members),
+      dimnames = list(NULL, members)
+    )
+    impute_vec <- stats::runif(length(cpgs))
+  })
+  list(
+    group_id = "PCClocks",
+    cpgs = cpgs,
+    coefficient_matrix = M,
+    impute = impute_vec
+  )
+}
+
+test_that("calc_clocks('PCClocks') batches all members and matches the per-clock formula", {
+  members <- mc_index$clock_id[mc_index$group_id == "PCClocks"]
+  cpgs <- clock_scoring_cpgs("PCADM") # shared panel
+  pack <- fake_pcclocks_pack(cpgs)
+  DNAm <- random_betas(cpgs, n = 4L)
+  pheno <- data.frame(
+    ID = rownames(DNAm),
+    Age = c(40, 55, 63, 71),
+    Female = c(1L, 0L, 1L, 0L)
+  )
+
+  res <- calc_clocks(DNAm, "PCClocks", pheno = pheno, assets = pack)
+  expect_setequal(colnames(res$scores), members)
+
+  for (id in members) {
+    lin <- clock_intercept(id) +
+      as.numeric(DNAm[, cpgs] %*% pack$coefficient_matrix[, id])
+    cov <- clock_covariate_coefs(id)
+    if (length(cov)) {
+      lin <- lin + as.numeric(as.matrix(pheno[, names(cov), drop = FALSE]) %*% cov)
+    }
+    tf <- if (identical(clock_output_transform(id), "anti.trafo")) {
+      anti_trafo
+    } else {
+      identity
+    }
+    expect_equal(
+      unname(res$scores[, id]),
+      unname(tf(lin)),
+      tolerance = 1e-8,
+      info = id
+    )
+  }
+})
+
+test_that("requesting a subset of PCClocks returns only those columns (no expansion)", {
+  cpgs <- clock_scoring_cpgs("PCADM")
+  pack <- fake_pcclocks_pack(cpgs)
+  DNAm <- random_betas(cpgs, n = 3L)
+  pheno <- data.frame(
+    ID = rownames(DNAm),
+    Age = c(50, 60, 70),
+    Female = c(0L, 1L, 1L)
+  )
+
+  sub <- calc_clocks(DNAm, c("PCHorvath1", "PCADM"), pheno = pheno, assets = pack)
+  full <- calc_clocks(DNAm, "PCClocks", pheno = pheno, assets = pack)
+
+  expect_setequal(colnames(sub$scores), c("PCHorvath1", "PCADM"))
+  expect_equal(
+    sub$scores[, c("PCHorvath1", "PCADM")],
+    full$scores[, c("PCHorvath1", "PCADM")]
+  )
+})
+
 # --- SystemsAge (Sehgal 2024): organ sub-clocks + Age_prediction + composite ------
 # Scored from an in-memory pack (closed set -> no disk, no network). The recipe math
 # is re-derived in-test for the golden; real cohort parity is the science gate
@@ -181,6 +261,38 @@ test_that("calc_clocks('SystemsAge') scores the whole group (13 columns) in one 
   expect_setequal(colnames(res$scores), members)
   expect_equal(nrow(res$scores), 3L)
   expect_false(anyNA(res$scores))
+})
+
+test_that("calc_clocks('SystemsAge') composite matches the re-derived systems_PCA recipe", {
+  cpgs <- clock_scoring_cpgs("SystemsAge")
+  pack <- fake_systemsage_pack(cpgs)
+  DNAm <- random_betas(cpgs, n = 3L)
+
+  res <- calc_clocks(DNAm, "SystemsAge", assets = pack)
+  got <- res$scores[, "SystemsAge"]
+
+  # Re-derive: age front -> poly-scaled Age_prediction column + 11 raw system predictors,
+  # stacked in recipe order, centered/scaled, projected through systems_PCA, linear head.
+  L <- systemsage_age_intercept("SystemsAge") +
+    as.numeric(DNAm[, cpgs] %*% pack$age)
+  ap_scaled <- sa_poly(L, systemsage_poly("SystemsAge", "ap_scaled"))
+  order <- systemsage_stack_order("SystemsAge")
+  organs_pca <- setdiff(order, "Age_prediction")
+  raw_int <- systemsage_raw_intercepts("SystemsAge")
+  sys <- vapply(
+    organs_pca,
+    function(org) raw_int[[org]] + as.numeric(DNAm[, cpgs] %*% pack$systems[, org]),
+    numeric(nrow(DNAm))
+  )
+  stacked <- matrix(0, nrow(DNAm), length(order), dimnames = list(NULL, order))
+  stacked[, "Age_prediction"] <- ap_scaled
+  stacked[, organs_pca] <- sys
+  pca <- systemsage_pca("SystemsAge", list(SystemsAge = pack), order)
+  cs <- sweep(sweep(stacked, 2L, pca$center, "-"), 2L, pca$scale, "/")
+  expected <- as.numeric(
+    systemsage_final_intercept("SystemsAge") + (cs %*% pca$rotation) %*% pca$model
+  )
+  expect_equal(unname(got), unname(expected), tolerance = 1e-8)
 })
 
 test_that("calc_clocks() vendor-fills absent SystemsAge CpGs from the pack $impute vector", {
