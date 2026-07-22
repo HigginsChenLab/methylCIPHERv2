@@ -5,6 +5,10 @@
 .Ruserdata
 *.Rproj
 
+# R CMD build / check artifacts
+*.Rcheck/
+/methylCIPHER_*.tar.gz
+
 # Personal, machine-specific Claude overrides (never shared with collaborators)
 CLAUDE.local.md
 
