@@ -72,8 +72,10 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
 - **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy packs
   ship **external** as release assets, cached at runtime in
   `tools::R_user_dir("methylCIPHER", "cache")`. No silent first-use download.
-- **Identity keys:** `payload_hash` (pack content-address) and `file_sha256` (download integrity,
-  shipped in `mc_provenance`). Both stay maintainer-side; neither reaches a result record.
+- **Identity key:** `payload_hash` (pack content-address) only -- it sets the pack filename and
+  release tag, which is what makes re-upload of unchanged weights a no-op. It stays maintainer-side
+  and never reaches a result record. Transfer integrity and bit rot are qs2's own
+  `validate_checksum`; there is no second hash and no runtime re-hash of a loaded pack.
 - **Gitignored, do not commit:** `data-raw/assets/` and `data-raw/methylCIPHER-meta/`.
 
 ## Testing

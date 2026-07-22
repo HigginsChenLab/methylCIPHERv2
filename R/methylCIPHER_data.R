@@ -72,28 +72,10 @@ mc_cache_dir <- function(assets = NULL) {
   mc_default_cache_dir()
 }
 
-# Set the session cache dir; returns the previous value.
-mc_set_cache_dir <- function(path) {
-  old <- getOption("methylCIPHER.cache_dir")
-  options(
-    methylCIPHER.cache_dir = if (is.null(path)) NULL else path.expand(path)
-  )
-  invisible(old)
-}
-
 # helpers
 
 mc_bytes <- function(x) {
   format(structure(as.numeric(x), class = "object_size"), units = "auto")
-}
-
-# Stable content hash (serialize version 2, xdr).
-mc_payload_hash <- function(x) {
-  digest::digest(
-    serialize(x, connection = NULL, version = 2L, xdr = TRUE),
-    algo = "sha256",
-    serialize = FALSE
-  )
 }
 
 # Which packs are present in the cache (query only).
@@ -212,22 +194,6 @@ mc_data_download <- function(groups = "all", assets = NULL, ask = TRUE) {
 
 # load
 
-# Read a pack and warn (never stop) if its content hash drifts.
-mc_read_pack <- function(file, row) {
-  pack <- qs2::qs_read(file, validate_checksum = TRUE)
-  if (!identical(mc_payload_hash(pack), row$payload_hash)) {
-    warning(
-      "External pack '",
-      row$group_id,
-      "' content hash differs from this package's provenance.\n",
-      "Scores may not match this version of methylCIPHER; ",
-      "re-download to refresh (see ?clear_clock_cache).",
-      call. = FALSE
-    )
-  }
-  pack
-}
-
 # Canonicalize assets: NULL (open), cache-dir path, or loaded pack registry.
 mc_canonicalize_assets <- function(assets) {
   if (is.null(assets)) {
@@ -321,7 +287,8 @@ load_mc_assets <- function(groups, assets = NULL, ask = TRUE) {
     }
   }
 
-  packs <- Map(mc_read_pack, files, rows)
+  # qs2's own checksum is the integrity guard; the filename is the content address.
+  packs <- lapply(files, qs2::qs_read, validate_checksum = TRUE)
   stats::setNames(packs, groups)
 }
 

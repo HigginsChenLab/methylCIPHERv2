@@ -12,15 +12,14 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
     )
   }
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  # Content hash matches mc_payload_hash().
-  phash <- mc_payload_hash(payload)
+  # Filename is the content address, same shape sync.R mints.
+  phash <- digest::digest(payload, algo = "sha256")
   file <- sprintf("%s-%s.qs2", tolower(group), phash)
   rtag <- sub("\\.qs2$", "", file) # tag = filename stem; bare hex tags rejected by GitHub.
   src <- file.path(dir, file)
   qs2::qs_save(payload, src)
   list(
     group_id = group,
-    payload_hash = phash,
     release_tag = rtag,
     file = file,
     size_bytes = as.numeric(file.size(src)),
@@ -137,19 +136,6 @@ test_that("load_mc_assets() downloads missing packs on consent and returns a nam
   expect_true(file.exists(file.path(cache, row$file)))
 })
 
-test_that("load_mc_assets() warns (never stops) when the content hash drifts", {
-  cache <- withr::local_tempdir()
-  row <- fake_asset(withr::local_tempdir())
-  row$payload_hash <- strrep("0", 64) # provenance now disagrees with the bytes.
-  local_fake_registry(row)
-  suppressMessages(mc_data_download(assets = cache, ask = FALSE))
-
-  # Read the staged pack back as a closed set (explicit path -> no download).
-  expect_warning(packs <- load_mc_assets("FakeGroup", assets = cache))
-  # Warn-only: the pack is still returned.
-  expect_identical(packs[["FakeGroup"]], row$.payload)
-})
-
 test_that("load_mc_assets() rejects a corrupt cached file via the qs2 checksum", {
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
@@ -223,5 +209,4 @@ test_that("the real PCBrainAge release asset downloads and verifies", {
   row <- mc_asset("PCBrainAge")
   expect_length(pack$cpgs, row$n_cpgs)
   expect_identical(nrow(pack$coefficient_matrix), row$n_cpgs)
-  expect_identical(mc_payload_hash(pack), row$payload_hash)
 })

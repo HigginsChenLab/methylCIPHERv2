@@ -607,14 +607,12 @@ The full `sysdata.rda` rebuild is cheap (~2s), so there is **no** catalog build-
 `manifest_key` (removed 2026-07-20). The identity keys that remain are scoped to the three external
 qs2 packs (SystemsAge, PCClocks, PCBrainAge):
 
-- `payload_hash` -- content-address over a version-pinned serialization (`serialize(version = 2L,
-  xdr = TRUE)` + `digest` sha256); sets the pack filename `<group>-<payload_hash>.qs2`, its GitHub
-  release tag, and the reupload skip key. It is also read at runtime by `external_pack()` for a
-  **WARN-only** content-drift check (`mc_payload_hash()` mirrors it); the warning never gates or
-  errors, so it is not correctness provenance.
-- `file_sha256` -- maintainer-side record in `mc_provenance`. It is **no longer read at runtime**:
-  transfer integrity is now qs2's own `validate_checksum` on read (see 9.4), so R never recomputes a
-  file hash. (Candidate for removal from the shipped registry later.)
+- `payload_hash` -- the **only** identity key. A content-address over a version-pinned serialization
+  (`serialize(version = 2L, xdr = TRUE)` + `digest` sha256); sets the pack filename
+  `<group>-<payload_hash>.qs2`, its GitHub release tag, and the reupload skip key. It is
+  maintainer-side only: it is not a field on the shipped registry row (the filename already carries
+  it) and R never recomputes it at runtime. Transfer integrity and bit rot are qs2's own
+  `validate_checksum` on read (see 9.4).
 
 A gitignored `data-raw/assets/lockfile.rds` (keyed on the meta `source_git_sha` + presence of the
 staged packs) skips only the external-pack rebuild; it is **not** a product pin, not stamped on
@@ -666,10 +664,9 @@ identical function internally, so a pre-loaded object and an auto-loaded one can
    **batched** prompt for the union of missing packs) and **refuses** non-interactively; `ask = FALSE`
    is the explicit-consent signal. Staged to `<file>.part`, validated by a qs2 read, then atomically
    renamed -- a truncated transfer never lands as cached.
-4. **Read** with `qs2::qs_read(validate_checksum = TRUE)`; qs2's own checksum is the transfer
-   integrity guard (no separate sha256 recompute).
-5. **WARN-only drift:** `mc_payload_hash(pack)` vs the provenance `payload_hash`. Mismatch warns;
-   it never errors and never blocks scoring.
+4. **Read** with `qs2::qs_read(validate_checksum = TRUE)`; qs2's own checksum is the sole integrity
+   guard. There is no second hash: no sha256 recompute, and no re-hash of the loaded payload (the
+   content-addressed filename already asserts which pack it is).
 
 **No memoise.** A cold `qs_read` is ~0.1-0.2s for all three packs (benchmarked 2026-07-21), so
 `calc_clocks()` resolves the needed groups **once per call** (in the prepare phase, before the pure

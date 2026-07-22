@@ -92,7 +92,7 @@ pack_linear_coverage <- function(cpgs, sample_miss) {
   )
 }
 
-# Dispatch a pack group to its batched scorer.
+# Dispatch a pack group to its batched scorer. Members of a group share a tag.
 score_pack_group <- function(
   group_id,
   ids,
@@ -103,8 +103,9 @@ score_pack_group <- function(
   pheno,
   packs
 ) {
-  if (identical(group_id, "SystemsAge")) {
-    score_systemsage_group(
+  switch(
+    score_type(ids[[1]]),
+    pack_systemsage = score_systemsage_group(
       ids,
       cpg_list,
       usable,
@@ -112,9 +113,8 @@ score_pack_group <- function(
       partial_cache,
       pheno,
       packs
-    )
-  } else {
-    score_linear_pack(
+    ),
+    pack_linear = score_linear_pack(
       ids,
       cpg_list,
       usable,
@@ -122,8 +122,14 @@ score_pack_group <- function(
       partial_cache,
       pheno,
       packs
+    ),
+    stop(
+      "score_pack_group(): group '",
+      group_id,
+      "' has no batched scorer.",
+      call. = FALSE
     )
-  }
+  )
 }
 
 # Batched scorer for coefficient_matrix packs (PCClocks, PCBrainAge).

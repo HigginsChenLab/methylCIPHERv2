@@ -32,7 +32,8 @@ test_that("every catalog clock maps to a known score_type tag", {
     "fitage_member",
     "fitage_composite",
     "physage",
-    "systemsage",
+    "pack_linear",
+    "pack_systemsage",
     "dunedin",
     "unsupported"
   )
