@@ -10,11 +10,9 @@ test_that("surrogate members reduce by mean, and absent CpGs vendor-fill by offs
   co <- clock_coefs("DNAmCRP")
   ic <- clock_intercept("DNAmCRP")
 
-
   full <- calc_clocks(DNAm, "DNAmCRP")$scores[, "DNAmCRP"]
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(full), unname(mean_form), tolerance = 1e-10)
-
 
   ref <- clock_impute_ref("DNAmCRP")
   drop <- intersect(names(co), names(ref))[1:5]

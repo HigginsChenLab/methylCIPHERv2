@@ -8,13 +8,10 @@ score_sex_routed <- function(id, results, DNAm, pheno) {
     member <- route[[key]]
     r <- results[[member]]
     if (is.null(r)) {
-      stop(
-        "score_sex_routed(): ",
-        id,
-        " needs member '",
-        member,
-        "' but it was not computed upstream.",
-        call. = FALSE
+      cli::cli_abort(
+        "{.val {id}} needs member {.val {member}}, which was not scored
+         upstream.",
+        call = NULL
       )
     }
     as.numeric(r[["score"]])
@@ -36,7 +33,7 @@ score_sex_routed <- function(id, results, DNAm, pheno) {
   )
 }
 
-# blank wrong-sex rows on routed member columns after scoring
+# blank wrong-sex rows on routed member columns
 mask_routed_members <- function(results, clock_sequence, pheno) {
   routed <- sex_routed_members()
   ids <- intersect(clock_sequence, names(routed$sex))

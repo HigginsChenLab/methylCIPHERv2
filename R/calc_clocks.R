@@ -1,22 +1,17 @@
-# a catalog entry no branch claims -- hard stop: a sync that adds an unroutable
-# routing pair is a gap to fix here, not something to score around silently
+# unroutable catalog entry
 unroutable <- function(p, gid, wf, ct) {
-  stop(
-    "score_type(): no scoring branch for clock '",
-    p,
-    "' -- group '",
-    gid,
-    "', weights_format '",
-    wf,
-    "', computation_type '",
-    ct,
-    "'. Add a branch, or drop the clock upstream.",
-    call. = FALSE
+  cli::cli_abort(
+    c(
+      "No scoring path for clock {.val {p}}.",
+      "*" = "group {.val {gid}}, weights_format {.val {wf}},
+             computation_type {.val {ct}}",
+      "i" = "This is a package bug -- please report it."
+    ),
+    call = NULL
   )
 }
 
-# scorer tag for calc_clocks() dispatch -- total over the catalog: every clock
-# routes to a known tag or this errors
+# scorer tag for calc_clocks() dispatch
 score_type <- function(p) {
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
@@ -36,7 +31,7 @@ score_type <- function(p) {
     unroutable(p, gid, wf, ct)
   }
 
-  # group-specific tags first -- generic cpg_coefficient/linear falls through below
+  # group-specific tags first
   gtag <- switch(
     gid,
     Dunedin = "Dunedin",
@@ -69,21 +64,21 @@ score_type <- function(p) {
   unroutable(p, gid, wf, ct)
 }
 
-# tags scored by score_pack_group() rather than the per-clock switch
+# pack groups use score_pack_group()
 PACK_SCORE_TYPES <- c("pack_linear", "pack_systemsage")
 
 is_pack_scored <- function(p) {
   score_type(p) %in% PACK_SCORE_TYPES
 }
 
-# external pack groups a compute sequence needs loaded
+# external pack groups needed for a compute sequence
 pack_groups_needed <- function(clock_sequence) {
   unique(unlist(lapply(clock_sequence, function(p) {
     if (is_pack_scored(p)) clock_group_id(p) else NULL
   })))
 }
 
-# public scorer: resolve, prepare once, score each unit, assemble record
+# public scorer
 calc_clocks <- function(
   DNAm,
   clocks,
@@ -99,16 +94,18 @@ calc_clocks <- function(
   clock_sequence <- resolve_clocks_sequence(clock_ids)
   output_ids <- c(clock_ids, setdiff(clock_sequence, clock_ids))
   check_DNAm(DNAm)
-  # floor for check_row_coverage(), checked before scoring
   checkmate::assert_number(min_row_coverage, lower = 0, upper = 1)
 
   positional_ids <- is.null(rownames(DNAm))
   if (positional_ids) {
     if (!allow_positional_ids) {
-      stop(
-        "DNAm has no rownames. Set them, or pass ",
-        "`allow_positional_ids = TRUE` to score with positional ids (sample1..sampleN).",
-        call. = FALSE
+      cli::cli_abort(
+        c(
+          "DNAm has no rownames.",
+          "i" = "Set them, or pass {.code allow_positional_ids = TRUE}
+                 to use sample1..sampleN."
+        ),
+        call = NULL
       )
     }
     rownames(DNAm) <- paste0("sample", seq_len(nrow(DNAm)))
@@ -121,11 +118,14 @@ calc_clocks <- function(
     clock_covariates_required
   )))
   if (length(extra_columns) && is.null(pheno)) {
-    stop(
-      "The requested clock(s) need covariate(s) ",
-      paste(extra_columns, collapse = ", "),
-      ", but `pheno` is NULL. Supply a pheno table carrying these columns.",
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "These clocks need pheno column{?s} {.field {extra_columns}},
+         but {.arg pheno} is missing.",
+        "i" = "Pass a pheno table with {cli::qty(extra_columns)}
+               {?that/those} column{?s}."
+      ),
+      call = NULL
     )
   }
   check_pheno(
@@ -197,15 +197,10 @@ calc_clocks <- function(
       MiAge = score_MiAge(p, cpgs, DNAm, partial_cache),
       Zhang2019 = score_Zhang2019(p, cpgs, DNAm, partial_cache),
       sex_routed = score_sex_routed(p, results, DNAm, pheno),
-      # score_type() already rejects unroutable catalog entries, so reaching here
-      # means a tag was added there without a branch below
-      stop(
-        "calc_clocks(): score_type tag '",
-        score_type(p),
-        "' (clock '",
-        p,
-        "') has no dispatch branch.",
-        call. = FALSE
+      cli::cli_abort(
+        "No dispatch branch for score_type {.val {score_type(p)}}
+         (clock {.val {p}}).",
+        call = NULL
       )
     )
   }
@@ -231,7 +226,7 @@ calc_clocks <- function(
   )
 }
 
-# stack scorer outputs into the mc_result record
+# stack scorer outputs into mc_result
 construct_mc_result <- function(
   results,
   output_ids,
@@ -243,7 +238,7 @@ construct_mc_result <- function(
   scores <- do.call(cbind, lapply(results, function(r) r$score))
   dimnames(scores) <- list(sample_id, output_ids)
 
-  # NULL coverage (e.g. sex-routed) becomes all-NA in the sample QC matrix
+  # NULL coverage -> all-NA sample QC column
   per_clock <- lapply(results, function(r) r$coverage)
   names(per_clock) <- output_ids
   sample_miss <- do.call(

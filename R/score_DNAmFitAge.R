@@ -14,13 +14,9 @@ score_DNAmFitAge <- function(
   comp_score <- function(component) {
     r <- results[[component]]
     if (is.null(r)) {
-      stop(
-        "score_DNAmFitAge(): ",
-        id,
-        " needs component '",
-        component,
-        "' but it was not computed upstream.",
-        call. = FALSE
+      cli::cli_abort(
+        "{.val {id}} needs {.val {component}}, which was not scored upstream.",
+        call = NULL
       )
     }
     as.numeric(r[["score"]])

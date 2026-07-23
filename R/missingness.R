@@ -1,7 +1,6 @@
-# missingness front end -- partial NA fills from cohort, fully absent from
-# vendor
+# partial NA -> cohort mean; fully absent -> vendor ref
 
-# one NA scan over needed columns -- errors on fully-empty samples
+# NA scan over needed columns
 scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   cols <- colnames(DNAm)
   present_needed <- intersect(needed_cpgs, cols)
@@ -20,14 +19,13 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   row_miss <- slideimp::mat_miss(DNAm, col = FALSE)
   dead <- rownames(DNAm)[row_miss == ncol(DNAm)]
   if (length(dead)) {
-    stop(
-      "DNAm has ",
-      length(dead),
-      " sample(s) with no observed CpGs (all NA): ",
-      paste(utils::head(dead, 10L), collapse = ", "),
-      if (length(dead) > 10L) ", ..." else "",
-      ". Remove or fix these samples before scoring.",
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "{length(dead)} sample{?s} {?has/have} no observed CpGs (all NA):
+         {.val {utils::head(dead, 10L)}}.",
+        "i" = "Remove or fix {?it/them} before scoring."
+      ),
+      call = NULL
     )
   }
 
@@ -43,7 +41,7 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   out
 }
 
-# shared partial-NA cohort cache (column means over present scoring CpGs)
+# cohort column means for partial-NA fill
 build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
   if (!length(cache_cpgs)) {
     return(NULL)

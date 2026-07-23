@@ -32,7 +32,6 @@ test_that("the alias routes each sample to its own sex's model", {
   age <- seq(45, 70, length.out = 6)
   pheno <- fitage_pheno(rownames(DNAm), female, age)
 
-
   expect_identical(names(clock_covariate_coefs("DNAmGrip_wAge_Female")), "Age")
 
   got <- calc_clocks(DNAm, "DNAmGrip_wAge", pheno = pheno)$scores
@@ -47,7 +46,6 @@ test_that("the alias routes each sample to its own sex's model", {
     unname(expected),
     tolerance = 1e-9
   )
-
 
   expect_true(all(is.na(got[m, "DNAmGrip_wAge_Female"])))
   expect_true(all(is.finite(got[f, "DNAmGrip_wAge_Female"])))
@@ -68,7 +66,6 @@ test_that("coverage lands on the members, never on the alias", {
   expect_null(cov[["DNAmGrip_wAge"]])
   expect_true(all(is.na(res$coverage$sample_miss[, "DNAmGrip_wAge"])))
 
-
   expect_identical(cov[["DNAmGrip_wAge_Female"]]$score_needed, length(fem))
   expect_identical(cov[["DNAmGrip_wAge_Male"]]$score_needed, length(mal))
   expect_false(length(fem) == length(mal))
@@ -88,7 +85,6 @@ test_that("absent member CpGs vendor-fill from that sex's medians", {
   full <- union(names(coef), names(clock_coefs("DNAmGait_noAge_Male")))
   DNAm <- random_betas(full, n = 4L)
   pheno <- fitage_pheno(rownames(DNAm), rep(1L, 4L))
-
 
   drop <- intersect(names(coef), names(medians))[1:5]
   DNAm2 <- DNAm[, setdiff(colnames(DNAm), drop), drop = FALSE]
@@ -141,7 +137,6 @@ test_that("DNAmFitAge mixes same-sex members by KDM and carries no batch stamp",
 })
 
 test_that("the composite panel is its own inputs, not the family prep panel", {
-
   for (id in c("DNAmFitAge_Female", "DNAmFitAge_Male")) {
     n <- length(clock_scoring_cpgs(id))
     expect_lt(n, 627)

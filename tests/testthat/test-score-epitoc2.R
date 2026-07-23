@@ -20,7 +20,6 @@ test_that("EpiTOC2 scores the ground-state-corrected mean", {
   got <- calc_clocks(DNAm, "EpiTOC2")$scores[, "EpiTOC2"]
   expect_equal(unname(got), epitoc2_form(DNAm, panel), tolerance = 1e-10)
 
-
   p <- epitoc2_params("EpiTOC2")
   coef <- 1 / p$delta[panel]
   no_ground <- 2 * as.numeric(DNAm[, panel] %*% coef) / length(panel)

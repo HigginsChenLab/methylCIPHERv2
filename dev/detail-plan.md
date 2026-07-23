@@ -111,9 +111,14 @@ summary(x)  # pure read of x$coverage
 scoring, both run exactly once — never inside the per-clock loop:
 
 - `resolve_clocks(clocks)` — **pure namespace resolution**: user tokens -> catalog `clock_id`s.
-  Accepts (any mix) the alias `"all"`, a `group_id` (expanded to its members), or a bare
-  `clock_id`, resolved by a fixed precedence, **maximal clock-id set first**: `"all"` > `group_id`
-  (whole group) > bare `clock_id`. When a token is **both** a `group_id` and a `clock_id` (e.g.
+  Accepts (any mix) the alias `"all"`, a **keyword** from `MC_TAGS` (`gestational`, `mitotic`,
+  `mortality`), a `group_id` (expanded to its members), or a bare
+  `clock_id`, resolved by a fixed precedence, **maximal clock-id set first**: `"all"` > keyword >
+  `group_id` (whole group) > bare `clock_id`. A keyword expands to tokens that resolve by the same
+  group/clock rules — one level only, so a keyword never names another keyword and there is no
+  cycle to chase; a keyword naming a token the catalog no longer has is a **hard stop**, not a
+  silently shorter set. Keyword names are lowercase and clock/group ids are not, so the namespaces
+  cannot collide. When a token is **both** a `group_id` and a `clock_id` (e.g.
   `"DNAmFitAge"` names both the 7-member group and one composite member), the **group wins** so a
   group request returns as many member ids as possible — one rule covering a non-clock group_id
   (`GrimAge`, `SystemsAge`), a group_id that is also a member id (`DNAmFitAge`), and a singleton
@@ -176,8 +181,8 @@ scoring, both run exactly once — never inside the per-clock loop:
     components carry the coverage and are checked as their own columns. `calc_clocks()` validates
     the floor up front so a bad argument does not cost a full scoring pass.
   - **column floor** — `check_coverage(cpg_list, min_col_coverage = 0.75)`, run once on the
-    `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's *worst* panel (`score_present /
-    score_needed`, and `norm_present / norm_needed` where a clock has a QN panel):
+    `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's **scoring** panel (`score_present /
+    score_needed`) -- the only panel that can stop the call:
 
     | Band | Action |
     |---|---|
@@ -192,6 +197,11 @@ scoring, both run exactly once — never inside the per-clock loop:
     tracks a caller who moves the floor, rather than pinning an absolute second number. Clocks with
     no panel at all are not gated here; they fail later on the unimplemented-scorer branch, which
     is the clearer error.
+    A clock's **normalization background** (only DunedinPACE carries one) is a *separate,
+    warn-only* check in the same function: under `min_col_coverage` it warns and never stops,
+    because absent gold CpGs fill to their reference mean before quantile-normalizing, so the
+    clock still scores. "Cannot score" and "normalized against a thin background" are different
+    failures and do not share a band.
     **Sample-invariant** — it reads set sizes, so it fires on panel/array mismatch (wrong array, a
     group's weights off-manifest, a simulated panel built from too narrow a clock set), never on
     per-sample NA, which is tier 2's job (§4.2). Running it over the **plan** is what makes a
@@ -333,8 +343,8 @@ CpGs, but a large-enough subset is usually sufficient. Fired here in the transfo
 prepare front end.
 
 The `sample_scale ∈ batch_ops` catalog marker stays (that's how we know this clock is the
-transform case). **Intended direction:** retire `clock_needs_full_panel()` and collapse
-`check_DNAm_extra()` into this single `clock_ids == "Zhang2019"` hard-coded special case, since
+transform case). `clock_needs_full_panel()` and `check_DNAm_extra()` are **gone**: the generic
+machinery collapsed into `resolve_DNAm_extra()`, one `"Zhang2019" %in% clock_ids` special case, as
 no other clock exercises it.
 
 ### 2.4a Normalization policy — annotate, never execute
@@ -383,7 +393,7 @@ External asset bundle carrying `$organs`/`$systems`/`$age`/`$impute` matrices + 
 systems_PCA tensor tree; loaded **once** upfront and threaded to every member (no per-member
 reload). The 11 organ sub-clocks are plain `cpg_coefficient` linear (coef from `$organs`, shared
 engine). The two component-matrices composites (`Age_prediction`, `SystemsAge`) are the
-`score_systemsage()` family orchestrator: age-linear front -> quadratic, and for the overall index
+`score_systemsage_group()` family orchestrator: age-linear front -> quadratic, and for the overall index
 11 raw system predictors + poly-scaled age -> center/scale -> systems_PCA project -> linear head.
 Pipeline *shape* is hard-coded (no recipe walker); constants come from the catalog recipe via
 `systemsage_*` accessors. Each member is scored independently on the shared linear kernel -- the
@@ -460,8 +470,17 @@ what got through it.
 
 **Who records coverage.** A clock assembled from other clocks' scores records coverage **iff every
 component contributes to every sample**. `GrimAgeV1` (8 surrogates) and `DNAmFitAge_{Sex}` (3
-same-sex members + GrimAgeV1) qualify -- every sample they score consumes all of them, so the union
-panel describes each sample truthfully. A **sex-routed alias** does not: its two members apply to
+same-sex members + `GrimAgeV1`) qualify -- every sample they score consumes all of them, so the
+declared panel describes each sample truthfully.
+
+**A composite's panel is what the catalog declares, not the closure over its dependencies.**
+`DNAmFitAge_{Sex}` declares 172 (F) / 190 (M) CpGs -- exactly the union of its three *fitness*
+members, sharing a single CpG with `GrimAgeV1`'s 1030. So its coverage figures, on both axes,
+describe the fitness panel only; the `GrimAgeV1` contribution to the KDM mix is accounted on
+`GrimAgeV1`'s own column (and its 8 surrogates'), all of which are returned as dependency columns.
+Both floors read the same declared panel, so the two agree with each other -- but "`DNAmFitAge_Male`
+is at 100%" is a statement about the fitness CpGs, not about everything feeding the score. A
+**sex-routed alias** does not qualify at all: its two members apply to
 disjoint halves of the cohort, so no aggregate over their union is true of any sample. Its
 `per_clock` entry is `NULL` and its tier-2 column all-`NA`; coverage lives on the members, which
 appear as their own columns. This is a scoring-contract rule (`score_sex_routed()` emits no
@@ -475,8 +494,14 @@ concentrate in that clock's scoring set — invisible to the global empty-row ch
 an error** (one clock being locally empty for one sample must not fail the batch — record it, don't
 throw). Each scorer emits a length-`n` vector = row-wise NA count over its **own** present scoring
 CpGs, computed on the **raw** subset *before* the cache fills it (post-fill it reads ~0 — the
-imputation masks exactly the QC signal). Assembly stacks the `k` vectors into an `n × k` matrix
-behind a method (`sample_coverage(x)`), for a sample × clock coverage heatmap.
+imputation masks exactly the QC signal). Assembly stacks the `k` vectors into the `n × k`
+`$coverage$sample_miss` matrix on the result record, for a sample × clock coverage heatmap.
+
+This matrix is what the **row floor** consumes: `check_row_coverage()` (§2.1) reads it back
+alongside `$coverage`, derives each sample's observed fraction as
+`(score_present - sample_miss) / score_needed`, and warns. That is the whole reason no scoring
+branch takes `min_row_coverage` as an argument -- tier 2 already carries the per-sample signal, so
+the gate is one function over the finished records rather than a check repeated in ten branches.
 
 It is literally the row-wise decomposition of tier 1's `score_imputed_partial` (sum the sample axis
 and you get the scalar back), so no new mechanism — same `slideimp::mat_miss` primitive, `col = FALSE`.

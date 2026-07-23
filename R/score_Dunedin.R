@@ -9,7 +9,7 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
   model_present <- cpgs$score_present
   model_absent <- cpgs$score_absent
 
-  # PACE uses gold QN panel, PoAm uses model CpGs
+  # PACE: gold QN panel; PoAm: model CpGs
   qn <- identical(clock_norm_scheme(id), "quantile")
   if (qn) {
     fill_ref <- dunedin_gold_means(id)
@@ -47,12 +47,13 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
 
   scored <- if (qn) {
     if (!requireNamespace("betanorm", quietly = TRUE)) {
-      stop(
-        "score_Dunedin(): '",
-        id,
-        "' quantile-normalizes and needs the 'betanorm' package. Install it ",
-        "(Remotes: hhp94/betanorm) to score this clock.",
-        call. = FALSE
+      cli::cli_abort(
+        c(
+          "{.val {id}} needs the {.pkg betanorm} package for quantile
+           normalization.",
+          "i" = "Install it from GitHub: {.code pak::pak(\"hhp94/betanorm\")}."
+        ),
+        call = NULL
       )
     }
     norm <- betanorm::quantile_norm(

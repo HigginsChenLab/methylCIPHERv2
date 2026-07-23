@@ -93,7 +93,6 @@ test_that("load_mc_assets() refuses to fetch unprompted in a non-interactive ses
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
-
   expect_error(load_mc_assets("FakeGroup"))
   expect_length(list.files(cache), 0)
 })

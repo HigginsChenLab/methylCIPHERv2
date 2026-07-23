@@ -10,7 +10,6 @@ test_that("under-covered clocks stop instead of scoring", {
   keep <- cpgs[seq_len(round(0.5 * length(cpgs)))]
   expect_error(calc_clocks(random_betas(keep, n = 4L), "Hannum"))
 
-
   # columns now clear; every row is still half-imputed, so the row gate warns
   expect_warning(
     res <- calc_clocks(
@@ -47,7 +46,13 @@ test_that("a sparse normalization panel warns but still scores (does not stop)",
   model <- clock_scoring_cpgs("DunedinPACE")
 
   keep <- union(model, gold[seq_len(round(0.5 * length(gold)))])
-  expect_warning(res <- calc_clocks(random_betas(keep, n = 4L), "DunedinPACE"))
+  # two distinct warnings: the thin background (column gate) and the per-sample
+  # imputation it implies (row gate). Neither may become a stop.
+  expect_warning(
+    expect_warning(
+      res <- calc_clocks(random_betas(keep, n = 4L), "DunedinPACE")
+    )
+  )
   expect_true(all(is.finite(res$scores[, "DunedinPACE"])))
 })
 
@@ -64,7 +69,6 @@ test_that("clearing min_col_coverage by under 10% warns instead of stopping", {
 
   expect_warning(res <- calc_clocks(DNAm, "Hannum"))
   expect_true(all(is.finite(res$scores[, "Hannum"])))
-
 
   expect_silent(calc_clocks(random_betas(cpgs, n = 4L), "Hannum"))
 })
