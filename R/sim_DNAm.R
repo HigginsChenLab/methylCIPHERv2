@@ -80,7 +80,9 @@ clock_cpgs <- function(clock_ids, packs = NULL) {
   results <- lapply(clock_ids, function(cid) {
     scoring <- clock_scoring_cpgs(cid, packs)
     if (!length(scoring)) {
-      return(NULL)
+      # Score-assembled clocks (sex-routed aliases) own no panel by design --
+      # the dependencies already in `clock_ids` carry their CpGs.
+      return(if (length(clock_depends_on(cid))) character(0) else NULL)
     }
     # Include norm panel so simulated data exercises QN.
     c(scoring, clock_norm_cpgs(cid))

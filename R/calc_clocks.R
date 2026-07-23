@@ -5,6 +5,11 @@ score_type <- function(p) {
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
 
+  # Aliases own no weights: they select between two sex-resolved members.
+  if (identical(ct, "sex_routed")) {
+    return("sex_routed")
+  }
+
   # External groups route on the group, not on weights_format: every member of a
   # pack is scored by one batched call regardless of its own format.
   if (clock_is_external(p)) {
@@ -31,9 +36,10 @@ score_type <- function(p) {
       linear_transformed = "grimage",
       "unsupported"
     ),
+    # Members are sex-resolved single-tensor models -- shared linear engine.
     DNAmFitAge = switch(
       ct,
-      linear = "fitage_member",
+      linear = "linear",
       linear_transformed = "fitage_composite",
       "unsupported"
     ),
@@ -41,6 +47,7 @@ score_type <- function(p) {
     PhysAge = switch(ct, linear_transformed = "physage", "unsupported"),
     # EpiTOC2 proper only (HypoClock is linear above).
     EpiTOC2 = switch(ct, reference_code_required = "epitoc2", "unsupported"),
+    MiAge = switch(ct, reference_code_required = "miage", "unsupported"),
     "unsupported"
   )
 }
@@ -164,18 +171,18 @@ calc_clocks <- function(
         partial_cache,
         pheno
       ),
-      fitage_member = score_fitage_member(p, cpgs, DNAm, partial_cache, pheno),
       fitage_composite = score_fitage_composite(
         p,
         cpgs,
         results,
         DNAm,
-        partial_cache,
-        pheno
+        partial_cache
       ),
       physage = score_physage(p, cpgs, DNAm, partial_cache),
       dunedin = score_dunedin(p, cpgs, DNAm, partial_cache, min_coverage),
       epitoc2 = score_epitoc2(p, cpgs, DNAm, partial_cache),
+      miage = score_miage(p, cpgs, DNAm, partial_cache),
+      sex_routed = score_sex_routed(p, results, DNAm, pheno),
       stop(
         "calc_clocks(): clock '",
         p,
@@ -184,12 +191,14 @@ calc_clocks <- function(
         "', computation_type '",
         clock_type(p),
         "') is not implemented yet -- only cpg_coefficient/{linear,linear_transformed}, ",
-        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge / Dunedin / EpiTOC2 families ",
-        "are supported so far.",
+        "the GrimAge / DNAmFitAge / PhysAge / SystemsAge / Dunedin / EpiTOC2 / MiAge ",
+        "families are supported so far.",
         call. = FALSE
       )
     )
   }
+
+  results <- mask_routed_members(results, clock_sequence, pheno)
 
   # Batch id for cohort/sample-dependent clocks (cbind gate).
   batch_set_id <- if (
@@ -222,9 +231,21 @@ construct_mc_result <- function(
   scores <- do.call(cbind, lapply(results, function(r) r$score))
   dimnames(scores) <- list(sample_id, output_ids)
 
+  # A clock assembled from other clocks' scores over disjoint sample sets emits
+  # no coverage (score_sex_routed()); its entry stays NULL and its QC column
+  # all-NA rather than carrying a figure true of no sample.
   per_clock <- lapply(results, function(r) r$coverage)
   names(per_clock) <- output_ids
-  sample_miss <- do.call(cbind, lapply(results, function(r) r$sample_miss))
+  sample_miss <- do.call(
+    cbind,
+    lapply(results, function(r) {
+      if (is.null(r$sample_miss)) {
+        rep(NA_integer_, length(sample_id))
+      } else {
+        r$sample_miss
+      }
+    })
+  )
   dimnames(sample_miss) <- list(sample_id, output_ids)
 
   covariates_used <- unique(unlist(

@@ -29,13 +29,14 @@ test_that("every catalog clock maps to a known score_type tag", {
   known <- c(
     "linear",
     "grimage",
-    "fitage_member",
     "fitage_composite",
     "physage",
     "pack_linear",
     "pack_systemsage",
     "dunedin",
     "epitoc2",
+    "miage",
+    "sex_routed",
     "unsupported"
   )
   tags <- vapply(mc_index$clock_id, score_type, character(1))

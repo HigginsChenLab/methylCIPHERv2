@@ -76,7 +76,7 @@ trim_build_only_fields <- function(clocks) {
 
 BIB_INST_PATH <- file.path("inst", "bibliography", "clocks.bib")
 
-GROUP_FIELD_REGISTRY <- c("group_id", "members", "shared_tensors")
+GROUP_FIELD_REGISTRY <- c("group_id", "members", "shared_tensors", "routing")
 
 IMPUTATION_FIELDS <- c("policy", "ref")
 COMPONENT_FIELDS <- c(
@@ -151,14 +151,11 @@ prune_fixture <- function(fx) {
   if (!length(stub)) NULL else stub
 }
 
-# probe_sets only for external_package; drop otherwise.
+# Declared probe_sets are kept for every weights_format. Dropping them off
+# external_package silently discarded DunedinPACE's QN background when it
+# migrated to cpg_coefficient, leaving the accessor to guess at the tensor.
 prune_clock_meta <- function(meta) {
-  wf <- as.character(meta$weights_format %||% NA_character_)
-  keep <- FIELD_REGISTRY
-  if (!identical(wf, "external_package")) {
-    keep <- setdiff(keep, "probe_sets")
-  }
-  out <- keep_fields(meta, keep)
+  out <- keep_fields(meta, FIELD_REGISTRY)
   if (is.null(out)) {
     return(list())
   }
@@ -530,6 +527,174 @@ collect_file_refs <- function(entry, repo_path) {
   unique(paths[nzchar(paths) & !is.na(paths)])
 }
 
+# custom-format payloads
+
+# A `custom` group ships frozen author artifacts -- the code is the declared
+# definition, so no meta `weights/` ref points at the parameter blob. One loader
+# per custom group materializes it as an ordinary bundle tensor; the paired
+# component declaration is grafted onto the clock entry so probe-set resolution
+# and the accessors read it like any other cpg-keyed tensor.
+
+MIAGE_PANEL_FILE <- "weights/MiAge/Additional_File1.csv.gz"
+MIAGE_PARAMS_FILE <- "weights/MiAge/site_specific_parameters.Rdata"
+
+# MiAge site-specific (b, c, d), keyed by the 268-CpG panel in panel order.
+miage_site_parameters <- function(repo_path) {
+  af1 <- utils::read.csv(
+    gzfile(resolve_repo_rel(repo_path, MIAGE_PANEL_FILE)),
+    stringsAsFactors = FALSE
+  )
+  cpgs <- as.character(af1[[1L]])
+  env <- new.env(parent = emptyenv())
+  load(resolve_repo_rel(repo_path, MIAGE_PARAMS_FILE), envir = env)
+
+  # (b, c, d) align positionally with the panel and nothing downstream can
+  # re-check it, so this is the one place a silent mis-key would get caught.
+  bcd <- lapply(env$methyl.age[1:3], as.numeric)
+  if (any(lengths(bcd) != length(cpgs))) {
+    stop(
+      "MiAge: site-specific (b, c, d) do not align 1:1 with the ",
+      length(cpgs),
+      "-CpG panel",
+      call. = FALSE
+    )
+  }
+
+  stats::setNames(
+    list(data.frame(
+      cpg = cpgs,
+      b = bcd[[1L]],
+      c = bcd[[2L]],
+      d = bcd[[3L]],
+      stringsAsFactors = FALSE
+    )),
+    MIAGE_PARAMS_FILE
+  )
+}
+
+CUSTOM_GROUPS <- list(
+  MiAge = list(
+    tensors = miage_site_parameters,
+    components = list(
+      MiAge = list(list(
+        name = "site_parameters",
+        file = MIAGE_PARAMS_FILE,
+        row_key = "cpg"
+      ))
+    )
+  )
+)
+
+# Extra tensors a custom group contributes beyond its meta-referenced files.
+custom_group_tensors <- function(gid, repo_path) {
+  spec <- CUSTOM_GROUPS[[gid]]
+  if (is.null(spec)) {
+    return(list())
+  }
+  spec$tensors(repo_path)
+}
+
+# Graft custom-group component declarations onto their clock entries.
+attach_custom_components <- function(clocks) {
+  for (spec in CUSTOM_GROUPS) {
+    for (cid in names(spec$components)) {
+      clocks[[cid]]$components <- c(
+        clocks[[cid]]$components,
+        spec$components[[cid]]
+      )
+    }
+  }
+  clocks
+}
+
+# sex-routed aliases
+
+# Upstream resolves sex in the clock_id and records the pairing as
+# `_group.meta.json` routing.sex. The un-suffixed stem is the callable a user
+# actually wants, so it is minted here rather than asked for upstream -- adding
+# it back to the meta would re-open the split upstream deliberately made. The
+# alias owns no weights and no panel: it selects a member per sample.
+SEX_SUFFIX <- c(female = "_Female", male = "_Male")
+
+# {stem: {female = id, male = id}} for one group; empty when it does not route.
+group_sex_routes <- function(gside) {
+  routing <- gside$routing$sex
+  if (is.null(routing)) {
+    return(list())
+  }
+  stems <- list()
+  for (sx in names(SEX_SUFFIX)) {
+    for (id in as.character(unlist(routing[[sx]] %||% character()))) {
+      stem <- sub(paste0(SEX_SUFFIX[[sx]], "$"), "", id)
+      if (identical(stem, id)) {
+        stop(
+          "routing.sex: member '",
+          id,
+          "' lacks the expected ",
+          SEX_SUFFIX[[sx]],
+          " suffix.",
+          call. = FALSE
+        )
+      }
+      stems[[stem]][[sx]] <- id
+    }
+  }
+  # A stem missing a sex could not route every sample, so it is an error here
+  # rather than an NA column at scoring time.
+  partial <- names(Filter(
+    function(r) !setequal(names(r), names(SEX_SUFFIX)),
+    stems
+  ))
+  if (length(partial)) {
+    stop(
+      "routing.sex: stem(s) without both sexes: ",
+      paste(partial, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  stems
+}
+
+# Mint one alias clock per routed stem. Runs after probe-set resolution so an
+# alias never acquires a panel -- no panel means no coverage gate and no
+# coverage record, which is the point: its members' panels are disjoint over
+# samples, so any union would describe no sample.
+attach_sex_routed_aliases <- function(catalog) {
+  for (gid in names(catalog$groups)) {
+    routes <- group_sex_routes(catalog$groups[[gid]])
+    for (stem in names(routes)) {
+      if (!is.null(catalog$clocks[[stem]])) {
+        stop(
+          "sex-routed alias '",
+          stem,
+          "' collides with an existing clock_id.",
+          call. = FALSE
+        )
+      }
+      donor <- catalog$clocks[[routes[[stem]]$female]]
+      catalog$clocks[[stem]] <- list(
+        clock_id = stem,
+        group_id = gid,
+        weights_format = "routed",
+        computation_type = "sex_routed",
+        output_transform = "identity",
+        normalization = donor$normalization,
+        routing = routes[[stem]],
+        depends_on_clocks = c(routes[[stem]]$female, routes[[stem]]$male),
+        covariates_required = "Female",
+        imputation_policy = donor$imputation_policy,
+        pmid = donor$pmid,
+        bib_key = donor$bib_key,
+        license = donor$license,
+        batch_dependent = FALSE,
+        external_group = FALSE
+      )
+    }
+  }
+  catalog$n_clocks <- length(catalog$clocks)
+  catalog
+}
+
 # materialize
 
 # Per-group tensor payload for the given group_ids.
@@ -576,6 +741,9 @@ build_group_bundles <- function(repo_path, catalog, group_ids) {
         tensors[[rel]] <- read_tensor_csv(abs)
       }
     }
+
+    custom <- custom_group_tensors(gid, repo_path)
+    tensors[names(custom)] <- custom
 
     bundles[[gid]] <- list(
       group_id = gid,
@@ -635,7 +803,9 @@ materialize_probe_set <- function(ps, tensors, cid = NA_character_) {
   if (anyDuplicated(cpgs)) {
     stop(where, " contains duplicate CpG id(s): ", ps$file, call. = FALSE)
   }
-  list(name = ps$name, role = ps$role, cpgs = cpgs)
+  # `file` rides along so accessors can fetch the tensor's values, not just its
+  # row keys (Dunedin's QN target means).
+  list(name = ps$name, role = ps$role, file = ps$file, cpgs = cpgs)
 }
 
 # Union of a clock's own cpg-keyed components.
@@ -661,63 +831,43 @@ group_shared_cpg_list <- function(gside, tensors) {
   character()
 }
 
-# Resolve scoring CpGs via tiers 2-6.
-resolve_scoring_cpgs <- function(
-  cid,
-  catalog,
-  tensors,
-  gside,
-  seen = character()
-) {
-  entry <- catalog$clocks[[cid]]
-  if (is.null(entry) || cid %in% seen) {
-    return(character())
-  }
-  seen <- c(seen, cid)
+# Scoring CpGs already on an entry, or character(0).
+resolved_scoring_cpgs <- function(entry) {
+  hits <- Filter(
+    function(p) identical(p$role, "scoring") && length(p$cpgs) > 0L,
+    entry$probe_sets %||% list()
+  )
+  unique(unlist(lapply(hits, function(p) p$cpgs), use.names = FALSE)) %||%
+    character()
+}
 
-  # cpg_coefficient's own tensor
+add_scoring_probe_set <- function(entry, cpgs) {
+  c(
+    entry$probe_sets %||% list(),
+    list(list(name = "scoring_derived", role = "scoring", cpgs = unique(cpgs)))
+  )
+}
+
+# Tiers a clock can resolve without any other clock being resolved first.
+own_scoring_cpgs <- function(entry, tensors) {
   if (!is.null(entry$coef_path)) {
     cpgs <- tensor_row_keys(tensors[[entry$coef_path]])
     if (length(cpgs)) {
       return(cpgs)
     }
   }
-
-  # Own cpg-keyed components
-  own <- own_component_cpgs(entry, tensors)
-  if (length(own)) {
-    return(own)
-  }
-
-  # Group-level shared bare CpG list
-  shared <- group_shared_cpg_list(gside, tensors)
-  if (length(shared)) {
-    return(shared)
-  }
-
-  # Recursive union over covers
-  covers <- setdiff(as.character(entry$covers %||% character()), cid)
-  if (length(covers)) {
-    out <- character()
-    for (member in covers) {
-      out <- c(out, resolve_scoring_cpgs(member, catalog, tensors, gside, seen))
-    }
-    if (length(out)) {
-      return(unique(out))
-    }
-  }
-
-  character() # unresolved (e.g. custom MiAge)
+  own_component_cpgs(entry, tensors)
 }
 
-# Materialize probe_sets; synthesize role=scoring when missing.
+# Materialize probe_sets, then fill missing scoring panels in tiers: the clock's
+# own tensors, then the union over the clocks it consumes, then the group's
+# shared bare CpG list. Dependencies outrank the shared list -- taking the
+# shared list first gave the DNAmFitAge composites the family-wide 627-probe
+# prep panel instead of what they actually consume.
 resolve_group_scoring_probe_sets <- function(catalog, bundles) {
   for (gid in names(bundles)) {
     tensors <- bundles[[gid]]$tensors
-    gside <- catalog$groups[[gid]]
-    member_ids <- bundles[[gid]]$clocks
-
-    for (cid in member_ids) {
+    for (cid in bundles[[gid]]$clocks) {
       entry <- catalog$clocks[[cid]]
       if (length(entry$probe_sets)) {
         catalog$clocks[[cid]]$probe_sets <- lapply(
@@ -727,29 +877,76 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
           cid = cid
         )
       }
-    }
-
-    for (cid in member_ids) {
-      entry <- catalog$clocks[[cid]]
-      # Empty scoring entries must fall through to the tiered resolver.
-      has_scoring <- length(Filter(
-        function(p) identical(p$role, "scoring") && length(p$cpgs) > 0L,
-        entry$probe_sets %||% list()
-      )) >
-        0L
-      if (has_scoring) {
+      if (length(resolved_scoring_cpgs(catalog$clocks[[cid]]))) {
         next
       }
-      cpgs <- resolve_scoring_cpgs(cid, catalog, tensors, gside)
+      cpgs <- own_scoring_cpgs(catalog$clocks[[cid]], tensors)
       if (length(cpgs)) {
-        catalog$clocks[[cid]]$probe_sets <- c(
-          entry$probe_sets %||% list(),
-          list(list(
-            name = "scoring_derived",
-            role = "scoring",
-            cpgs = unique(cpgs)
-          ))
+        catalog$clocks[[cid]]$probe_sets <- add_scoring_probe_set(
+          catalog$clocks[[cid]],
+          cpgs
         )
+      }
+    }
+  }
+
+  # Score-assembled clocks take the union of the in-group clocks they consume,
+  # repeated until nothing new resolves (in-group chains). Out-of-group inputs
+  # are deliberately excluded: DNAmFitAge_{Sex} reads GrimAgeV1, but GrimAgeV1
+  # is scored as its own column with its own coverage row, and folding its 1030
+  # probes in here would both double-count and swamp the family's own 172/190.
+  ids <- unlist(lapply(bundles, function(b) b$clocks), use.names = FALSE)
+  repeat {
+    progressed <- FALSE
+    for (cid in ids) {
+      entry <- catalog$clocks[[cid]]
+      if (length(resolved_scoring_cpgs(entry))) {
+        next
+      }
+      # `covers` is a family-wide label (every DNAmFitAge member "covers" all
+      # 14), so it describes the group, not what this clock reads. Where a
+      # clock declares real inputs, those win; `covers` stays the fallback for
+      # clocks that declare none.
+      inputs <- as.character(entry$depends_on_clocks %||% character())
+      if (!length(inputs)) {
+        inputs <- as.character(entry$covers %||% character())
+      }
+      inputs <- setdiff(unique(inputs), cid)
+      inputs <- Filter(
+        function(d) {
+          identical(catalog$clocks[[d]]$group_id, entry$group_id)
+        },
+        inputs
+      )
+      if (!length(inputs)) {
+        next
+      }
+      cpgs <- unique(unlist(
+        lapply(inputs, function(d) {
+          resolved_scoring_cpgs(catalog$clocks[[d]] %||% list())
+        }),
+        use.names = FALSE
+      ))
+      if (length(cpgs)) {
+        catalog$clocks[[cid]]$probe_sets <- add_scoring_probe_set(entry, cpgs)
+        progressed <- TRUE
+      }
+    }
+    if (!progressed) {
+      break
+    }
+  }
+
+  for (gid in names(bundles)) {
+    gside <- catalog$groups[[gid]]
+    for (cid in bundles[[gid]]$clocks) {
+      entry <- catalog$clocks[[cid]]
+      if (length(resolved_scoring_cpgs(entry))) {
+        next
+      }
+      cpgs <- group_shared_cpg_list(gside, bundles[[gid]]$tensors)
+      if (length(cpgs)) {
+        catalog$clocks[[cid]]$probe_sets <- add_scoring_probe_set(entry, cpgs)
       }
     }
   }
@@ -1094,8 +1291,10 @@ build_sysdata <- function(
     length(ship_groups),
     " groups..."
   )
+  catalog$clocks <- attach_custom_components(catalog$clocks)
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
+  catalog <- attach_sex_routed_aliases(catalog)
   catalog$clocks <- trim_build_only_fields(catalog$clocks)
 
   mc_catalog <- drop_external_probe_cpgs(catalog$clocks)

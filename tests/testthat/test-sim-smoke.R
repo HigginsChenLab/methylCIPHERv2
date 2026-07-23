@@ -1,7 +1,9 @@
 # Crash-smoke: every bundled, supported clock scores on random betas without error.
 
 bundled_smoke_clocks <- function() {
-  ids <- names(mc_catalog)
+  # The callable pool, not the catalog: routed members are internal machinery
+  # and are exercised here as their alias's dependencies.
+  ids <- resolve_clocks("all")
   ids <- ids[!vapply(ids, clock_is_external, logical(1))]
   ids[vapply(ids, score_type, character(1)) != "unsupported"]
 }

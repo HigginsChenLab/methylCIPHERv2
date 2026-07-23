@@ -139,10 +139,13 @@ KNOWN_PARITY_GAPS <- c(
   DNAmADM = "exact-tolerance policy under development (max_abs_diff ~4e-5)",
   DNAmPACKYRS = "exact-tolerance policy under development (max_abs_diff ~2e-5)",
   GrimAgeV2 = "exact-tolerance policy under development (max_abs_diff ~7e-6)",
-  Zhang2019 = "sample_scale moments over needed-CpG subset, not full panel; exact parity unreachable",
-  DNAmGrip_noAge = "fitage member under development (max_abs_diff ~9)",
-  DNAmGrip_wAge = "fitage member under development (max_abs_diff ~0.03)",
-  DNAmFitAge = "fitage composite under development (correlation 0.989 < 0.99)"
+  DNAmGrip_noAge_Female = "exact-tolerance policy under development (max_abs_diff ~4e-6)",
+  DNAmGrip_wAge_Male = "exact-tolerance policy under development (max_abs_diff ~3e-6)",
+  # The only two FitAge members with any cohort-absent CpG (6 and 3). The
+  # contract is vendor_mean; the horvath_online oracle zero-filled.
+  DNAmGrip_noAge_Male = "oracle zero-filled absent CpGs, contract is sex-median vendor_mean (max_abs_diff ~9)",
+  DNAmGrip_wAge_Female = "oracle zero-filled absent CpGs, contract is sex-median vendor_mean (max_abs_diff ~0.03)",
+  Zhang2019 = "sample_scale moments over needed-CpG subset, not full panel; exact parity unreachable"
 )
 
 parity_targets <- function() {
@@ -164,8 +167,16 @@ for (id in parity_targets()) {
       if (clock_id %in% names(KNOWN_PARITY_GAPS)) {
         skip(paste0("known parity gap -- ", KNOWN_PARITY_GAPS[[clock_id]]))
       }
+      # Routed members are scored as their alias's dependency; the fixture is
+      # already restricted to that member's sex, so the column aligns.
+      routed <- sex_routed_members()$alias
+      request <- if (clock_id %in% names(routed)) {
+        routed[[clock_id]]
+      } else {
+        clock_id
+      }
       # Packs carry their group's scoring panel, so resolve them before the union.
-      seq_ids <- resolve_clocks_sequence(resolve_clocks(clock_id))
+      seq_ids <- resolve_clocks_sequence(resolve_clocks(request))
       packs <- load_mc_assets(pack_groups_needed(seq_ids), NULL, FALSE)
       cpgs <- needed_cpgs_union(seq_ids, packs)
       DNAm <- cohort_betas(cohort_con, cpgs)
@@ -173,7 +184,7 @@ for (id in parity_targets()) {
       # panels (e.g. CausAge 420/585) and the oracle saw the same subset.
       res <- calc_clocks(
         DNAm,
-        clock_id,
+        request,
         pheno = cohort_pheno(),
         assets = packs,
         min_coverage = 0

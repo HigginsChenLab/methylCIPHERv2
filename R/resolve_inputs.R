@@ -163,14 +163,34 @@ resolve_clocks <- function(clocks) {
   members <- split(mc_index$clock_id, mc_index$group_id)
   clock_ids <- mc_index$clock_id
 
+  # A routed member is one sex's model; scoring it directly would return a
+  # plausible number for every sample of the other sex. It stays internal
+  # machinery, reached only as its alias's dependency.
+  routed <- sex_routed_members()
+  asked_routed <- intersect(clocks, names(routed$alias))
+  if (length(asked_routed)) {
+    stop(
+      "Clock(s) not directly callable -- sex is resolved per sample, not by id: ",
+      paste0(
+        asked_routed,
+        " (use '",
+        routed$alias[asked_routed],
+        "')",
+        collapse = ", "
+      ),
+      call. = FALSE
+    )
+  }
+  callable <- setdiff(clock_ids, names(routed$alias))
+
   resolve_one <- function(tok) {
     if (tok == "all") {
-      return(clock_ids)
+      return(callable)
     }
     if (!is.null(members[[tok]])) {
-      return(members[[tok]])
+      return(intersect(members[[tok]], callable))
     }
-    if (tok %in% clock_ids) {
+    if (tok %in% callable) {
       return(tok)
     }
     NULL
