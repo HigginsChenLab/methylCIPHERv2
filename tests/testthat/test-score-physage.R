@@ -10,12 +10,12 @@ test_that("surrogate members reduce by mean, and absent CpGs vendor-fill by offs
   co <- clock_coefs("DNAmCRP")
   ic <- clock_intercept("DNAmCRP")
 
-  # All present: mean of coef*beta plus intercept.
+
   full <- calc_clocks(DNAm, "DNAmCRP")$scores[, "DNAmCRP"]
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(full), unname(mean_form), tolerance = 1e-10)
 
-  # Drop 5 CpGs with vendor means: contribute coef * ref as a constant offset.
+
   ref <- clock_impute_ref("DNAmCRP")
   drop <- intersect(names(co), names(ref))[1:5]
   DNAm2 <- DNAm[, setdiff(colnames(DNAm), drop), drop = FALSE]
@@ -44,7 +44,7 @@ test_that("PhysAge composites run, are batch-stamped, and need >= 2 samples", {
   ))
   expect_true(all(is.finite(res$scores[, "DNAmPhysAge"])))
   expect_true(all(is.finite(res$scores[, "DNAmPhysAge_years"])))
-  # Batch-dependent -> frozen batch id.
+
   expect_false(is.null(res$provenance$batch_set_id))
 
   one <- random_betas(physage_union(), n = 1L)

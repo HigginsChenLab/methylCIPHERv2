@@ -1,8 +1,6 @@
-# EpiTOC2 (tnsc): cumulative stem-cell divisions, mean over represented CpGs of
-# 2 * (beta - beta0) / (delta * (1 - beta0)). Absent CpGs drop (policy "omit").
-score_epitoc2 <- function(id, cpgs, DNAm, partial_cache = NULL) {
+# EpiTOC2 (tnsc): mean of 2*(beta-beta0)/(delta*(1-beta0)) over present CpGs
+score_EpiTOC2 <- function(id, cpgs, DNAm, partial_cache = NULL) {
   sample_id <- rownames(DNAm)
-  n <- nrow(DNAm)
 
   params <- epitoc2_params(id)
   present <- cpgs$score_present
@@ -20,21 +18,14 @@ score_epitoc2 <- function(id, cpgs, DNAm, partial_cache = NULL) {
     id = id
   )
 
-  # Ground state is a constant offset inside the mean.
   ground <- sum(coef * beta0)
-  score <- matrix(
+  score <- score_matrix(
     2 * (as.numeric(lp$cpg_contrib) - ground) / length(present),
-    nrow = n,
-    ncol = 1L,
-    dimnames = list(sample_id, id)
+    sample_id,
+    id
   )
 
-  sample_miss <- if (length(lp$cached)) {
-    slideimp::mat_miss(DNAm[, lp$cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  names(sample_miss) <- sample_id
+  sample_miss <- count_sample_miss(DNAm, lp$cached)
 
   coverage <- list(
     clock_id = id,

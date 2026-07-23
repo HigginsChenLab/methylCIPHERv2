@@ -12,6 +12,274 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-23 -- coverage gates split by axis: columns stop, rows warn and never NA
+
+**Decision.** Three changes, one idea.
+
+**1. `min_coverage` becomes `min_col_coverage` + `min_row_coverage`** (both 0.75, so default
+behavior is unchanged; no deprecation shim, pre-alpha). The 2026-07-13 entry below records the
+reuse -- "the gates reuse the existing `min_coverage` argument ... so no new per-clock argument was
+added". That was right when the front end had no gate of its own, but the graded `check_coverage()`
+front end (2026-07-21) made one number drive two genuinely different tests, and the reuse became a
+trap: a caller lowering the floor to admit an under-covered *panel* also silently relaxed the
+*sample* check. The old `min_coverage = 0` in the parity tier was doing exactly that -- one flag
+disabling two gates, only one of which parity meant to disable.
+
+**2. The two axes get different severities.** Columns **stop**, rows **warn**. A missing column is
+missing for every sample alike -- it is a property of the input matrix, no sample escapes it, and
+scoring on it produces a uniformly wrong number, so the call stops. A sparse row is one bad sample
+among good ones. The rest of the cohort is fine and the caller may well still want the number, so
+the score stands and the warning names the sample. This is why there is no "row stop" band and no
+graded warn band on the row side: the row check has exactly one thing to say.
+
+**3. Dunedin stops NA-ing under-covered rows.** `score_Dunedin()`'s `low_sample` gate -- which
+blanked a sample's score and warned -- is deleted along with its floor argument. It was the only
+branch that did this, so the same cohort got different treatment depending on which clock was
+requested: `DunedinPoAm38` returned `NA` for a sparse sample while `Hannum` returned a
+cohort-mean-imputed number from the same row. Consistency wins, and it is the better default --
+the imputation machinery exists precisely so a partially observed sample still scores.
+
+**Why the check lives in `calc_clocks()`, not in `count_sample_miss()`.** The obvious home for a
+per-sample warning is the hoisted helper that already computes per-sample miss counts. It does not
+work: `count_sample_miss()` sees only the cached columns, not `score_needed` / `score_absent`, so
+it cannot form a *fraction* -- it would need four more arguments threaded through ten call sites,
+several of which are per-*component* (GrimAge, DNAmFitAge) rather than per-clock, and scoring
+`"all"` would emit ~85 separate warnings. Instead `check_row_coverage()` runs once after scoring
+over the record every branch already returns (`$coverage` + `$sample_miss`), and derives coverage
+as `(score_present - sample_miss) / score_needed`. One warning, listing every affected clock,
+capped like `check_coverage()`'s. A new branch is covered the moment it returns the standard
+record -- there is nothing to remember to call. The denominator switches to the `norm_*` pair when
+a clock has a normalization panel, because that is the panel `count_sample_miss()` counted over
+for DunedinPACE; mixing them would report a coverage above 1 or below 0.
+
+**Validation is up front.** `check_coverage()` asserts `min_col_coverage` and already runs before
+scoring, but `check_row_coverage()` runs after, so `calc_clocks()` asserts `min_row_coverage`
+early. A bad argument should not cost a full scoring pass first.
+
+---
+
+## 2026-07-23 -- the cache consent gate fails closed: strict `ask`, path-only `assets`, fs for file work
+
+**Decision.** Two fail-open holes in `R/mc_data.R` are closed, and the file now does its path/size/
+move/delete work through `fs`.
+
+**1. `ask` is a strict flag.** `mc_consent()` and `mc_consent_delete()` tested `!isTRUE(ask)` and
+treated *everything that was not exactly TRUE* as consent -- `NA`, `NULL`, `"yes"`, `c(TRUE, TRUE)`
+all skipped the prompt. Verified: `clear_mc_cache(ask = NA)` deleted a staged pack silently. Only
+`FALSE` is the consent signal, so the three entry points (`load_mc_assets()`, `mc_data_download()`,
+`clear_mc_cache()`) now `checkmate::assert_flag(ask)` and the helpers branch on the validated
+value. An `NA` propagated from a config is a bug, not permission to delete a user's cache.
+
+**2. `assets` must be a path in the cache verbs.** `mc_cache_dir()` accepted only a single non-empty
+string and *silently fell back to the default cache dir* for anything else. But `assets` is
+documented (sec 9.4) as accepting a loaded pack or list of packs, and `mc_data_download()`,
+`mc_cached_files()` and `clear_mc_cache()` passed the user's raw value straight in -- only
+`load_mc_assets()` canonicalized first. So `clear_mc_cache(assets = my_pack)` resolved to
+`R_user_dir()` and deleted the real cache. Found by an audit probe that did exactly that (38 MB,
+all three packs; re-downloaded, content-addressed so no loss). `mc_cache_dir()` now stops on a
+non-NULL non-path `assets` and names the mistake. A loaded pack has no directory, so guessing one
+is never right.
+
+**Why a stop and not a coercion.** The two arguments are the only things standing between a scripted
+call and a deleted shared cache, and both failures were *silent widenings* of what counts as
+permission. A wrong `ask` or a wrong `assets` should cost an error message, never data.
+
+**3. `fs` moves from `data-raw/` into `R/`** (it was already in Imports while only sync.R used it).
+It buys four things that are all defect fixes rather than taste: `fs_bytes()` is vectorized and
+zero-length safe, where the old `mc_bytes()` (`format.object_size`) errored with "argument is of
+length zero" on an empty or absent `size_bytes`; `file_move()`/`file_delete()` **error** where
+`file.rename()`/`unlink()` return FALSE unchecked, which is the pack-lands-nowhere case;
+`path()`/`path_expand()` tidy separators, so prompts stop printing
+`C:\Users\x\AppData\Local/R/cache/...`; and `file_exists()`/`file_size()` are vectorized.
+
+**Also in this pass.**
+
+- **`download.file()`'s status code is checked.** It reports some failures only through its
+  (invisible) return value rather than by signalling, so the `tryCatch(error =)` wrapper alone could
+  let a failed transfer reach the qs2 read and surface as a confusing checksum error with no URL.
+- **The fetched pack is no longer decompressed twice.** `mc_fetch()` returns
+  `list(path =, payload =)` -- the payload from the validating read it already performs -- and
+  `load_mc_assets()` reads from disk only for the groups it did not just fetch. The validating read
+  stays: it is what keeps a truncated transfer from landing in the cache.
+- **Consent prompts are tabular** (aligned group + size, total only when there is more than one
+  pack) and the delete prompt labels rows by **group id**, not the 78-character content-addressed
+  file name. `mc_cached_files()` names its result by group id to carry those labels.
+- **`mc_set_cache_dir()` never existed**, though sec 1.1 and 9.4 both named it. Plans corrected to
+  `options(mc.cache_dir = )` per code-is-truth; no function added, since the option and
+  `MC_CACHE_DIR` already cover it.
+
+**Tests.** `test-mc_data.R` gains a full round trip (download via `file://` -> load in memory ->
+`clear_mc_cache()` -> assert gone, and a following load refuses because it would have to
+re-download) plus a regression test per hole: a pack passed as `assets` errors and leaves the staged
+file untouched, and every non-flag `ask` errors without fetching or deleting. Both regression tests
+pin `mc.cache_dir` at a tempdir so a future regression cannot reach a real cache.
+
+---
+
+## 2026-07-23 -- score_type() stops on an unroutable clock; the "unsupported" tag is gone
+
+**Decision.** `score_type()` no longer returns `"unsupported"` as a thirteenth tag. A catalog entry
+that no branch claims now hits `unroutable()` and stops, naming the clock's group /
+`weights_format` / `computation_type`. The tag is deleted everywhere, including the three test
+sites that filtered on it.
+
+**Why.** `"unsupported"` was a sentinel that travelled a long way before anything went wrong -- the
+value flowed out of the classifier, through `pack_groups_needed()`, into the dispatch `switch`, and
+only errored there. Worse, two test tiers *filtered on it*: `test-sim-smoke.R` and the parity
+target list both dropped unsupported clocks, so a sync that introduced an unroutable entry would
+have silently **shrunk** the smoke tier rather than failing it. A scoring gap is a gap to look at,
+not one to score around.
+
+**The filters are now assertions.** Removing them costs nothing today (all 129 catalog entries
+route -- verified, so `score_type()` is total over the whole catalog, not merely over `mc_index`'s
+callable pool) and means the next unroutable entry fails the always-on tier at pool construction.
+`test-score-reduction.R`'s "known tag" test gets stronger for free: mapping the catalog through
+`score_type()` now proves routability as well as tag membership.
+
+**Considered and rejected: keeping the classifier total because tests filter on it.** That is the
+scaffolding dictating the design. The tests existed to tolerate a gap, and tolerating it is the
+behavior being removed.
+
+**The dispatch `switch` default still stops**, but now means something different -- a tag added to
+`score_type()` with no branch below it (developer error), not a catalog gap. `switch()` with no
+default returns `NULL` silently, so the guard stays regardless of being unreachable by
+construction.
+
+---
+
+## 2026-07-23 -- clear_mc_cache() actually deletes, under the download consent gate
+
+**Decision.** `clear_mc_cache()` is no longer a report-only stub. It gains `ask = TRUE` and
+mirrors `mc_consent()` exactly: interactive prompt, hard refusal non-interactively, `ask = FALSE`
+as the explicit-consent signal. This reverses the 2026-07-21 "kept as a must-have stub, delete flow
+deferred" call.
+
+**Why.** CRAN requires that a package which writes to `R_user_dir(.., "cache")` give the user a
+supported way to reclaim it; "remove these files manually" is not one, and the stub was the only
+thing standing between us and that requirement. Reusing the download consent shape means there is
+one rule to learn for both directions of the cache, and the non-interactive refusal keeps a
+scripted `clear_mc_cache()` from silently nuking a shared cache.
+
+**Declining is a no-op, not an error** -- unlike a declined download, nothing downstream depends on
+the deletion, so there is no failure to propagate. Deletion is confined to registry-named files in
+the resolved cache dir (via `mc_cached_files()`), and a file that survives `unlink()` is an error
+rather than a silent partial clear.
+
+**Also:** `load_mc_assets()` now resolves `groups = "all"`, which previously died in `mc_asset("all")`
+while every sibling verb accepted it. An empty `groups` still returns an empty registry -- it comes
+from `pack_groups_needed()` and means "no external pack needed", so it must not collapse into "all"
+the way `mc_resolve_groups()`'s does.
+
+---
+
+## 2026-07-23 -- group-specific scorer tags/functions named by group_id
+
+**Decision.** Every group-specific `score_type()` tag and its scorer function is now named for the
+clock's `group_id` rather than an ad-hoc lowercase word: `zhang`/`score_zhang` -> `Zhang2019`/
+`score_Zhang2019`, `dunedin` -> `Dunedin`, `grimage` -> `GrimAge`, `physage` -> `PhysAge`,
+`epitoc2` -> `EpiTOC2`, `miage` -> `MiAge`, `fitage_composite` -> `DNAmFitAge`. The shared/mechanism
+tags keep descriptive names -- `linear` (shared engine, ~83 clocks), `sex_routed`, `pack_linear`
+(spans PCClocks + PCBrainAge), `pack_systemsage`, `unsupported`. The dev tracker
+(`dev/clock_tracker.csv`) keys scorers on `group_id`, so the code now matches that scheme.
+
+**Why + dead code removed.** Dunedin and Zhang2019 are `cpg_coefficient`/`linear`, colliding with the
+generic linear rule, so each had its own early-return `if` grafted above the group `switch()` -- a
+second, parallel dispatch path. Folding both into the one group switch (which now resolves *before*
+the generic linear fallback) removes that duplicate structure: there is a single group switch, then
+the `cpg_coefficient` linear fallback, then `unsupported`. Naming the tag == `group_id` also means
+the `calc_clocks()` dispatch reads `Zhang2019 = score_Zhang2019(...)` etc., so tag, function, and
+catalog group are one word. Routing is unchanged (verified: same tag for all 129 clocks, full suite
+green); this is a naming + structure cleanup only. Accessor/recipe vocabulary (`grimage_cox_coef`,
+`fitage_kdm_params`, `epitoc2_params`, the `sample_scale` recipe op) is untouched -- those name
+recipe steps, not dispatch branches.
+
+## 2026-07-23 -- coverage gate splits: scoring panel stops, normalization panel warns only
+
+**Decision.** `check_coverage()` no longer takes the worst of a clock's {scoring, normalization}
+panels. The **scoring panel is the sole stop/warn gate**, applied identically to every clock (stop
+under `min_coverage` or at 0 observed CpGs, warn within 10% of the floor). A **normalization
+background is a separate, warn-only check** -- it never stops. The Dunedin per-sample NA gate
+(`score_Dunedin()`) likewise now measures every sample against the **scoring** panel, not the
+norm panel.
+
+**Why.** Only **DunedinPACE** actually carries a normalization CpG panel (the 20,000-CpG QN gold
+background). The other norm schemes in the catalog -- BMIQ (the Horvath-online family), noob -- are
+scheme *annotations* with no background panel (`clock_norm_cpgs()` is empty), so they were already
+gated on scoring alone. So the worst-of-both rule and the per-sample norm gate affected exactly one
+clock, PACE, which meant "under-covered" was defined on a different denominator (20k) than every
+other clock (its scoring panel). That was the whole inconsistency.
+
+**Why norm is warn-only, not a second stop.** A sparse QN background degrades gracefully: absent
+gold CpGs fill to their gold mean before quantile-normalizing, so PACE still returns a score. That
+is a different failure mode from missing the CpGs the linear sum actually reads, which is what the
+scoring gate protects. Folding both into one stop under one threshold conflated "cannot score" with
+"normalized against a thin background". The coverage record already reports `norm_present /
+norm_needed` separately, so nothing is lost by making the check mirror that split.
+
+**Refines** the 2026-07-22 graded-gate entry, whose gate "gains the norm panel (and an
+unconditional zero-coverage clause)". The zero-coverage clause and the graded stop/warn bands are
+unchanged; only the norm panel moves from the stop gate to its own warn. The measured stop/warn
+tables in that entry are unaffected except for PACE (its norm panel can no longer stop the call).
+
+---
+
+## 2026-07-23 -- Zhang2019 gets a sample_scale branch; it was silently mis-scored as plain linear
+
+**Decision.** `Zhang2019` now routes to its own `score_zhang()` (`R/score_zhang.R`) via a group check
+in `score_type()` placed *before* the cpg_coefficient/linear predicate (same pattern as Dunedin).
+The scorer computes a per-sample z-score (`sample_scale`) and then the EN linear sum.
+
+**Why it needed a branch -- and why this is a correctness fix, not a cleanup.** Zhang's catalog tags
+are `cpg_coefficient` + `linear`, so the general predicate claimed it and it ran through
+`linear_score()` as `b0 + sum(coef*beta)` on raw betas -- with **no z-score at all**. Its recipe
+carries a `sample_scale` op the linear engine does not execute, and the miss was masked because the
+clock sat in `KNOWN_PARITY_GAPS` (skipped, never numerically checked). So the shipped scores were
+wrong, not merely imprecise.
+
+**The scoring contract (author pred.R v1.0.0).** `sample_scale` is a within-sample z-score over
+**every probe in the input matrix**, then the linear sum over the EN probes present after scaling
+(policy `omit`). The moments MUST span the full array, not the 514-CpG subset -- subsetting first
+changes each sample's mean/sd (the methylCIPHER v1 `calcZhang2019` bug). `calc_clocks()` already
+hands each scorer the full user `DNAm`, so real usage gets full-panel moments; passing only the
+subset yields approximate scores (the pre-existing `resolve_DNAm_extra()` message already says so).
+The scorer uses the algebraic form `b0 + (sum_j coef_j*beta_ij - m_i*sum_j coef_j) / s_i`, so only
+the present-CpG linear term is materialized; `m_i`/`s_i` come from `matrixStats::rowMeans2`/`rowSds`
+(na.rm, matching base `scale`). **New dependency:** `matrixStats` (Imports) for the row moments.
+
+**Parity.** The fixture oracle ran on the full EPIC panel, so the parity tier now loads the whole
+array for Zhang (`FULL_PANEL_CLOCKS` + `cohort_betas_full()`), and Zhang leaves `KNOWN_PARITY_GAPS`.
+Exact policy passes at `max_abs_diff` ~9.6e-13 vs the author enpred.
+
+---
+
+## 2026-07-23 -- CellDRIFT is scored via the shared linear engine, not a named branch
+
+**Decision.** `CellDRIFT` is now supported. `score_type()` gains a `CellDRIFT` group branch that
+maps `computation_type = "reference_code_required"` to the `"linear"` tag, so it runs through
+`linear_score()` -- no new scorer file. With CellDRIFT and MiAge both routed, every catalog clock
+now maps to a scoring branch.
+
+**Why linear and not its own branch like MiAge / EpiTOC2.** `reference_code_required` marks how the
+weights were *derived* (author code, not a self-contained recipe), not that the math is non-linear.
+CellDRIFT's author code is a dual-module PCA + elastic net, but the maintainer collapsed it
+**upstream** to one per-CpG coefficient vector plus an intercept (`weights_format =
+cpg_coefficient`, `output_transform = identity`, `normalization = none`, `intercept =
+11.2177...`). Post-collapse the score is exactly `intercept + sum(coef * beta)` over 2322 CpGs with
+`vendor_mean` fill for absent probes -- identical in shape to any linear clock, so the correct
+branch is the existing engine. This is the mirror image of the two clocks sharing the same tag:
+MiAge (`weights_format = custom`) is a genuine per-sample L-BFGS-B optimization that cannot flatten,
+and EpiTOC2 folds a ground-state offset into a mean -- both earned bespoke scorers; CellDRIFT does
+not. The tag routes on the `(weights_format, computation_type)` pair per clock, and a
+`reference_code_required` clock whose weights are `cpg_coefficient` is linear.
+
+**Verification.** Parity against the author fixture on `fixtures/cohort_EPIC` passes exactly
+(policy `exact`, `max_abs_diff` ~5e-14, matching the meta's recorded value); 8/2322 clock CpGs
+absent from the cohort are `vendor_mean`-filled from the module-mean ref, as documented. Smoke
+(bundled + `score_type != "unsupported"`) and the exact-policy parity fixture both enrol it
+automatically -- no test edit.
+
+---
+
 ## 2026-07-22 -- the `[[` rule is enforced by data provenance, not by file
 
 **Decision.** The `[[`-not-`$` invariant now covers every read of an
@@ -861,7 +1129,7 @@ detail-plan 9.4.
 3. **No memoise -- confirmed by benchmark, not assumed.** Cold `qs_read` of the three packs is
    ~0.10s (PCClocks 13.5 MB), ~0.13s (PCBrainAge 8.6 MB), ~0.20s (SystemsAge 30.7 MB), and
    `validate_checksum` is free within noise. So there is no session-cache/global-env tier and no
-   `clear_clock_cache()`-clears-a-memo semantics; `calc_clocks()` loads each needed group's pack
+   `clear_mc_cache()`-clears-a-memo semantics; `calc_clocks()` loads each needed group's pack
    once per call and passes it down. This also retires the stale detail-plan 9.4 "session cache ->
    bundled -> R_user_dir -> download" order (external packs are never "bundled").
 
@@ -879,7 +1147,7 @@ contract): `mc_validate_row` field-by-field validation, `mc_resolve_groups` mult
 `mc_set_cache_dir()`, a session-consistent setter) > `METHYLCIPHER_CACHE_DIR` (.Renviron) >
 `mc_default_cache_dir()` (`R_user_dir`).
 
-**Kept.** `clear_clock_cache()` as a must-have **stub** -- it reports what is cached and never
+**Kept.** `clear_mc_cache()` as a must-have **stub** -- it reports what is cached and never
 auto-unlinks; the interactive delete flow is deferred by design. A thin `mc_data_download()`
 pre-fetch verb for offline/CI staging.
 

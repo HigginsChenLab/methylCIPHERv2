@@ -1,6 +1,4 @@
-# MiAge branch: per-sample argmin of the author residual sum. The EPIC cohort
-# fixture owns the numeric golden (bit-exact); these are the always-on checks
-# that the optimizer branch itself still finds the minimum.
+# MiAge optimizer branch (parity owns the numeric golden).
 
 p <- miage_params("MiAge")
 
@@ -51,7 +49,13 @@ test_that("MiAge beats a grid search on off-model betas", {
 
   grid <- seq(10, 10000, length.out = 200)
   for (i in seq_along(got)) {
-    best_grid <- min(vapply(grid, miage_objective, numeric(1), DNAm[i, ], panel))
+    best_grid <- min(vapply(
+      grid,
+      miage_objective,
+      numeric(1),
+      DNAm[i, ],
+      panel
+    ))
     expect_lte(miage_objective(got[[i]], DNAm[i, ], panel), best_grid)
   }
   expect_true(all(got >= 10 & got <= 10000))

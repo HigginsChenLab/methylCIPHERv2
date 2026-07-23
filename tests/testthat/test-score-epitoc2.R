@@ -1,6 +1,4 @@
-# EpiTOC2 branch: ground-state-corrected mean over represented CpGs.
-# "EpiTOC2" is a group_id as well as a clock_id, so requesting it also scores
-# HypoClock -- every DNAm here must cover both panels.
+# EpiTOC2 branch. Group request also scores HypoClock; cover both panels.
 
 group_panel <- function() {
   unique(unlist(lapply(c("EpiTOC2", "HypoClock"), clock_scoring_cpgs)))
@@ -22,7 +20,7 @@ test_that("EpiTOC2 scores the ground-state-corrected mean", {
   got <- calc_clocks(DNAm, "EpiTOC2")$scores[, "EpiTOC2"]
   expect_equal(unname(got), epitoc2_form(DNAm, panel), tolerance = 1e-10)
 
-  # Ground state is not a no-op: dropping it changes the score.
+
   p <- epitoc2_params("EpiTOC2")
   coef <- 1 / p$delta[panel]
   no_ground <- 2 * as.numeric(DNAm[, panel] %*% coef) / length(panel)

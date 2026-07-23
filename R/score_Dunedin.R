@@ -1,11 +1,5 @@
-# Dunedin pace-of-aging family (PoAm linear; PACE QN then linear).
-score_dunedin <- function(
-  id,
-  cpgs,
-  DNAm,
-  partial_cache = NULL,
-  min_coverage = 0.75
-) {
+# Dunedin pace-of-aging family (PoAm linear, PACE QN then linear)
+score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
 
@@ -15,7 +9,7 @@ score_dunedin <- function(
   model_present <- cpgs$score_present
   model_absent <- cpgs$score_absent
 
-  # Panel for impute/(PACE) QN: gold panel for PACE, model CpGs for PoAm.
+  # PACE uses gold QN panel, PoAm uses model CpGs
   qn <- identical(clock_norm_scheme(id), "quantile")
   if (qn) {
     fill_ref <- dunedin_gold_means(id)
@@ -29,32 +23,12 @@ score_dunedin <- function(
     panel_absent <- model_absent
   }
 
-  score <- matrix(NA_real_, nrow = n, ncol = 1L, dimnames = list(sample_id, id))
+  score <- score_matrix(NA_real_, sample_id, id)
 
-  cached <- if (is.null(partial_cache)) {
-    character(0)
-  } else {
-    intersect(panel_present, colnames(partial_cache))
-  }
+  cached <- cached_cols(panel_present, partial_cache)
   raw_cols <- setdiff(panel_present, cached)
-  sample_miss <- if (length(cached)) {
-    slideimp::mat_miss(DNAm[, cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  names(sample_miss) <- sample_id
+  sample_miss <- count_sample_miss(DNAm, cached)
 
-  # Per-sample NA-gate. Whole-clock coverage already stopped in check_coverage().
-  raw_miss <- if (length(panel_present)) {
-    slideimp::mat_miss(DNAm[, panel_present, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  not_obs <- raw_miss + if (qn) 0L else length(panel_absent)
-  sample_cov <- 1 - not_obs / length(panel_needed)
-  low_sample <- if (min_coverage > 0) sample_cov < min_coverage else logical(n)
-
-  # Assemble panel: present from cache/raw, absent from fill ref.
   panel <- matrix(
     0,
     nrow = n,
@@ -74,7 +48,7 @@ score_dunedin <- function(
   scored <- if (qn) {
     if (!requireNamespace("betanorm", quietly = TRUE)) {
       stop(
-        "score_dunedin(): '",
+        "score_Dunedin(): '",
         id,
         "' quantile-normalizes and needs the 'betanorm' package. Install it ",
         "(Remotes: hhp94/betanorm) to score this clock.",
@@ -93,22 +67,6 @@ score_dunedin <- function(
   score[, 1] <- as.numeric(
     intercept + scored[, model_needed, drop = FALSE] %*% coef[model_needed]
   )
-
-  # Mask samples that observe too little of the panel.
-  if (any(low_sample)) {
-    score[low_sample, 1] <- NA_real_
-    warning(
-      id,
-      ": ",
-      sum(low_sample),
-      " of ",
-      n,
-      " sample(s) returned NA -- each observes under ",
-      round(100 * min_coverage),
-      "% of the scoring panel.",
-      call. = FALSE
-    )
-  }
 
   coverage <- list(
     clock_id = id,

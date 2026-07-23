@@ -18,7 +18,7 @@ grim_pheno <- function(ids, na_row = integer(0), na_cols = character(0)) {
 
 grim_betas <- function(id, n = 4L) {
   random_betas(
-    needed_cpgs_union(resolve_clocks_sequence(resolve_clocks(id))),
+    panels_union(clock_panels(resolve_clocks_sequence(resolve_clocks(id)))),
     n = n
   )
 }
@@ -35,7 +35,7 @@ for (id in c("GrimAgeV1", "GrimAgeV2")) {
         res <- calc_clocks(DNAm, id, pheno = grim_pheno(ids, bad, na_cols))
       )
       got <- res$scores[, id]
-      # Row kept, not dropped; NA confined to it.
+
       expect_identical(rownames(res$scores), ids)
       expect_true(is.na(got[bad]))
       expect_true(all(is.finite(got[-bad])))
@@ -81,7 +81,7 @@ test_that("the missing-covariate warning names each affected column, and only fi
   )
   expect_no_warning(calc_clocks(DNAm, id, pheno = grim_pheno(ids)))
 
-  # An NA on a cohort row that is not being scored is not the caller's problem.
+
   extra <- grim_pheno(c(ids, "unscored"))
   extra$Age[nrow(extra)] <- NA_real_
   expect_no_warning(calc_clocks(DNAm, id, pheno = extra))

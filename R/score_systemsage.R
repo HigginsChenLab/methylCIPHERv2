@@ -1,6 +1,6 @@
-# SystemsAge: organ sub-clocks linear; Age_prediction and SystemsAge composites.
+# SystemsAge: organ sub-clocks plus Age_prediction / SystemsAge composites
 
-# c0 + c1*L + c2*L^2.
+# polynomial evaluation, lowest degree first
 sa_poly <- function(L, coef) {
   out <- rep(0, length(L))
   for (k in seq_along(coef)) {
@@ -9,7 +9,7 @@ sa_poly <- function(L, coef) {
   out
 }
 
-# Coverage record for a SystemsAge composite.
+# coverage record for a SystemsAge composite
 systemsage_composite_coverage <- function(cpgs, sample_miss) {
   list(
     clock_id = cpgs$clock_id,
@@ -26,7 +26,7 @@ systemsage_composite_coverage <- function(cpgs, sample_miss) {
   )
 }
 
-# Batched scorer for the SystemsAge group.
+# batched scorer for the SystemsAge group
 score_systemsage_group <- function(
   ids,
   cpg_list,
@@ -46,11 +46,7 @@ score_systemsage_group <- function(
 
   record <- function(id, score_vec, coverage) {
     list(
-      score = matrix(
-        as.numeric(score_vec),
-        ncol = 1L,
-        dimnames = list(sample_id, id)
-      ),
+      score = score_matrix(score_vec, sample_id, id),
       coverage = coverage,
       sample_miss = design$sample_miss
     )
@@ -59,7 +55,6 @@ score_systemsage_group <- function(
   out <- vector("list", length(ids))
   names(out) <- ids
 
-  # Organ sub-clocks: plain linear over the pack's `organs` matrix.
   if (length(organs_req)) {
     Mo <- pack[["organs"]]
     rownames(Mo) <- pack[["cpgs"]]
@@ -73,7 +68,6 @@ score_systemsage_group <- function(
     }
   }
 
-  # Composites share the age-linear front L.
   if (length(composites)) {
     Ma <- matrix(
       as.numeric(pack[["age"]]),

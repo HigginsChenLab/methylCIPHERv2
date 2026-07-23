@@ -24,8 +24,8 @@ their history lives solely in [`DECISIONS.md`](DECISIONS.md).
 | `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Main scorer |
 | `summary(x)` | Coverage data.frame from the result record |
 | `augment(scores, data, ...)` | Join scores to analysis / pheno tables |
-| `clear_clock_cache()` | Report cached external packs; consent-gated removal (never auto-deletes) |
-| `mc_data_download()` / `mc_set_cache_dir()` | Explicit pre-fetch; session cache-dir override |
+| `clear_mc_cache()` | Report cached external packs; consent-gated removal (never auto-deletes) |
+| `mc_data_download()` | Explicit pre-fetch (cache dir overridden by `options(mc.cache_dir=)`) |
 
 ### 1.2 Removed or non-primary surface
 
@@ -154,18 +154,39 @@ scoring, both run exactly once — never inside the per-clock loop:
     raised. `check_pheno()` warns **once**, naming each affected column and its NA count, scoped to
     rows that survive the id-join (an `NA` on an unscored cohort row does not warn). Clocks that do
     not declare the covariate still score finite for that sample.
-  - **coverage floor** — `check_coverage(cpg_list, min_coverage = 0.75)`, run once on the
+  - **coverage floors** — `calc_clocks()` carries two independent floors, named for the axis each
+    reads, and they differ in *severity*, not just in axis:
+
+    | Floor | Axis | When | Action |
+    |---|---|---|---|
+    | `min_col_coverage` (0.75) | columns -- which of a clock's CpGs exist in `DNAm` at all | before scoring | **stop** (graded, see below) |
+    | `min_row_coverage` (0.75) | rows -- how much of that panel a given sample observes | after scoring | **warn**, always |
+
+    A missing column is missing for *every* sample alike -- it is a property of the input matrix,
+    so no sample escapes it and the call stops. A sparse row is one bad sample among good ones:
+    NA-ing it would silently discard data the caller may still want, so the score stands and the
+    warning names it. **No branch NA-s a row for coverage.**
+  - **row floor** — `check_row_coverage(results, min_row_coverage)`, run once after scoring (and
+    after `mask_routed_members()`), over the record every branch already returns: a sample's
+    observed fraction is `(score_present - sample_miss) / score_needed`, or the `norm_*` pair for
+    a clock that normalizes (DunedinPACE), since that is the panel `count_sample_miss()` counted
+    over. No branch takes the floor as an argument and no branch re-implements the check -- it is
+    one function reading `$coverage` + `$sample_miss`, so a new branch is covered by returning the
+    standard record. Clocks reporting `coverage = NULL` (sex-routed aliases) are skipped; their
+    components carry the coverage and are checked as their own columns. `calc_clocks()` validates
+    the floor up front so a bad argument does not cost a full scoring pass.
+  - **column floor** — `check_coverage(cpg_list, min_col_coverage = 0.75)`, run once on the
     `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's *worst* panel (`score_present /
     score_needed`, and `norm_present / norm_needed` where a clock has a QN panel):
 
     | Band | Action |
     |---|---|
-    | 0 observed CpGs, or under `min_coverage` | **stop**, naming each clock + counts + percentage |
-    | within 10% above `min_coverage` (`< 1.1 x min_coverage`, capped at 1) | **warn**, same listing |
+    | 0 observed CpGs, or under `min_col_coverage` | **stop**, naming each clock + counts + percentage |
+    | within 10% above `min_col_coverage` (`< 1.1 x min_col_coverage`, capped at 1) | **warn**, same listing |
     | otherwise | silent |
 
-    A panel at **0 observed CpGs always stops**, regardless of `min_coverage`. So
-    `min_coverage = 0` relaxes the quality gate but never buys a score computed from nothing --
+    A panel at **0 observed CpGs always stops**, regardless of `min_col_coverage`. So
+    `min_col_coverage = 0` relaxes the quality gate but never buys a score computed from nothing --
     `Horvath1` on a foreign panel used to return `anti_trafo(0)`, a plausible ~40 years, for every
     sample. Full coverage never warns, whatever the threshold. The warn band is *relative* so it
     tracks a caller who moves the floor, rather than pinning an absolute second number. Clocks with
@@ -196,14 +217,21 @@ are pragmatic, hand-optimized implementations of that contract.
 |---|---|---|
 | Linear engine | Shared `linear_score()` | Most `cpg_coefficient` clocks |
 | Pre-transforms | Small modules feeding linear | Zhang `sample_scale` (stats on full panel -> apply to coef subset) |
-| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`); **EpiTOC2** (`score_epitoc2`); **DNAmFitAge** composite (`score_fitage_composite`) |
+| Family orchestrators | Dedicated internal functions | **GrimAge** (`score_GrimAge`); **Dunedin** (`score_Dunedin`); **EpiTOC2** (`score_EpiTOC2`); **DNAmFitAge** composite (`score_DNAmFitAge`) |
 | Sex-routed aliases | `score_sex_routed()` -- selects a member per sample | The 7 DNAmFitAge stems |
 | Batched pack scorers | One shared subset + one matmul per group | **PCClocks**, **SystemsAge** packs |
-| Custom | Dedicated helper | **MiAge** (`score_miage`) |
+| Custom | Dedicated helper | **MiAge** (`score_MiAge`) |
 
 Bundled packs may own their orchestration (shared intermediates, multi-column assembly) but call
 the shared `linear_score()` / impute helper for every linear sub-step, so imputation lives in
 exactly one place (sec 2.3).
+
+Every branch, whatever its shape, ends in the same three-field record, so the boilerplate that
+builds it lives once in [`R/utils.R`](../R/utils.R): `cached_cols()` (which present CpGs the
+cohort-mean cache covers), `count_sample_miss()` (per-sample fill counts feeding
+`coverage$score_imputed_partial`), and `score_matrix()` (the n x 1 `dimnames = list(sample_id, id)`
+matrix). A new branch should reuse these rather than re-inline them -- they are the shape contract,
+not a convenience.
 
 **Batched pack scorers** (`score_pack_group()` in `R/score_pack.R`) are the exception, for the two
 external groups whose members share one large CpG panel (PCClocks ~78k, SystemsAge ~125k). Scoring
@@ -321,7 +349,7 @@ DunedinPACE's `quantile`** (see below).
   fixtures show ~0.9999 correlation of no-BMIQ vs the Horvath server, so re-implementing it buys
   nothing and inherits the bug. Users who want BMIQ run the RPMM pipeline themselves first
   (most won't).
-- DunedinPACE's `quantile` is the **one executed** normalization: the `score_dunedin` branch
+- DunedinPACE's `quantile` is the **one executed** normalization: the `score_Dunedin` branch
   quantile-normalizes the gold panel to `gold_standard_means` via `betanorm::quantile_norm`
   (bit-exact with the author's `preprocessCore`) before the linear score. It is intrinsic to the
   clock (the score is defined on normalized betas), not array prep, so it cannot be pushed upstream.
@@ -347,7 +375,7 @@ speculative. The only norm-adjacent thing the package runs is the `sample_scale`
 - Full pack return includes V2 components + GrimAgeV1 + GrimAgeV2 columns (exact set TBD in
   implementation; fixtures pin catalog ids).
 
-Too special to force through a generic path -> `score_grimage()`.
+Too special to force through a generic path -> `score_GrimAge()`.
 
 ### 2.6 SystemsAge pack
 
@@ -705,9 +733,11 @@ is the single runtime entry (deliberately small -- see the 2026-07-21 DECISIONS 
 a **named list of packs keyed by `group_id`** (even for one group). `calc_clocks()` calls the
 identical function internally, so a pre-loaded object and an auto-loaded one cannot drift. Flow:
 
-1. **Cache dir precedence:** an `assets` **path** > session option `mc.cache_dir` (set via
-   `mc_set_cache_dir()`) > `MC_CACHE_DIR` (.Renviron) > `tools::R_user_dir(.., "cache")`
-   (`mc_default_cache_dir()`).
+1. **Cache dir precedence:** an `assets` **path** > session option `mc.cache_dir`
+   (`options(mc.cache_dir = )`) > `MC_CACHE_DIR` (.Renviron) > `tools::R_user_dir(.., "cache")`
+   (`mc_default_cache_dir()`). `mc_cache_dir()` takes a path or `NULL` **only** -- a loaded pack
+   names no directory, so it is an error there rather than a silent fall-back to the default cache
+   (the cache verbs below pass their raw `assets` in; see DECISIONS 2026-07-23).
 2. **Open vs closed set (from `assets`).** `assets = NULL` -> **open**: resolve each group from the
    cache dir; missing packs are consent-downloaded. `assets` **explicitly provided** -> **closed**:
    resolve only from what is given, **never download**; a needed group not covered is a hard error.
@@ -717,11 +747,15 @@ identical function internally, so a pre-loaded object and an auto-loaded one can
 3. **Expected file** = `mc_provenance$external_assets[[group_id]]$file` (`<group>-<payload_hash>.qs2`).
    Present -> read it. Open-set download is consent-gated: `ask = TRUE` prompts interactively (one
    **batched** prompt for the union of missing packs) and **refuses** non-interactively; `ask = FALSE`
-   is the explicit-consent signal. Staged to `<file>.part`, validated by a qs2 read, then atomically
-   renamed -- a truncated transfer never lands as cached.
+   is the explicit-consent signal. `ask` is a **strict flag** -- anything that is not a single
+   non-NA `TRUE`/`FALSE` is an error, never silent consent. Staged to `<file>.part`, validated by a
+   qs2 read, then atomically renamed (`fs::file_move()`, which errors rather than returning FALSE)
+   -- a truncated transfer never lands as cached. `download.file()`'s status code is checked as well
+   as its conditions, since it reports some failures only through the return value.
 4. **Read** with `qs2::qs_read(validate_checksum = TRUE)`; qs2's own checksum is the sole integrity
    guard. There is no second hash: no sha256 recompute, and no re-hash of the loaded payload (the
-   content-addressed filename already asserts which pack it is).
+   content-addressed filename already asserts which pack it is). A just-fetched pack is **not**
+   re-read: `mc_fetch()` hands back the payload from its validating read.
 
 **No memoise.** A cold `qs_read` is ~0.1-0.2s for all three packs (benchmarked 2026-07-21), so
 `calc_clocks()` resolves the needed groups **once per call** (in the prepare phase, before the pure
@@ -732,8 +766,17 @@ Pack encoding (`canonical_matrices`) is per-group: PCClocks/PCBrainAge carry one
 `coefficient_matrix` + `impute` vector; SystemsAge carries `organs`/`systems`/`age` matrices +
 `impute`. Within a group the probe set is shared once as matrix columns.
 
-Verbs: `mc_data_download(groups, assets, ask)` pre-fetches; `clear_clock_cache(groups, assets)`
-reports what is cached (deletion flow still to be designed; it never auto-unlinks).
+`groups = "all"` (the `mc_data_download()` / `clear_mc_cache()` default) resolves to every external
+group; an **empty** request stays empty -- `character(0)` from `pack_groups_needed()` means "no
+external pack needed", never "all of them".
+
+Verbs: `mc_data_download(groups, assets, ask)` pre-fetches; `clear_mc_cache(groups, assets, ask)`
+removes cached packs under the same consent gate as download -- `ask = TRUE` prompts interactively
+and **refuses** non-interactively, `ask = FALSE` is the explicit-consent signal, and declining is a
+quiet no-op (not an error). It only ever deletes registry-named files inside the resolved cache dir,
+and stops if a file survives the delete. Both prompts print an aligned group + size table (sizes via
+`fs::fs_bytes()`, totalled when more than one pack); the delete prompt labels rows by **group id**,
+not the content-addressed file name, which is why `mc_cached_files()` names its result by group.
 
 ### 9.5 Verification status
 
@@ -836,8 +879,13 @@ Track clocks in `dev/clock_tracker.csv` (`uv run python dev/build_clock_tracker.
   distance guess (sec 8).
 - Whether `mc_groups[[g]]$members` should mean "callable" (aliases) or "real clocks" (today's 14).
   `test-fixtures-parity.R` reads it expecting scoreable ids.
-- The exact-tolerance parity policy: five clocks now sit in the 3e-6 .. 4e-5 band against a 1e-6
-  `PARITY_EXACT_TOL` and are skip-listed as one class (sec 10.1).
+- The exact-tolerance parity policy is **scale-aware** (numpy-allclose:
+  `|got - exp| <= PARITY_ATOL + PARITY_RTOL*|exp|`, atol `1e-8`, rtol `1e-6`), so a `1e-8` diff on a
+  `2.7e6`-scale PC biomarker is not judged like `1e-8` on an age. Under it the PC clocks verify at
+  their true `~1e-14` relative floor and the DNAmFitAge single-tensor members (oracle floor `~1e-7`
+  relative) pass; the DNAmGrip pair still in the `3e-6 .. 9` band is skip-listed as one class
+  (`KNOWN_PARITY_GAPS`, sec 10.1) -- two are oracle rounding, one is a zero-fill-vs-vendor-mean
+  contract diff.
 - Whether SystemsAge members can be derived from shared components only.
 - Whether fixture cohort should be published for cross-language consumers.
 - Permanent vs one-release legacy `calc*` wrappers.

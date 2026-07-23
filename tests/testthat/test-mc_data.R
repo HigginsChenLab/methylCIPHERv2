@@ -12,7 +12,7 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
     )
   }
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
-  # Filename is the content address, same shape sync.R mints.
+
   phash <- digest::digest(payload, algo = "sha256")
   file <- sprintf("%s-%s.qs2", tolower(group), phash)
   rtag <- sub("\\.qs2$", "", file) # tag = filename stem; bare hex tags rejected by GitHub.
@@ -46,7 +46,7 @@ local_fake_registry <- function(rows, .env = parent.frame()) {
       }
       row
     },
-    # mustWork=FALSE so a deleted source still yields a URL and the download 404s.
+
     mc_asset_url = function(row) {
       paste0(
         "file:///",
@@ -93,7 +93,7 @@ test_that("load_mc_assets() refuses to fetch unprompted in a non-interactive ses
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
-  # Open set (assets = NULL) + ask = TRUE default + non-interactive must refuse, never write.
+
   expect_error(load_mc_assets("FakeGroup"))
   expect_length(list.files(cache), 0)
 })
@@ -106,10 +106,8 @@ test_that("mc_data_download() fetches, verifies, and leaves no scratch files", {
   paths <- suppressMessages(mc_data_download(assets = cache, ask = FALSE))
   expect_identical(unname(basename(paths)), row$file)
   expect_true(file.exists(file.path(cache, row$file)))
-  # Staging .part must never survive.
   expect_false(any(grepl(".part", list.files(cache), fixed = TRUE)))
 
-  # Idempotent: an already-cached pack is not re-fetched (source can vanish).
   file.remove(row$.src)
   expect_silent(suppressMessages(mc_data_download(assets = cache, ask = FALSE)))
 })
@@ -120,7 +118,7 @@ test_that("a download failure is reported with the URL and leaves nothing behind
   local_fake_registry(row)
   file.remove(row$.src) # the "server" 404s
 
-  expect_error(suppressWarnings(mc_data_download(assets = cache, ask = FALSE)))
+  expect_error(mc_data_download(assets = cache, ask = FALSE))
   expect_length(list.files(cache), 0)
 })
 
@@ -150,7 +148,6 @@ test_that("load_mc_assets() with an explicit path is a closed set: no download, 
   local_fake_registry(row)
 
   expect_error(load_mc_assets("FakeGroup", assets = cache, ask = FALSE))
-  # Nothing was fetched into the closed dir.
   expect_length(list.files(cache), 0)
 })
 
@@ -160,38 +157,119 @@ test_that("load_mc_assets() resolves in-memory pack(s) without touching disk", {
   b <- fake_asset(dir, group = "GroupB")
   local_fake_registry(stats::setNames(list(a, b), c("GroupA", "GroupB")))
 
-  # A single pack and a list of packs both key by their own group_id.
   expect_identical(
     load_mc_assets("GroupA", assets = a$.payload)[["GroupA"]],
     a$.payload
   )
-  expect_identical(
-    suppressWarnings(
-      load_mc_assets("GroupA", assets = list(a$.payload, b$.payload))
-    )[["GroupA"]],
-    a$.payload
-  )
-  # A needed group absent from the provided assets is a hard error.
   expect_error(load_mc_assets("GroupB", assets = a$.payload))
-  # An asset the plan does not need is warned and ignored.
   expect_warning(
     res <- load_mc_assets("GroupA", assets = list(a$.payload, b$.payload))
   )
   expect_named(res, "GroupA")
+  expect_identical(res[["GroupA"]], a$.payload)
 })
 
-test_that("clear_clock_cache() reports what is cached and never deletes automatically", {
+test_that("clear_mc_cache() removes cached packs only on explicit consent", {
+  skip_if(interactive())
   cache <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
-  expect_message(clear_clock_cache(assets = cache))
+  # Nothing cached: reports and is a no-op.
+  expect_message(clear_mc_cache(assets = cache))
 
   suppressMessages(mc_data_download(assets = cache, ask = FALSE))
-  reported <- suppressMessages(clear_clock_cache(assets = cache))
-  expect_identical(basename(reported), row$file)
-  # Nothing was removed.
+  # Unprompted deletion is refused non-interactively; the file survives.
+  expect_error(clear_mc_cache(assets = cache))
   expect_true(file.exists(file.path(cache, row$file)))
+
+  removed <- suppressMessages(clear_mc_cache(assets = cache, ask = FALSE))
+  expect_identical(basename(removed), row$file)
+  expect_false(file.exists(file.path(cache, row$file)))
+})
+
+test_that("download -> load -> clear round trips and leaves the cache empty", {
+  skip_if(interactive())
+  cache <- withr::local_tempdir()
+  withr::local_options(mc.cache_dir = cache)
+  a <- fake_asset(withr::local_tempdir(), group = "GroupA")
+  b <- fake_asset(withr::local_tempdir(), group = "GroupB")
+  local_fake_registry(stats::setNames(list(a, b), c("GroupA", "GroupB")))
+
+  paths <- suppressMessages(mc_data_download(ask = FALSE))
+  expect_true(all(file.exists(paths)))
+  expect_false(any(grepl(".part", list.files(cache), fixed = TRUE)))
+
+  # Cached: loads from disk, needs no consent even with ask = TRUE.
+  packs <- load_mc_assets("all")
+  expect_named(packs, c("GroupA", "GroupB"))
+  expect_identical(packs[["GroupA"]], a$.payload)
+  expect_identical(packs[["GroupB"]], b$.payload)
+
+  removed <- suppressMessages(clear_mc_cache(ask = FALSE))
+  expect_setequal(basename(removed), c(a$file, b$file))
+  expect_false(any(file.exists(paths)))
+  expect_length(mc_cached_files("all"), 0)
+  expect_length(list.files(cache), 0)
+
+  # Really gone: the next load would have to download, so it refuses.
+  expect_error(load_mc_assets("all"))
+})
+
+test_that("a non-path `assets` errors instead of silently hitting the cache dir", {
+  cache <- withr::local_tempdir()
+  withr::local_options(mc.cache_dir = cache)
+  row <- fake_asset(withr::local_tempdir())
+  local_fake_registry(row)
+  suppressMessages(mc_data_download(assets = cache, ask = FALSE))
+  staged <- file.path(cache, row$file)
+  expect_true(file.exists(staged))
+
+  # A loaded pack is a legal `assets` for load_mc_assets() but names no
+  # directory; the cache verbs must reject it, not fall back to the resolved
+  # cache dir and delete what is there.
+  pack <- row$.payload
+  expect_error(clear_mc_cache(assets = pack, ask = FALSE))
+  expect_error(mc_data_download(assets = pack, ask = FALSE))
+  expect_error(mc_cached_files("all", assets = pack))
+  expect_error(mc_cache_dir(5))
+  expect_error(mc_cache_dir(c("a", "b")))
+  expect_error(mc_cache_dir(""))
+  expect_true(file.exists(staged))
+})
+
+test_that("`ask` is a strict flag -- only FALSE consents", {
+  skip_if(interactive())
+  cache <- withr::local_tempdir()
+  withr::local_options(mc.cache_dir = cache)
+  row <- fake_asset(withr::local_tempdir())
+  local_fake_registry(row)
+  bad_flags <- list(NA, NULL, "yes", 1, c(TRUE, TRUE))
+
+  for (bad in bad_flags) {
+    expect_error(mc_data_download(ask = bad))
+    expect_error(load_mc_assets("FakeGroup", ask = bad))
+  }
+  expect_length(list.files(cache), 0) # nothing fetched under a bad flag
+
+  suppressMessages(mc_data_download(ask = FALSE))
+  staged <- file.path(cache, row$file)
+  for (bad in bad_flags) {
+    expect_error(clear_mc_cache(ask = bad))
+  }
+  expect_true(file.exists(staged)) # and nothing deleted under one either
+})
+
+test_that("load_mc_assets() resolves groups = 'all'", {
+  dir <- withr::local_tempdir()
+  a <- fake_asset(dir, group = "GroupA")
+  b <- fake_asset(dir, group = "GroupB")
+  local_fake_registry(stats::setNames(list(a, b), c("GroupA", "GroupB")))
+
+  packs <- load_mc_assets("all", assets = list(a$.payload, b$.payload))
+  expect_named(packs, c("GroupA", "GroupB"))
+  # An empty request stays empty (it is not "all").
+  expect_length(load_mc_assets(character(0)), 0)
 })
 
 test_that("the real PCBrainAge release asset downloads and verifies", {

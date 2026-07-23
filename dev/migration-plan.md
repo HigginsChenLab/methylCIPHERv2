@@ -97,7 +97,7 @@ Details, imputation table, coverage/`summary()`, GrimAge pack policy, batch rule
 | `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Score -> `mc_result` record |
 | `summary(x)` | Coverage table (per-role needed / used / imputed / missing) |
 | `augment()` | Join scores to phenotype / analysis data |
-| `clear_clock_cache()` + download helpers | Heavy assets |
+| `clear_mc_cache()` + download helpers | Heavy assets |
 | Optional legacy `calc*()` | Thin -> `calc_clocks`; not the engine |
 
 `calc_clocks()` returns an S3 record over `list` (class `"mc_result"`): `$scores` (n x k

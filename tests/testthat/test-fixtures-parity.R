@@ -151,7 +151,6 @@ KNOWN_PARITY_GAPS <- c(
 parity_targets <- function() {
   ids <- names(mc_catalog)
   ids <- ids[vapply(ids, function(id) !is.null(clock_fixture(id)), logical(1))]
-  ids <- ids[vapply(ids, score_type, character(1)) != "unsupported"]
   ids[
     vapply(ids, function(id) clock_fixture(id)$parity_policy, character(1)) !=
       "skipped"
@@ -178,7 +177,7 @@ for (id in parity_targets()) {
       # Packs carry their group's scoring panel, so resolve them before the union.
       seq_ids <- resolve_clocks_sequence(resolve_clocks(request))
       packs <- load_mc_assets(pack_groups_needed(seq_ids), NULL, FALSE)
-      cpgs <- needed_cpgs_union(seq_ids, packs)
+      cpgs <- panels_union(clock_panels(seq_ids, packs))
       DNAm <- cohort_betas(cohort_con, cpgs)
       # Parity gates numbers, not coverage policy: the cohort under-covers some
       # panels (e.g. CausAge 420/585) and the oracle saw the same subset.
@@ -187,7 +186,8 @@ for (id in parity_targets()) {
         request,
         pheno = cohort_pheno(),
         assets = packs,
-        min_coverage = 0
+        min_col_coverage = 0,
+        min_row_coverage = 0
       )
       expect_parity(res$scores[, clock_id], clock_id)
     })
@@ -203,7 +203,8 @@ test_that("PhysAge composites match the author fixtures on the EPIC cohort", {
   res <- calc_clocks(
     DNAm,
     c("DNAmPhysAge", "DNAmPhysAge_years"),
-    min_coverage = 0
+    min_col_coverage = 0,
+    min_row_coverage = 0
   )
   expect_parity(res$scores[, "DNAmPhysAge"], "DNAmPhysAge")
   expect_parity(res$scores[, "DNAmPhysAge_years"], "DNAmPhysAge_years")

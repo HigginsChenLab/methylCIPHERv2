@@ -17,7 +17,7 @@ fake_pcclocks_pack <- function() {
 test_that("clock_coefs() pulls an external clock's named column from the pack", {
   packs <- list(PCClocks = fake_pcclocks_pack())
   co <- clock_coefs("PCADM", packs)
-  # Column 'PCADM' = c(1, 2), named by the pack's cpg order.
+
   expect_identical(co, c(cg0001 = 1, cg0002 = 2))
 })
 
@@ -44,7 +44,7 @@ test_that("clock_coefs() errors when the external clock is not a pack column", {
 })
 
 test_that("bundled clocks ignore `packs` and still resolve from mc_bundles", {
-  # A bundled clock's coef must be identical whether or not a (spurious) registry is passed.
+
   expect_identical(
     clock_coefs("Hannum"),
     clock_coefs("Hannum", list(PCClocks = 1))

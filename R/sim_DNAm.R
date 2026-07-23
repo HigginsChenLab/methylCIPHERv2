@@ -1,4 +1,4 @@
-# Build an n x length(cpgs) U(0,1) beta matrix. seed=NULL uses ambient RNG.
+# build an n x length(cpgs) U(0,1) beta matrix -- seed=NULL uses ambient RNG
 random_betas <- function(cpgs, n = 10L, seed = NULL) {
   draw <- function() {
     matrix(
@@ -23,7 +23,6 @@ sim_DNAm <- function(
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
 
-  # Include transitive deps so composites have their input CpGs.
   clock_sequence <- resolve_clocks_sequence(resolve_clocks(clocks))
   packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
   cpgs <- clock_cpgs(clock_sequence, packs)
@@ -49,7 +48,7 @@ sim_DNAm <- function(
   out
 }
 
-# Print a mc_sim list (DNAm + pheno preview).
+# print a mc_sim list (DNAm + pheno preview)
 #' @export
 print.mc_sim <- function(x, n = 6, p = 6, ...) {
   DNAm <- x$DNAm
@@ -80,11 +79,9 @@ clock_cpgs <- function(clock_ids, packs = NULL) {
   results <- lapply(clock_ids, function(cid) {
     scoring <- clock_scoring_cpgs(cid, packs)
     if (!length(scoring)) {
-      # Score-assembled clocks (sex-routed aliases) own no panel by design --
-      # the dependencies already in `clock_ids` carry their CpGs.
+      # sex-routed aliases own no panel -- deps already contribute CpGs
       return(if (length(clock_depends_on(cid))) character(0) else NULL)
     }
-    # Include norm panel so simulated data exercises QN.
     c(scoring, clock_norm_cpgs(cid))
   })
   unresolved <- clock_ids[vapply(results, is.null, logical(1))]
