@@ -9,7 +9,6 @@ test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(got), unname(mean_form), tolerance = 1e-10)
 
-
   sum_form <- ic + as.numeric(DNAm[, names(co)] %*% co)
   expect_false(isTRUE(all.equal(unname(got), unname(sum_form))))
 })

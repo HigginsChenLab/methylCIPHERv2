@@ -15,10 +15,12 @@ Depends:
     R (>= 4.4)
 Imports:
     checkmate,
+    cli,
     digest,
     fs,
     matrixStats,
     qs2,
+    rlang,
     slideimp,
     stats,
     tools,

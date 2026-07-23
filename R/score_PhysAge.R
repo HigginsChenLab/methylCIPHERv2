@@ -3,13 +3,12 @@ score_PhysAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
   if (n < 2L) {
-    stop(
-      "score_PhysAge(): '",
-      id,
-      "' is batch-dependent (cohort z-score) and needs >= 2 samples; got ",
-      n,
-      ".",
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "{.val {id}} needs at least 2 samples (cohort z-score), got {n}.",
+        "i" = "Score it with a larger DNAm matrix."
+      ),
+      call = NULL
     )
   }
 

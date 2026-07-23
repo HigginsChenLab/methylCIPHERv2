@@ -12,6 +12,129 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-23 -- the norm-panel-warns-only decision is finally in the code (it never was)
+
+**Decision.** `check_coverage()` now does what the "scoring panel stops, normalization panel warns
+only" entry below already decided: `classify()` grades the **scoring** panel alone (stop under
+`min_col_coverage` or at 0 observed, warn within 10% of the floor), and a thin **normalization**
+background is a second, warn-only pass that cannot stop the call. `detail-plan.md`'s column-floor
+section is corrected with it.
+
+**Why this is an entry and not a silent fix.** The decision was written and the code was not
+touched -- `classify()` kept taking the worst of `{scoring, normalization}`, so a clock whose norm
+panel fell below the floor stopped exactly as before. It survived because the only clock with a
+norm panel is DunedinPACE, and the one test that covers the case
+(`test-coverage-gate.R`, "a sparse normalization panel warns but still scores") is behind
+`skip_if_not_installed("betanorm")`, so most runs never executed it. Recording the reconciliation
+rather than editing the old entry keeps the gap visible: a decision entry is not evidence the code
+follows it, and a skip-gated test is not evidence either.
+
+**Also fixed here.** `check_row_coverage()`'s message printed `score_needed` as its denominator
+while `row_coverage()` had already computed the fraction over the `norm_*` pair for a normalizing
+clock -- "worst 50.0% of 173 CpGs" when the 50% was 10000/20000 gold CpGs. `row_coverage()` now
+returns the denominator it used alongside the fraction, so the number and the panel it names
+always agree.
+
+**No behavior change for any other clock.** Every non-Dunedin clock has an empty
+`clock_norm_cpgs()`, so it was already graded on its scoring panel alone.
+
+---
+
+## 2026-07-23 -- `clocks` discovery: cli, nearest-match suggestions, `list_clocks()`
+
+`clocks` is one argument over 129 catalog entries in two namespaces, which made a typo a dead end.
+Three decisions, in the order they were argued.
+
+- **No token normalization -- resolution stays exact.** Case folding was the tempting fix
+  (`"systemsage"` -> `SystemsAge`) and is unsafe here: `prcPhenoAge` (a group of 2) and
+  `PRCPhenoAge` (a clock) differ **only** in case, so a case-folded resolver has to silently pick
+  between scoring 1 clock and scoring 2. That is live in today's catalog, not hypothetical. It
+  would also open a second namespace to keep collision-free on every sync, forever, and buys
+  nothing in output (column names come from the catalog either way). Case folding therefore lives
+  in `did_you_mean()` and nowhere else: `"SYSTEMSAGE"` earns a suggestion, never a resolution.
+- **A near miss is an error, never an auto-correct.** No "assuming you meant X" + warning: warnings
+  get swallowed in scripts and knitted output, and the failure mode is scoring the wrong clock on
+  someone's cohort. `resolve_clocks()` still batch-collects every bad token and errors once, so
+  `c(good, bad1, bad2)` reports both.
+- **Nearest-k with no distance cutoff, and the two namespaces kept apart.** A threshold was tried
+  first and needed tuning per token length (`"Horvat"` found nothing at `floor(nchar/4)`); ranking
+  and taking the top 5 drops the knob entirely. `utils::adist(partial = TRUE)` -- the token scored
+  against the closest *substring* of each candidate -- is what makes a half-remembered fragment
+  work: under full distance `"Zhang"`, `"PACE"` and `"cortical"` all returned pure noise, because
+  plain Levenshtein charges for the length gap. Ties break toward the shorter id so a plain name
+  outranks its decorated relatives (`phenoage` -> `PhenoAge`, not `HRSInChPhenoAge`). Clocks and
+  groups get their own pool and their own line, because they resolve differently -- and the split
+  is what makes `"grimage"` legible: `GrimAge` is *only* a group id, `GrimAgeV1` is the clock.
+  `"all"` is deliberately not in either pool; nobody mistypes it into a clock name and it only
+  crowds out real candidates.
+
+**Group-vs-clock ambiguity is documented, not fixed.** 27 of 40 group ids are also clock ids; for
+23 the group is the singleton `{itself}`. Four are not -- `SystemsAge` (13), `DNAmFitAge` (7),
+`EpiTOC2` (2), `RepliTali` (2) -- so those tokens score the group, not the same-named clock. No
+`clock:` / `group:` prefix grammar was added: the group is always a superset containing the
+same-named clock, its members share a panel/pack so the extra columns are nearly free, and
+`mc_result` is subsettable. `list_clocks()` surfaces it as a `group_size` column instead.
+
+`list_clocks()` derives from the same pool `resolve_clocks()` accepts, so what is listed is what is
+callable; the 14 sex-routed members appear with `callable = FALSE` and `request_as` naming their
+alias.
+
+**Keywords (`MC_TAGS`) are a runtime registry, not a sync artifact.** `"all"` was already a keyword
+that expands to a set, so `gestational` / `mitotic` / `mortality` generalize an existing special
+case rather than adding a mechanism. They live in `R/tags.R` and **not** in `sysdata.rda` because a
+tag is not part of the scoring contract -- no coefficient, panel, or routing decision reads one, so
+routing it through `sync()` would make a keyword typo a maintainer-only round-trip. The hard-stop
+property that a build step would have bought is bought instead by `resolve_clocks()` erroring on a
+tag member the catalog no longer has, plus a test that every tag is non-empty and every member
+resolves. Membership is **hardcoded package-side for now and marked `TODO`**: which clocks are
+"mitotic" is a scientific claim and belongs upstream in `methylCIPHER-meta` beside `papers.csv` /
+`clocks.bib`. Starting package-side is reversible -- the resolver reads a declaration either way,
+so moving the source is a `sync()` change, not a resolver change. Because the tag set is small and
+closed, the unknown-clock error **enumerates** the keywords instead of ranking them: one footer
+line for the whole set, rather than a third suggestion line per bad token.
+
+**cli + rlang added to Imports.** `cli::cli_abort()` / `cli_warn()` / `cli_inform()` replace
+`stop()` / `warning()` / `message()`, with `call = NULL` throughout to reproduce the old
+`call. = FALSE` (the alternative leaks internal helper names like `check_coverage()` into
+user-facing errors). `rlang` is required because `cli` only **Suggests** it and `cli_abort()`
+dispatches to `rlang::abort()`. Converted so far: `resolve_inputs.R`, `calc_clocks.R`, `utils.R`.
+`accessors.R`, `mc_data.R`, `missingness.R`, `score_*.R` and `sim_DNAm.R` still use base
+conditions -- a mechanical sweep, deliberately left to its own commit.
+
+---
+
+## 2026-07-23 -- plan/code reconciliation after the coverage-floor work
+
+Swept `dev/detail-plan.md` against the code (every backticked `fn()` in the plans checked for a
+definition in `R/`). Code is truth; the plan was corrected. Recorded here because two of these are
+easy to re-introduce.
+
+- **A composite's panel is the declared one, not the closure over its dependencies.** The plan said
+  `DNAmFitAge_{Sex}` qualifies to record coverage because "the union panel describes each sample
+  truthfully", which reads as *union including `GrimAgeV1`*. It is not: the declared panel is 172
+  (F) / 190 (M) CpGs, exactly the union of the three fitness members, sharing **one** CpG with
+  `GrimAgeV1`'s 1030. The composite still qualifies (all components hit all samples), but its
+  coverage numbers describe the fitness panel only, and the `GrimAgeV1` share is accounted on
+  `GrimAgeV1`'s own dependency column. Both floors read the same declared panel, so they agree with
+  each other -- which is why this stayed invisible.
+- **sec 2.4's "intended direction" was already the code.** `clock_needs_full_panel()` and
+  `check_DNAm_extra()` no longer exist; `resolve_DNAm_extra()` is the single hard-coded
+  `"Zhang2019"` case the plan proposed. Forward-looking text left in after the work landed.
+- `score_systemsage()` -> `score_systemsage_group()`; the `sample_coverage(x)` method was never
+  built and the matrix is reached as `$coverage$sample_miss`.
+- sec 4.2 now points at `check_row_coverage()` as the consumer of the tier-2 matrix -- the reason
+  no branch takes `min_row_coverage`.
+
+**Not reconciled, flagged instead.** sec 1.1 "Exported surface" lists `list_clocks()`,
+`get_clock()`, `get_clock_probes()`, `summary()`, `augment()`; none exist and `NAMESPACE` exports
+none of them (only `rbind.mc_result` + `print.mc_sim`). `get_clock` / `get_clock_probes` have built
+equivalents under the `clock_*` names (`clock_entry()`, `clock_scoring_cpgs()` +
+`clock_impute_ref()`); `list_clocks()` has no equivalent at all. Left as a design target rather than
+silently renamed, since deciding whether that surface is still wanted is a human call. `CLAUDE.md`
+names `get_clock` in its accessors invariant and lists the same unbuilt `mc_result` verbs.
+
+---
+
 ## 2026-07-23 -- coverage gates split by axis: columns stop, rows warn and never NA
 
 **Decision.** Three changes, one idea.

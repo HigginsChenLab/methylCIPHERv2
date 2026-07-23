@@ -1,4 +1,4 @@
-# catalog accessors for scorers -- always read with `[[`, never `$`
+# catalog accessors -- always `[[`, never `$`
 
 # one catalog entry, or error
 clock_entry <- function(id) {
@@ -289,7 +289,7 @@ clock_intercept <- function(id) {
 clock_type <- function(id) {
   computation_type <- clock_entry(id)[["computation_type"]]
   if (is.null(computation_type)) {
-    stop("Unexpected Error: all `computation_type` should be not `NULL`")
+    stop("catalog entry '", id, "' is missing computation_type", call. = FALSE)
   } else {
     computation_type
   }
@@ -305,7 +305,7 @@ clock_output_transform <- function(id) {
 clock_weights_format <- function(id) {
   weights_format <- clock_entry(id)[["weights_format"]]
   if (is.null(weights_format)) {
-    stop("Unexpected Error: all `weights_format` should be not `NULL`")
+    stop("catalog entry '", id, "' is missing weights_format", call. = FALSE)
   } else {
     weights_format
   }
@@ -326,7 +326,7 @@ clock_pack <- function(id, packs) {
       id,
       "': pack for external group '",
       gid,
-      "' is not loaded; pass the registry from load_mc_assets() via `packs`.",
+      "' is not loaded -- pass load_mc_assets() via packs",
       call. = FALSE
     )
   }
@@ -347,7 +347,7 @@ clock_group_bundle <- function(id) {
 clock_group_id <- function(id) {
   gid <- clock_entry(id)[["group_id"]]
   if (is.null(gid)) {
-    stop("Unexpected Error: clock '", id, "' has no group_id", call. = FALSE)
+    stop("catalog entry '", id, "' is missing group_id", call. = FALSE)
   }
   gid
 }

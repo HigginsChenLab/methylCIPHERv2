@@ -10,11 +10,9 @@ resolve_output_transform <- function(name) {
     name,
     identity = function(x) x,
     anti.trafo = anti_trafo,
-    stop(
-      "Unknown output_transform '",
-      name,
-      "' -- add it to the registry in score.R.",
-      call. = FALSE
+    cli::cli_abort(
+      "Unknown output_transform {.val {name}}.",
+      call = NULL
     )
   )
 }
@@ -50,13 +48,12 @@ linear_predictor <- function(
   if (length(cov_coefs)) {
     need <- names(cov_coefs)
     if (is.null(pheno) || !all(need %in% names(pheno))) {
-      stop(
-        "linear_predictor(): '",
-        id,
-        "' needs covariate(s) ",
-        paste(need, collapse = ", "),
-        " but they are absent from `pheno`.",
-        call. = FALSE
+      cli::cli_abort(
+        c(
+          "{.val {id}} needs pheno column{?s} {.field {need}}.",
+          "i" = "Add {?it/them} to {.arg pheno}."
+        ),
+        call = NULL
       )
     }
     cov_mat <- as.matrix(pheno[, need, drop = FALSE])
@@ -91,15 +88,10 @@ linear_score <- function(
   absent <- cpgs$score_absent
   vendor_mean <- length(absent) && identical(policy, "vendor_mean")
   if (length(absent) && !policy %in% c("omit", "drop", "vendor_mean")) {
-    stop(
-      "linear_score(): clock '",
-      id,
-      "' has unsupported imputation policy '",
-      policy,
-      "' for ",
-      length(absent),
-      " absent CpG(s).",
-      call. = FALSE
+    cli::cli_abort(
+      "Clock {.val {id}} has unsupported imputation policy {.val {policy}}
+       for {length(absent)} absent CpG{?s}.",
+      call = NULL
     )
   }
 

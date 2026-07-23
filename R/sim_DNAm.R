@@ -1,4 +1,4 @@
-# build an n x length(cpgs) U(0,1) beta matrix -- seed=NULL uses ambient RNG
+# n x length(cpgs) U(0,1) beta matrix (seed=NULL = ambient RNG)
 random_betas <- function(cpgs, n = 10L, seed = NULL) {
   draw <- function() {
     matrix(
@@ -48,7 +48,7 @@ sim_DNAm <- function(
   out
 }
 
-# print a mc_sim list (DNAm + pheno preview)
+# print mc_sim (DNAm + pheno preview)
 #' @export
 print.mc_sim <- function(x, n = 6, p = 6, ...) {
   DNAm <- x$DNAm
@@ -79,7 +79,7 @@ clock_cpgs <- function(clock_ids, packs = NULL) {
   results <- lapply(clock_ids, function(cid) {
     scoring <- clock_scoring_cpgs(cid, packs)
     if (!length(scoring)) {
-      # sex-routed aliases own no panel -- deps already contribute CpGs
+      # sex-routed aliases own no panel
       return(if (length(clock_depends_on(cid))) character(0) else NULL)
     }
     c(scoring, clock_norm_cpgs(cid))
@@ -87,11 +87,12 @@ clock_cpgs <- function(clock_ids, packs = NULL) {
   unresolved <- clock_ids[vapply(results, is.null, logical(1))]
 
   if (length(unresolved)) {
-    stop(
-      "No resolved scoring CpGs for ",
-      paste(unresolved, collapse = ", "),
-      " (SystemsAge, PCClocks, PCBrainAge)",
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "No scoring CpGs for {.val {unresolved}}.",
+        "i" = "External packs may need to be loaded first."
+      ),
+      call = NULL
     )
   }
 

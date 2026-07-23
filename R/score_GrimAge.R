@@ -25,26 +25,21 @@ score_GrimAge <- function(
   for (nm in stack_names) {
     if (nm %in% c("Age", "Female")) {
       if (is.null(pheno) || !nm %in% names(pheno)) {
-        stop(
-          "score_GrimAge(): '",
-          id,
-          "' needs covariate '",
-          nm,
-          "' but it is absent from `pheno`.",
-          call. = FALSE
+        cli::cli_abort(
+          c(
+            "{.val {id}} needs pheno column {.field {nm}}.",
+            "i" = "Add it to {.arg pheno}."
+          ),
+          call = NULL
         )
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
       comp <- Filter(function(c) identical(c[["name"]], nm), comps)
       if (length(comp) != 1L) {
-        stop(
-          "score_GrimAge(): ",
-          id,
-          " is missing internal surrogate '",
-          nm,
-          "'.",
-          call. = FALSE
+        cli::cli_abort(
+          "{.val {id}} is missing internal surrogate {.val {nm}}.",
+          call = NULL
         )
       }
       comp <- comp[[1]]
@@ -64,13 +59,9 @@ score_GrimAge <- function(
     } else {
       r <- results[[nm]]
       if (is.null(r)) {
-        stop(
-          "score_GrimAge(): ",
-          id,
-          " depends on surrogate '",
-          nm,
-          "' but it was not computed upstream.",
-          call. = FALSE
+        cli::cli_abort(
+          "{.val {id}} depends on {.val {nm}}, which was not scored upstream.",
+          call = NULL
         )
       }
       X[, nm] <- as.numeric(r$score)

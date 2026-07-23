@@ -41,7 +41,6 @@ test_that("DunedinPACE quantile-normalizes the gold panel before the linear scor
   )
   expect_equal(as.numeric(res$scores[, "DunedinPACE"]), golden)
 
-
   linear <- as.numeric(
     clock_intercept("DunedinPACE") + DNAm[, names(coef)] %*% coef
   )

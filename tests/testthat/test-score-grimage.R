@@ -81,7 +81,6 @@ test_that("the missing-covariate warning names each affected column, and only fi
   )
   expect_no_warning(calc_clocks(DNAm, id, pheno = grim_pheno(ids)))
 
-
   extra <- grim_pheno(c(ids, "unscored"))
   extra$Age[nrow(extra)] <- NA_real_
   expect_no_warning(calc_clocks(DNAm, id, pheno = extra))
