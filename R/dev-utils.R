@@ -1,6 +1,6 @@
-# Dev-only helpers. Build-ignored; available after devtools::load_all().
+# dev-only helpers -- build-ignored, available after devtools::load_all()
 
-# Run the cohort parity tier (sets MC_PARITY=1 for this test run).
+# run the cohort parity tier (sets MC_PARITY=1 for this test run)
 test_parity <- function(filter = "fixtures-parity", ...) {
   withr::with_envvar(
     c(MC_PARITY = "1"),
@@ -9,7 +9,7 @@ test_parity <- function(filter = "fixtures-parity", ...) {
 }
 
 scratch <- function() {
-  if(!dir.exists("dev")) {
+  if (!dir.exists("dev")) {
     dir.create("dev")
   }
   file.edit("dev/scratch.R")

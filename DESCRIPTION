@@ -17,6 +17,7 @@ Imports:
     checkmate,
     digest,
     fs,
+    matrixStats,
     qs2,
     slideimp,
     stats,
@@ -25,7 +26,6 @@ Imports:
     withr
 Suggests:
     betanorm,
-    curl,
     DBI,
     duckdb,
     testthat (>= 3.0.0)

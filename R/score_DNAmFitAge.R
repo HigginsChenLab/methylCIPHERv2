@@ -1,10 +1,5 @@
-# DNAmFitAge: the Klemera-Doubal composite. The fitness biomarkers are
-# sex-resolved clock_ids over one tensor each, so they score on the shared
-# linear engine and have no branch here.
-
-# DNAmFitAge_{Sex}: KDM mix of the same-sex member scores plus GrimAgeV1,
-# all read from upstream results.
-score_fitage_composite <- function(
+# DNAmFitAge_{Sex}: Klemera-Doubal mix of upstream member scores
+score_DNAmFitAge <- function(
   id,
   cpgs,
   results,
@@ -20,7 +15,7 @@ score_fitage_composite <- function(
     r <- results[[component]]
     if (is.null(r)) {
       stop(
-        "score_fitage_composite(): ",
+        "score_DNAmFitAge(): ",
         id,
         " needs component '",
         component,
@@ -38,25 +33,10 @@ score_fitage_composite <- function(
       kdm[["weight"]][i] * (cv - kdm[["center"]][i]) / kdm[["scale"]][i]
   }
 
-  score_mat <- matrix(
-    score_vec,
-    nrow = n,
-    ncol = 1L,
-    dimnames = list(sample_id, id)
-  )
+  score_mat <- score_matrix(score_vec, sample_id, id)
 
-  # Coverage over the composite's CpG union.
-  cached <- if (is.null(partial_cache)) {
-    character(0)
-  } else {
-    intersect(cpgs$score_present, colnames(partial_cache))
-  }
-  sample_miss <- if (length(cached)) {
-    slideimp::mat_miss(DNAm[, cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  names(sample_miss) <- sample_id
+  cached <- cached_cols(cpgs$score_present, partial_cache)
+  sample_miss <- count_sample_miss(DNAm, cached)
 
   coverage <- list(
     clock_id = id,

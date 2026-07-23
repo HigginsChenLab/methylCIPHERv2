@@ -1,6 +1,6 @@
-# Shared linear scorers. linear and linear_transformed differ only by output_transform.
+# shared linear scorers
 
-# Horvath age back-transform (adult.age = 20).
+# Horvath age back-transform (adult.age = 20)
 anti_trafo <- function(x, adult.age = 20) {
   ifelse(x < 0, (1 + adult.age) * exp(x) - 1, (1 + adult.age) * x + adult.age)
 }
@@ -19,7 +19,7 @@ resolve_output_transform <- function(name) {
   )
 }
 
-# linpred = intercept + sum(coef * beta) + covariates.
+# linpred = intercept + sum(coef * beta) + covariates
 linear_predictor <- function(
   coef,
   intercept,
@@ -32,11 +32,7 @@ linear_predictor <- function(
 ) {
   n <- nrow(DNAm)
 
-  cached <- if (is.null(partial_cache)) {
-    character(0)
-  } else {
-    intersect(score_present, colnames(partial_cache))
-  }
+  cached <- cached_cols(score_present, partial_cache)
   raw <- setdiff(score_present, cached)
   used_cols <- c(cached, raw)
 
@@ -77,7 +73,7 @@ linear_predictor <- function(
   )
 }
 
-# Linear engine for one cpg_coefficient clock.
+# linear engine for one cpg_coefficient clock
 linear_score <- function(
   cpgs,
   DNAm,
@@ -119,18 +115,12 @@ linear_score <- function(
   )
 
   if (vendor_mean) {
-    ref <- clock_impute_ref(id, packs)
-    miss_ref <- setdiff(absent, names(ref))
-    if (length(miss_ref)) {
-      stop(
-        "linear_score(): '",
-        id,
-        "' absent CpG(s) lack a vendor mean (cannot fill): ",
-        paste(utils::head(miss_ref, 5L), collapse = ", "),
-        call. = FALSE
-      )
-    }
-    absent_offset <- sum(coef[absent] * ref[absent])
+    absent_offset <- vendor_offset(
+      coef,
+      absent,
+      clock_impute_ref(id, packs),
+      id
+    )
     vendor_filled <- absent
     dropped <- character(0)
   } else {
@@ -139,7 +129,6 @@ linear_score <- function(
     dropped <- absent
   }
 
-  # Mean reduces only the CpG term; sum reuses linpred + vendor offset.
   if (identical(reduction, "mean")) {
     n_terms <- length(cpgs$score_present) + length(vendor_filled)
     cpg_num <- lp$cpg_contrib + absent_offset
@@ -149,19 +138,9 @@ linear_score <- function(
   }
 
   transform <- resolve_output_transform(clock_output_transform(id))
-  score <- matrix(
-    as.numeric(transform(linpred)),
-    nrow = n,
-    ncol = 1L,
-    dimnames = list(sample_id, id)
-  )
+  score <- score_matrix(transform(linpred), sample_id, id)
 
-  sample_miss <- if (length(lp$cached)) {
-    slideimp::mat_miss(DNAm[, lp$cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  names(sample_miss) <- sample_id
+  sample_miss <- count_sample_miss(DNAm, lp$cached)
 
   coverage <- list(
     clock_id = id,

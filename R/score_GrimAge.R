@@ -1,5 +1,5 @@
-# GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years.
-score_grimage <- function(
+# GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years
+score_GrimAge <- function(
   id,
   cpgs,
   results,
@@ -26,7 +26,7 @@ score_grimage <- function(
     if (nm %in% c("Age", "Female")) {
       if (is.null(pheno) || !nm %in% names(pheno)) {
         stop(
-          "score_grimage(): '",
+          "score_GrimAge(): '",
           id,
           "' needs covariate '",
           nm,
@@ -36,11 +36,10 @@ score_grimage <- function(
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
-      # V2 surrogate scored inline; absent CpGs dropped.
       comp <- Filter(function(c) identical(c[["name"]], nm), comps)
       if (length(comp) != 1L) {
         stop(
-          "score_grimage(): ",
+          "score_GrimAge(): ",
           id,
           " is missing internal surrogate '",
           nm,
@@ -63,11 +62,10 @@ score_grimage <- function(
       )
       X[, nm] <- lp$linpred
     } else {
-      # Dependency surrogate already scored upstream.
       r <- results[[nm]]
       if (is.null(r)) {
         stop(
-          "score_grimage(): ",
+          "score_GrimAge(): ",
           id,
           " depends on surrogate '",
           nm,
@@ -80,24 +78,14 @@ score_grimage <- function(
   }
 
   cox_score <- X[, stack_names, drop = FALSE] %*% cox
-  score <- matrix(
-    as.numeric(grimage_rescale(cox_score, grimage_rescale_params(id))),
-    nrow = n,
-    ncol = 1L,
-    dimnames = list(sample_id, id)
+  score <- score_matrix(
+    grimage_rescale(cox_score, grimage_rescale_params(id)),
+    sample_id,
+    id
   )
 
-  cached <- if (is.null(partial_cache)) {
-    character(0)
-  } else {
-    intersect(cpgs$score_present, colnames(partial_cache))
-  }
-  sample_miss <- if (length(cached)) {
-    slideimp::mat_miss(DNAm[, cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(n)
-  }
-  names(sample_miss) <- sample_id
+  cached <- cached_cols(cpgs$score_present, partial_cache)
+  sample_miss <- count_sample_miss(DNAm, cached)
 
   coverage <- list(
     clock_id = id,
@@ -116,7 +104,7 @@ score_grimage <- function(
   list(score = score, coverage = coverage, sample_miss = sample_miss)
 }
 
-# Cox scale -> years.
+# Cox scale -> years
 grimage_rescale <- function(cox_score, params) {
   (cox_score - params[["m_cox"]]) /
     params[["sd_cox"]] *

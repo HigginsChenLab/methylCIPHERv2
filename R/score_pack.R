@@ -1,6 +1,6 @@
-# Batched scorers for external packs (PCClocks, PCBrainAge, SystemsAge).
+# batched scorers for external packs (PCClocks, PCBrainAge, SystemsAge)
 
-# Shared design over a pack CpG panel: subset matrix, present/absent, vendor ref.
+# shared design over a pack CpG panel: subset matrix, present/absent, vendor ref
 pack_design <- function(pack, usable, DNAm, partial_cache) {
   panel <- pack[["cpgs"]]
   hit <- match(panel, usable, 0L) > 0L
@@ -20,12 +20,7 @@ pack_design <- function(pack, usable, DNAm, partial_cache) {
   if (is.null(X)) {
     X <- matrix(0, nrow = nrow(DNAm), ncol = 0L)
   }
-  sample_miss <- if (length(cached)) {
-    slideimp::mat_miss(DNAm[, cached, drop = FALSE], col = FALSE)
-  } else {
-    integer(nrow(DNAm))
-  }
-  names(sample_miss) <- rownames(DNAm)
+  sample_miss <- count_sample_miss(DNAm, cached)
   list(
     present = present,
     absent = absent,
@@ -37,7 +32,7 @@ pack_design <- function(pack, usable, DNAm, partial_cache) {
   )
 }
 
-# Vendor-mean-filled linear predictors over cols, reusing pack_design.
+# vendor-mean-filled linear predictors over cols, reusing pack_design
 pack_linpred <- function(design, M, cols) {
   contrib <- design$X %*% M[design$used, cols, drop = FALSE]
   if (length(design$absent)) {
@@ -50,7 +45,7 @@ pack_linpred <- function(design, M, cols) {
   contrib
 }
 
-# Per-clock covariate contributions as one n x k matrix.
+# per-clock covariate contributions as one n x k matrix
 pack_cov_contrib <- function(ids, pheno, n) {
   cc <- lapply(ids, clock_covariate_coefs)
   need <- unique(unlist(lapply(cc, names), use.names = FALSE))
@@ -75,7 +70,7 @@ pack_cov_contrib <- function(ids, pheno, n) {
   as.matrix(pheno[, need, drop = FALSE]) %*% Cmat
 }
 
-# Coverage record for a vendor-mean linear pack member.
+# coverage record for a vendor-mean linear pack member
 pack_linear_coverage <- function(cpgs, sample_miss) {
   list(
     clock_id = cpgs$clock_id,
@@ -92,7 +87,7 @@ pack_linear_coverage <- function(cpgs, sample_miss) {
   )
 }
 
-# Dispatch a pack group to its batched scorer. Members of a group share a tag.
+# dispatch a pack group to its batched scorer -- members of a group share a tag
 score_pack_group <- function(
   group_id,
   ids,
@@ -132,7 +127,7 @@ score_pack_group <- function(
   )
 }
 
-# Batched scorer for coefficient_matrix packs (PCClocks, PCBrainAge).
+# batched scorer for coefficient_matrix packs (PCClocks, PCBrainAge)
 score_linear_pack <- function(
   ids,
   cpg_list,
@@ -174,11 +169,7 @@ score_linear_pack <- function(
   names(out) <- ids
   for (id in ids) {
     tf <- resolve_output_transform(clock_output_transform(id))
-    score <- matrix(
-      as.numeric(tf(linpred[, id])),
-      ncol = 1L,
-      dimnames = list(sample_id, id)
-    )
+    score <- score_matrix(tf(linpred[, id]), sample_id, id)
     out[[id]] <- list(
       score = score,
       coverage = pack_linear_coverage(

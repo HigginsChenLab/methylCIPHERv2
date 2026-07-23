@@ -1,4 +1,4 @@
-# DNAm/pheno validation and clock-id resolution.
+# DNAm/pheno validation and clock-id resolution
 
 check_DNAm <- function(DNAm) {
   checkmate::assert_matrix(
@@ -9,7 +9,7 @@ check_DNAm <- function(DNAm) {
   )
   checkmate::assert_character(colnames(DNAm), unique = TRUE, null.ok = FALSE)
   checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
-  # Orientation guard: CpG ids belong in columns (cg prefix).
+  # orientation guard: CpG ids belong in columns (cg prefix)
   if (ncol(DNAm) < 2e5 && !any(startsWith(colnames(DNAm), "cg"))) {
     warning(
       if (any(startsWith(rownames(DNAm), "cg"))) {
@@ -24,7 +24,7 @@ check_DNAm <- function(DNAm) {
   invisible(TRUE)
 }
 
-# Zhang2019 full-panel notice only.
+# Zhang2019 full-panel notice only
 resolve_DNAm_extra <- function(clock_ids) {
   if ("Zhang2019" %in% clock_ids) {
     message(
@@ -35,7 +35,7 @@ resolve_DNAm_extra <- function(clock_ids) {
   invisible(TRUE)
 }
 
-# Structure/dtype validation for pheno.
+# structure/dtype validation for pheno
 check_pheno <- function(
   pheno,
   ID = NULL,
@@ -78,7 +78,7 @@ check_pheno <- function(
   invisible(TRUE)
 }
 
-# Warn once when required covariates contain NA.
+# warn once when required covariates contain NA
 warn_missing_covariates <- function(
   pheno,
   ID,
@@ -90,7 +90,7 @@ warn_missing_covariates <- function(
   if (!length(cols)) {
     return(invisible(character(0)))
   }
-  # Count only rows that will survive the id-join.
+  # count only rows that will survive the id-join
   rows <- if (positional || is.null(sample_id)) {
     seq_len(nrow(pheno))
   } else {
@@ -113,7 +113,7 @@ warn_missing_covariates <- function(
   invisible(names(n_na))
 }
 
-# Align pheno onto sample_id (id-join, or row-order when positional).
+# align pheno onto sample_id (id-join, or row-order when positional)
 resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
   if (is.null(pheno)) {
     return(NULL)
@@ -150,7 +150,7 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
   pheno
 }
 
-# User tokens -> catalog clock_ids. Precedence: "all" > group_id > clock_id.
+# user tokens -> catalog clock_ids -- precedence: "all" > group_id > clock_id
 resolve_clocks <- function(clocks) {
   checkmate::assert_character(
     clocks,
@@ -163,9 +163,9 @@ resolve_clocks <- function(clocks) {
   members <- split(mc_index[["clock_id"]], mc_index[["group_id"]])
   clock_ids <- mc_index[["clock_id"]]
 
-  # A routed member is one sex's model; scoring it directly would return a
-  # plausible number for every sample of the other sex. It stays internal
-  # machinery, reached only as its alias's dependency.
+  # a routed member is one sex's model -- scoring it directly would return a
+  # plausible number for every sample of the other sex -- it stays internal
+  # machinery, reached only as its alias's dependency
   routed <- sex_routed_members()
   asked_routed <- intersect(clocks, names(routed$alias))
   if (length(asked_routed)) {
@@ -211,7 +211,7 @@ resolve_clocks <- function(clocks) {
   out[!duplicated(out)]
 }
 
-# Transitive depends_on_clocks closure, deps before dependents.
+# transitive depends_on_clocks closure, deps before dependents
 resolve_clocks_sequence <- function(clocks) {
   st <- new.env(parent = emptyenv())
   st$out <- character(length(mc_index[["clock_id"]]))
@@ -244,8 +244,9 @@ resolve_clocks_sequence <- function(clocks) {
   st$out[seq_len(st$n)]
 }
 
-# Map identical CpG panels onto a shared set. Every member of an external pack
-# group carries the same panel, so the set math runs once instead of once per clock.
+# map identical CpG panels onto a shared set -- every member of an external pack
+# group carries the same panel, so the set math runs once instead of once per
+# clock
 dedup_panels <- function(panels) {
   uniq <- list()
   idx <- integer(length(panels))
@@ -266,8 +267,8 @@ dedup_panels <- function(panels) {
   list(uniq = uniq, idx = idx)
 }
 
-# Scoring + norm panels for the compute sequence, fetched once and deduped.
-# External panels come from `packs`, so resolve those before calling this.
+# scoring + norm panels for the compute sequence, fetched once and deduped --
+# external panels come from `packs`, so resolve those before calling this
 clock_panels <- function(clock_sequence, packs = NULL) {
   list(
     clock_id = clock_sequence,
@@ -280,21 +281,17 @@ clock_panels <- function(clock_sequence, packs = NULL) {
   )
 }
 
-# Union of scoring + norm CpGs across the compute sequence.
+# union of scoring + norm CpGs across the compute sequence
 panels_union <- function(panels) {
   unique(unlist(c(panels$score$uniq, panels$norm$uniq), use.names = FALSE))
 }
 
-needed_cpgs_union <- function(clock_sequence, packs = NULL) {
-  panels_union(clock_panels(clock_sequence, packs))
-}
-
-# Per-clock present/absent CpG sets over usable_cols.
+# per-clock present/absent CpG sets over usable_cols
 resolve_cpgs <- function(usable_cols, panels) {
   usable <- unique(usable_cols)
   clock_sequence <- panels$clock_id
 
-  # Split each distinct panel once; member clocks share the resulting vectors.
+  # split each distinct panel once -- member clocks share the resulting vectors
   split_panels <- function(d) {
     lapply(d$uniq, function(p) {
       hit <- match(p, usable, 0L) > 0L
@@ -328,15 +325,28 @@ resolve_cpgs <- function(usable_cols, panels) {
   list(per_clock = per_clock, present_needed_union = present_needed_union)
 }
 
-# Graded coverage gate, run once before any scoring. Under `threshold` (or 0
-# observed CpGs on a panel) stops; clearing it by under 10% warns.
+# graded coverage gate, run once before any scoring -- under `threshold` (or 0
+# observed CpGs on a panel) stops, clearing it by under 10% warns
 WARN_COVERAGE_MARGIN <- 1.1
+
+# mass failure is usually one root cause (transposed DNAm, wrong array), so cap
+coverage_block <- function(lines) {
+  shown <- utils::head(lines, 10L)
+  paste0(
+    paste(shown, collapse = "\n"),
+    if (length(lines) > length(shown)) {
+      sprintf("\n  ... and %d more", length(lines) - length(shown))
+    } else {
+      ""
+    }
+  )
+}
 
 check_coverage <- function(cpg_list, threshold = 0.75) {
   checkmate::assert_number(threshold, lower = 0, upper = 1)
   warn_below <- min(1, threshold * WARN_COVERAGE_MARGIN)
 
-  # Panels a clock actually has; a clock with none is gated elsewhere.
+  # panels a clock actually has -- a clock with none is gated elsewhere
   clock_panels_used <- function(x) {
     Filter(
       function(q) length(q$needed) > 0L,
@@ -355,7 +365,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     )
   }
 
-  # Worst panel per clock -> "stop", "warn", or "" (fine).
+  # worst panel per clock -> "stop", "warn", or "" (fine)
   classify <- function(x) {
     worst <- NULL
     worst_ratio <- Inf
@@ -372,7 +382,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     level <- if (worst_ratio == 0 || worst_ratio < threshold) {
       "stop"
     } else if (worst_ratio < warn_below) {
-      # Full coverage is never marginal, whatever the threshold.
+      # full coverage is never marginal, whatever the threshold
       "warn"
     } else {
       ""
@@ -396,27 +406,14 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     vapply(graded[levels == lvl], function(g) g$line, character(1L))
   }
 
-  # Mass failure is usually one root cause (transposed DNAm, wrong array), so cap.
-  block <- function(lines) {
-    shown <- utils::head(lines, 10L)
-    paste0(
-      paste(shown, collapse = "\n"),
-      if (length(lines) > length(shown)) {
-        sprintf("\n  ... and %d more", length(lines) - length(shown))
-      } else {
-        ""
-      }
-    )
-  }
-
   fail <- lines_for("stop")
   if (length(fail)) {
     stop(
       sprintf(
-        "%d clock(s) lack the CpG coverage to score (min_coverage = %s):\n%s\nDrop them from `clocks`, or lower `min_coverage` (a clock with 0 observed CpGs never scores).",
+        "%d clock(s) lack the CpG coverage to score (min_col_coverage = %s):\n%s\nDrop them from `clocks`, or lower `min_col_coverage` (a clock with 0 observed CpGs never scores).",
         length(fail),
         format(threshold),
-        block(fail)
+        coverage_block(fail)
       ),
       call. = FALSE
     )
@@ -426,14 +423,70 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(marginal)) {
     warning(
       sprintf(
-        "%d clock(s) clear min_coverage = %s by under 10%% -- scores are usable but rest on an imputed fraction of the panel:\n%s",
+        "%d clock(s) clear min_col_coverage = %s by under 10%% -- scores are usable but rest on an imputed fraction of the panel:\n%s",
         length(marginal),
         format(threshold),
-        block(marginal)
+        coverage_block(marginal)
       ),
       call. = FALSE
     )
   }
 
   invisible(names(levels)[levels != ""])
+}
+
+# per-sample observed fraction of a clock's needed panel
+row_coverage <- function(r) {
+  cov <- r[["coverage"]]
+  if (is.null(cov) || is.null(r[["sample_miss"]])) {
+    return(NULL)
+  }
+  # denominator matches the panel sample_miss counted over (norm when present)
+  qn <- isTRUE(cov[["norm_needed"]] > 0L)
+  needed <- if (qn) cov[["norm_needed"]] else cov[["score_needed"]]
+  present <- if (qn) cov[["norm_present"]] else cov[["score_present"]]
+  if (!length(needed) || needed == 0L) {
+    return(NULL)
+  }
+  (present - r[["sample_miss"]]) / needed
+}
+
+# post-score per-sample coverage gate -- warns only, never NA-s scores
+check_row_coverage <- function(results, threshold = 0.75) {
+  checkmate::assert_number(threshold, lower = 0, upper = 1)
+
+  line_for <- function(id) {
+    rc <- row_coverage(results[[id]])
+    if (is.null(rc)) {
+      return(NA_character_)
+    }
+    low <- !is.na(rc) & rc < threshold
+    if (!any(low)) {
+      return(NA_character_)
+    }
+    sprintf(
+      "  %s: %d of %d sample(s), worst %.1f%% of %d CpGs",
+      id,
+      sum(low),
+      sum(!is.na(rc)),
+      100 * min(rc[low]),
+      results[[id]][["coverage"]][["score_needed"]]
+    )
+  }
+
+  lines <- vapply(names(results), line_for, character(1L))
+  lines <- lines[!is.na(lines)]
+  if (length(lines)) {
+    warning(
+      sprintf(
+        "%d clock(s) scored sample(s) under min_row_coverage = %s -- those scores rest on imputed CpGs for the samples listed:\n%s",
+        length(lines),
+        format(threshold),
+        coverage_block(lines)
+      ),
+      call. = FALSE
+    )
+  }
+
+  invisible(names(lines))
 }

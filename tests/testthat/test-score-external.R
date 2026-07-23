@@ -1,6 +1,5 @@
 # External pack scorers via in-memory assets (closed set; CRAN-safe smoke/shape).
 
-# shared fixtures
 # Synthetic packs over a synthetic scoring panel.
 
 fake_pcbrainage_pack <- function(cpgs, seed = 42L) {
@@ -95,8 +94,7 @@ fake_systemsage_pack <- function(cpgs, seed = 1L) {
   )
 }
 
-# The pack owns its CpG panel, so these closed-set tests mint their own instead
-# of borrowing the real 78k-357k panels. Sizes differ so cross-wiring shows.
+# Synthetic pack panels (closed set; sizes differ to catch cross-wiring).
 fake_panel <- function(n) sprintf("cg%08d", seq_len(n))
 
 pcba_cpgs <- fake_panel(400L)
@@ -118,7 +116,7 @@ test_that("calc_clocks() scores PCBrainAge end-to-end from an in-memory pack (cl
   expect_setequal(colnames(res$scores), "PCBrainAge")
   expect_equal(nrow(res$scores), 3L)
   expect_false(anyNA(res$scores))
-  # Full coverage -> nothing vendor-filled.
+
   expect_identical(res$coverage$per_clock$PCBrainAge$score_imputed_full, 0L)
 })
 
@@ -129,13 +127,13 @@ test_that("calc_clocks() vendor-fills absent external CpGs from the pack $impute
 
   res <- calc_clocks(DNAm, "PCBrainAge", assets = pcba_pack)
   expect_false(anyNA(res$scores))
-  # The five dropped CpGs are the vendor-filled ones (value owned by parity).
+
   expect_identical(res$coverage$per_clock$PCBrainAge$score_imputed_full, 5L)
 })
 
 test_that("calc_clocks() on an external clock errors (closed set) when its pack is absent", {
   DNAm <- random_betas(pcba_cpgs, n = 2L)
-  # A closed set that carries the wrong group cannot satisfy PCBrainAge; no download.
+
   wrong <- list(
     group_id = "PCClocks",
     cpgs = "cg0001",
@@ -177,7 +175,7 @@ test_that("requesting a subset of PCClocks returns only those columns (no expans
   full <- calc_clocks(DNAm, "PCClocks", pheno = pheno, assets = pcc_pack)
 
   expect_setequal(colnames(sub$scores), c("PCHorvath1", "PCADM"))
-  # Subset scores match the same columns from the full group (batching is order-free).
+
   expect_equal(
     sub$scores[, c("PCHorvath1", "PCADM")],
     full$scores[, c("PCHorvath1", "PCADM")]

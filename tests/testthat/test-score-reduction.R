@@ -9,7 +9,7 @@ test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   mean_form <- ic + as.numeric(DNAm[, names(co)] %*% co) / length(co)
   expect_equal(unname(got), unname(mean_form), tolerance = 1e-10)
 
-  # Guard against sum reduction regression.
+
   sum_form <- ic + as.numeric(DNAm[, names(co)] %*% co)
   expect_false(isTRUE(all.equal(unname(got), unname(sum_form))))
 })
@@ -25,20 +25,26 @@ test_that("plain linear clocks still reduce by sum (unchanged)", {
 })
 
 test_that("every catalog clock maps to a known score_type tag", {
-  # Every catalog clock maps to an implemented scorer tag or deliberate "unsupported".
   known <- c(
     "linear",
-    "grimage",
-    "fitage_composite",
-    "physage",
+    "GrimAge",
+    "DNAmFitAge",
+    "PhysAge",
     "pack_linear",
     "pack_systemsage",
-    "dunedin",
-    "epitoc2",
-    "miage",
-    "sex_routed",
-    "unsupported"
+    "Dunedin",
+    "EpiTOC2",
+    "MiAge",
+    "Zhang2019",
+    "sex_routed"
   )
+  # score_type() itself stops on an unroutable clock, so this both asserts the
+  # tag set and proves the whole catalog routes.
   tags <- vapply(mc_index$clock_id, score_type, character(1))
   expect_true(all(tags %in% known))
+})
+
+test_that("a clock no branch claims is a hard stop, not a silent tag", {
+  local_mocked_bindings(clock_type = function(id) "some_future_computation")
+  expect_error(score_type("Hannum"))
 })

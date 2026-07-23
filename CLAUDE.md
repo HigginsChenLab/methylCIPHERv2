@@ -36,6 +36,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
   family orchestrator, sex-routed alias, external, custom). There is **no** recipe
   interpreter/walker, not even as a fallback.
+- **Routing is total, and a gap is a hard stop.** `score_type()` returns a known tag for every
+  catalog entry or `stop()`s naming the clock's group / `weights_format` / `computation_type`.
+  There is no `"unsupported"` tag and nothing filters on one: a sync that adds a routing pair no
+  branch claims must fail the always-on tier, never silently shrink it (see DECISIONS 2026-07-23).
+- **Every branch returns the same record**: `list(score = <n x 1 matrix>, coverage = , sample_miss = )`.
+  The helpers that build it live once in `R/utils.R` (`cached_cols()`, `count_sample_miss()`,
+  `score_matrix()`) -- reuse them in a new branch rather than re-inlining the shape.
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double),
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset). All
   verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
@@ -99,6 +106,16 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
 - **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy packs
   ship **external** as release assets, cached at runtime in
   `tools::R_user_dir("methylCIPHERv2", "cache")`. No silent first-use download.
+- **The cache moves in both directions under one consent rule.** `load_mc_assets()` /
+  `mc_data_download()` fill it and `clear_mc_cache()` empties it; all three take `ask`, prompt
+  interactively, **refuse** non-interactively, and treat `ask = FALSE` as the explicit consent
+  signal. Nothing is fetched or deleted unprompted -- CRAN requires a supported way to reclaim
+  `R_user_dir()`, so `clear_mc_cache()` must stay a real delete, not a report.
+  **Both gate arguments fail closed.** `ask` is a strict flag: only `FALSE` consents, and anything
+  that is not a single non-NA logical is an error, never permission. `assets` reaching
+  `mc_cache_dir()` is a path or `NULL` only -- a loaded pack names no directory, so it stops rather
+  than falling back to the default cache dir. Both were silent widenings of "permission" once
+  (DECISIONS 2026-07-23); do not re-introduce an `isTRUE()`-style test on either.
 - **Identity key:** `payload_hash` (pack content-address) only -- it sets the pack filename and
   release tag, which is what makes re-upload of unchanged weights a no-op. It stays maintainer-side
   and never reaches a result record. Transfer integrity and bit rot are qs2's own
@@ -110,11 +127,12 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
 Three tiers. Pre-alpha and fast-moving, so tests guard **core functionality and observable
 output**, not implementation detail (see "Test altitude").
 
-- **Crash smoke (always):** `test-sim-smoke.R` scores every bundled, supported clock in the
-  **callable pool** (`resolve_clocks("all")`, not `names(mc_catalog)`) through `sim_DNAm()` +
-  `calc_clocks()` with `expect_no_error`. Cheapest, most refactor-robust net; catches "a clock
-  stopped running" without pinning a value. External clocks excluded (pack-only); routing targets
-  are covered as their alias's dependencies.
+- **Crash smoke (always):** `test-sim-smoke.R` scores every bundled clock in the **callable pool**
+  (`resolve_clocks("all")`, not `names(mc_catalog)`) through `sim_DNAm()` + `calc_clocks()` with
+  `expect_no_error`. Cheapest, most refactor-robust net; catches "a clock stopped running" without
+  pinning a value. External clocks excluded (pack-only); routing targets are covered as their
+  alias's dependencies. The pool is **not** filtered by supported-ness -- building it calls
+  `score_type()` on every clock, so an unroutable entry fails the tier here.
 - **Value goldens (always, no meta dep):** hand-authored engine/machinery unit tests with goldens
   written in-test, one per scoring path (linear sum/mean, sex-split, imputation offset, bundled
   composites). External-pack scoring is smoke-only here; parity owns those goldens.
@@ -132,7 +150,8 @@ refactor is too tight -- loosen or delete it.
   condition class only when a test must otherwise confuse two distinct failure modes.
 - **No internal dispatch-tag tables.** Do not hard-code `clock_reduction()` / `score_type()` per
   clock; prove routing through output. The one allowed invariant: every catalog clock maps to a
-  *known* tag.
+  *known* tag -- and since `score_type()` stops otherwise, that test also proves the catalog
+  routes.
 - **No maintainer-side plumbing shapes.** Do not assert asset filenames, release tags, download
   URLs, or cache-dir order -- none reach a result. Test behavior (verifies on fetch, leaves no
   scratch, warns-not-stops on hash drift, closed set never downloads).

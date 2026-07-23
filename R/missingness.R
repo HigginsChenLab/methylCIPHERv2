@@ -1,6 +1,7 @@
-# Missingness front end. Partial NA fills from cohort; fully absent from vendor.
+# missingness front end -- partial NA fills from cohort, fully absent from
+# vendor
 
-# One NA scan over needed columns; errors on fully-empty samples.
+# one NA scan over needed columns -- errors on fully-empty samples
 scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   cols <- colnames(DNAm)
   present_needed <- intersect(needed_cpgs, cols)
@@ -42,7 +43,7 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
   out
 }
 
-# Shared partial-NA cohort cache (column means over present scoring CpGs).
+# shared partial-NA cohort cache (column means over present scoring CpGs)
 build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
   if (!length(cache_cpgs)) {
     return(NULL)

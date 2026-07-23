@@ -22,7 +22,7 @@ test_that("DunedinPoAm38 vendor-fills fully-absent CpGs (score_imputed_full)", {
   expect_equal(as.numeric(res$scores[, "DunedinPoAm38"]), golden)
 })
 
-# PACE QN golden while parity is skip-listed.
+# PACE QN golden (parity skip-listed).
 test_that("DunedinPACE quantile-normalizes the gold panel before the linear score", {
   skip_if_not_installed("betanorm")
   gold <- dunedin_gold_means("DunedinPACE")
@@ -41,7 +41,7 @@ test_that("DunedinPACE quantile-normalizes the gold panel before the linear scor
   )
   expect_equal(as.numeric(res$scores[, "DunedinPACE"]), golden)
 
-  # QN must move the score off the plain-linear value it would otherwise take.
+
   linear <- as.numeric(
     clock_intercept("DunedinPACE") + DNAm[, names(coef)] %*% coef
   )
@@ -55,20 +55,33 @@ test_that("whole-clock coverage stops upfront", {
   expect_error(calc_clocks(DNAm, "DunedinPoAm38"))
 })
 
-test_that("per-sample coverage gate NA-s only under-covered samples", {
+# An under-covered sample warns and keeps its score -- Dunedin no longer NA-s
+# rows, so it behaves like every other clock.
+test_that("an under-covered sample warns but still scores", {
   cpgs <- clock_scoring_cpgs("DunedinPoAm38")
   DNAm <- random_betas(cpgs, n = 5L)
   DNAm[1, seq_len(round(0.5 * ncol(DNAm)))] <- NA # sample 1 ~50% present
-  res <- suppressWarnings(calc_clocks(DNAm, "DunedinPoAm38"))
-  got <- res$scores[, "DunedinPoAm38"]
-  expect_true(is.na(got[1]))
-  expect_false(anyNA(got[-1]))
+  expect_warning(res <- calc_clocks(DNAm, "DunedinPoAm38"))
+  expect_false(anyNA(res$scores[, "DunedinPoAm38"]))
+
+  expect_silent(calc_clocks(DNAm, "DunedinPoAm38", min_row_coverage = 0))
 })
 
-test_that("min_coverage = 0 disables the NA-gates", {
+# The floors gate different axes: a missing column stops upfront, a sparse
+# sample only warns.
+test_that("min_col_coverage = 0 leaves the row gate warning", {
   cpgs <- clock_scoring_cpgs("DunedinPoAm38")
   keep <- cpgs[seq_len(round(0.6 * length(cpgs)))]
   DNAm <- random_betas(keep, n = 5L)
-  res <- calc_clocks(DNAm, "DunedinPoAm38", min_coverage = 0)
+  expect_warning(
+    res <- calc_clocks(DNAm, "DunedinPoAm38", min_col_coverage = 0)
+  )
   expect_false(anyNA(res$scores[, "DunedinPoAm38"]))
+
+  expect_silent(calc_clocks(
+    DNAm,
+    "DunedinPoAm38",
+    min_col_coverage = 0,
+    min_row_coverage = 0
+  ))
 })
