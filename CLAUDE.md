@@ -34,8 +34,8 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 
 - **One engine + a finite, closed branch set.** Every work unit routes on the catalog pair
   `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
-  sex-split, family orchestrator, external, custom). There is **no** recipe interpreter/walker,
-  not even as a fallback.
+  family orchestrator, sex-routed alias, external, custom). There is **no** recipe
+  interpreter/walker, not even as a fallback.
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double),
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset). All
   verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
@@ -44,6 +44,26 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   (shared cache); a fully absent probe -> the clock's vendored ref, or drop by policy.
 - **Accessors are the executable schema.** `calc_clocks` consumes accessors (`get_clock`,
   `clock_coefs`, ...), never raw nested catalog lists. No hand-written `schema.md`.
+- **Read the catalog with `[[`, never `$`.** `$` partial-matches on lists, so a missing exact
+  field silently resolves to a longer one (`entry$covariates` -> `covariates_required`) and the
+  caller gets a wrong value, not an error. This is a hard rule in `R/accessors.R` and anywhere
+  else catalog/pack/tensor structures are read. `options(warnPartialMatchDollar)` is **not** the
+  fix -- a package cannot set a session global for its users and it does not fire under
+  `R CMD check`.
+- **Accessors read declarations; they never search.** No `grep`/regex/fuzzy match over tensor
+  names, clock ids, or file paths to find a payload. Resolve the declared pointer (component,
+  `probe_sets[[i]]$file`, `imputation$ref`) and `stop()` when it is absent or ambiguous -- an
+  accessor that cannot find its declaration has done its job by failing. Searching hides an
+  upstream/sync gap and can silently return a sibling clock's tensor.
+- **Coverage is never reported for a sample it is not true of.** A clock assembled from other
+  clocks' scores records coverage **iff every component contributes to every sample**
+  (`GrimAgeV1`, `DNAmFitAge_{Sex}` do). Where components are selected per sample -- sex-routed
+  aliases -- the entry is `NULL` and the per-sample column all-`NA`; coverage lives on the
+  components, which appear as their own columns.
+- **The callable pool is not the catalog.** Clocks that exist only as routing targets (the 14
+  sex-resolved DNAmFitAge members) are internal machinery: scored, returned as columns, but a
+  hard error if requested by name, pointing at their alias. The pool, the refusal and its
+  suggestion all derive from one source (`sex_routed_members()`), so they cannot drift.
 - **No network at install/build/check/CRAN test.** Double-precision coefficients only.
 - **No commit SHA / pin as result provenance.** Correctness is proven by fixtures.
 - **No roxygen yet.** Do not write roxygen blocks or run `devtools::document()`; use short `#`
@@ -64,6 +84,13 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
      build-skip cache).
+     - Two **small closed registries** adapt the upstream contract package-side rather than
+       asking upstream to change it: `CUSTOM_GROUPS` (a loader + component declaration for a
+       `custom` group's frozen payload -- MiAge) and `attach_sex_routed_aliases()` (one alias
+       clock per `_group.meta.json` `routing.sex` stem). Both run inside the build so everything
+       downstream sees ordinary catalog entries. Add to a registry; do not add a code path.
+     - Verify a sync change by **dry-running the build in memory first** (build catalog +
+       bundles, diff every panel against the committed `R/sysdata.rda`) before regenerating.
   3. **External packs** (SystemsAge, PCClocks, PCBrainAge): reuse when `force = FALSE` and
      `data-raw/assets/lockfile.rds` hits (same `source_git_sha`, every staged pack on disk); else
      rebuild the three content-addressed `<group>-<payload_hash>.qs2` packs and rewrite the lockfile.
@@ -83,9 +110,11 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
 Three tiers. Pre-alpha and fast-moving, so tests guard **core functionality and observable
 output**, not implementation detail (see "Test altitude").
 
-- **Crash smoke (always):** `test-sim-smoke.R` scores every bundled, supported clock through
-  `sim_DNAm()` + `calc_clocks()` with `expect_no_error`. Cheapest, most refactor-robust net;
-  catches "a clock stopped running" without pinning a value. External clocks excluded (pack-only).
+- **Crash smoke (always):** `test-sim-smoke.R` scores every bundled, supported clock in the
+  **callable pool** (`resolve_clocks("all")`, not `names(mc_catalog)`) through `sim_DNAm()` +
+  `calc_clocks()` with `expect_no_error`. Cheapest, most refactor-robust net; catches "a clock
+  stopped running" without pinning a value. External clocks excluded (pack-only); routing targets
+  are covered as their alias's dependencies.
 - **Value goldens (always, no meta dep):** hand-authored engine/machinery unit tests with goldens
   written in-test, one per scoring path (linear sum/mean, sex-split, imputation offset, bundled
   composites). External-pack scoring is smoke-only here; parity owns those goldens.

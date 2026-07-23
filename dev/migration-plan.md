@@ -52,11 +52,14 @@ are optimized implementations of that contract.
 ```text
 calc_clocks(DNAm, clocks, pheno = NULL, ...)
   prepare once          # DNAm check, pheno align-by-ID, covariate requirements
-  expand aliases        # e.g. "GrimAge" pack -- not user-facing V1/V2
+  resolve requests      # callable pool only; group ids expand; routing targets refused
+  expand deps           # transitive depends_on_clocks, deps first
   route each unit on (weights_format, computation_type):
     linear engine       # most cpg_coefficient (+ optional pre-transforms)
     family packs        # GrimAge, SystemsAge, Dunedin (shared intermediates; not generic)
+    sex-routed alias    # picks a sex-resolved member per sample
     external / custom   # MiAge
+  mask routing targets  # blank rows a one-sex model does not apply to
   assemble              # mc_result record: scores + coverage + provenance
 summary(result)         # data.frame from coverage (free if scorers recorded it)
 augment(result, data)   # join scores to analysis tables
@@ -66,7 +69,8 @@ augment(result, data)   # join scores to analysis tables
 |---|---|
 | **Linear engine** | Impute policy -> subset probes -> sum(w*x) + intercept -> optional transform |
 | **Transform modules** | e.g. Zhang `sample_scale`: row moments on **full** matrix, apply to coef subset only |
-| **Family orchestrators** | GrimAge / SystemsAge: pack UX, shared work, multi-column return |
+| **Family orchestrators** | GrimAge / SystemsAge / DNAmFitAge composite: pack UX, shared work, multi-column return |
+| **Sex-routed aliases** | The 7 DNAmFitAge stems: no weights of their own; select a member per sample |
 | **One-offs** | `external_package`, `custom` (MiAge) |
 
 Packs may own their orchestration (shared intermediates, column assembly) but call the shared
@@ -106,8 +110,22 @@ records are refused by `cbind` (footgun closed at the bind step, not the front d
 covariates: `Age`, `Female` (0/1).
 
 The sysdata schema is the **accessor layer** (`get_clock`, `clock_scoring_cpgs`, ...) plus a
-structural test -- not a hand-written schema doc. Covariate requirements are one flattened
-catalog field, read once, never re-derived in the scoring path.
+structural test -- not a hand-written schema doc. Accessors read the catalog with `[[` (never
+`$`, which partial-matches) and resolve declared pointers rather than searching for them.
+Covariate requirements are one flattened catalog field, read once, never re-derived in the
+scoring path.
+
+**Callable pool != catalog.** Some clock_ids exist only as routing targets: the 14 sex-resolved
+DNAmFitAge members are scored and returned as columns, but requesting one by name is a hard error
+naming its alias (`DNAmGrip_wAge_Female` -> use `DNAmGrip_wAge`), because a one-sex model returns
+a plausible number for the other sex rather than failing. `"all"` and group ids expand to
+callables only. A planned discovery helper (available options + Levenshtein "did you mean") reads
+the same routing tables, so the pool, the refusal and the suggestion cannot drift apart.
+
+**Coverage never describes a sample it is not true of.** A clock assembled from other clocks'
+scores reports coverage only when every component contributes to every sample; a sex-routed alias
+therefore reports none (its members cover disjoint halves of the cohort) and coverage stays on
+the members -> [`detail-plan.md`](detail-plan.md) sec 4.
 
 ---
 
@@ -120,6 +138,11 @@ catalog field, read once, never re-derived in the scoring path.
 
 No install/check-time network. Sync via `data-raw/sync.R` (a gitignored `lockfile.rds` skips only
 external-pack rebuild; not a product pin).
+
+Where the upstream contract does not match what a caller needs, sync adapts it in a **small closed
+registry** rather than pushing a change upstream or adding a runtime code path: `CUSTOM_GROUPS`
+(MiAge's frozen payload) and `attach_sex_routed_aliases()` (one alias per `routing.sex` stem).
+Both emit ordinary catalog entries, so nothing downstream is special-cased.
 
 ---
 
@@ -142,8 +165,8 @@ CRAN skips it. Details -> [`detail-plan.md`](detail-plan.md) sec 10.
 3. Linear engine + impute policies + fixture batch for `cpg_coefficient`.
 4. Zhang-style pre-transform into linear engine.
 5. GrimAge / SystemsAge orchestrators; then other packs as needed.
-6. External + MiAge; asset resolver.
-7. Full fixture suite; optional legacy wrappers; CRAN cleanup.
+6. External + MiAge; asset resolver. **(done)**
+7. Full fixture suite; optional legacy wrappers; CRAN cleanup. **(current)**
 
 Per-clock status: `dev/clock_tracker.csv`.
 
@@ -154,7 +177,8 @@ Per-clock status: `dev/clock_tracker.csv`.
 No new per-clock exported calculators as the real API; no recipe-walker runtime; no pheno tables
 from scorers; no silent downloads; no float32 coefs; no Bioconductor; no SHA/pin as result
 provenance; no rewriting published clock math; no crossing the impute sources (partial=cohort,
-absent=vendor).
+absent=vendor); no `$` on catalog structures; no searching for a payload an accessor should have
+had declared; no coverage figure that is true of no sample.
 
 ---
 

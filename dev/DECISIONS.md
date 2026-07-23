@@ -12,6 +12,163 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-22 -- sex-routed aliases are minted package-side; coverage never lands on one
+
+**Decision.** The un-suffixed stems (`DNAmFitAge`, `DNAmGrip_wAge`, ... -- 7 of them) come back as
+**alias clocks**, minted by `sync.R` from `_group.meta.json` `routing.sex`. An alias owns no
+weights and no panel; `score_sex_routed()` gives each sample the score of the member matching its
+`Female`. The 14 sex-resolved members leave the **callable pool**: asking for one is a hard error
+that names its alias. They are still scored, still columns in the result, and still where coverage
+lives.
+
+**Why mint them here and not upstream.** Upstream deliberately *deleted* the pooled `clock_id`s;
+asking for them back re-opens a split they made for good reasons (near-disjoint coefficient sets,
+separate intercepts, separate median tables, separate KD constants). Routing is a consumer concern
+and they said so in the routing note. This is the second member of the pattern `CUSTOM_GROUPS`
+established for MiAge: a small closed registry in sync that adapts an upstream contract to what a
+caller needs, with nothing downstream special-cased.
+
+**Why the members are not callable.** Scoring `DNAmGrip_wAge_Female` on a male sample returns a
+plausible number, not an error -- the female model evaluates fine on anyone's betas. A pool that
+allows it is a silent-wrong-answer surface. The refusal, the callable pool and the suggested
+alias all derive from one function over the routing tables (`sex_routed_members()`), so they
+cannot drift apart; the planned "available options" helper and its Levenshtein suggestions should
+read the same source, which also lets a rejected member answer with its alias rather than a
+distance guess.
+
+**Why members are blanked outside their sex rather than scored for everyone.** Scoring both
+members on all rows and selecting at the end is simpler, but it moves the footgun from the request
+to the output: the dependency columns would then hold plausible wrong-sex numbers. `mask_routed_members()`
+runs after all scoring -- so the alias and any downstream composite still read full columns -- and
+then `NA`s the rows a member does not apply to, recomputing its `score_imputed_partial` over what
+is left. The wasted compute is a few hundred CpGs.
+
+**Coverage.** The rule is narrower than "composites do not report coverage", which is where this
+started and which would have wrongly stripped `GrimAgeV1`. A score-assembled clock keeps coverage
+**iff every component contributes to every sample**: true for `GrimAgeV1` and for
+`DNAmFitAge_{Sex}`, false for an alias, whose two members cover disjoint halves of the cohort.
+So the alias reports `per_clock[[id]] = NULL` and an all-`NA` tier-2 column. Separately, the
+composites' panel was wrong for a second reason -- the resolver reached the group's shared bare
+CpG list before recursing into dependencies, handing them the 627-probe family-wide `data_prep2`
+prep panel. Dependencies now outrank the shared list, giving 172 / 190, which match upstream's
+independently derived counts exactly. In-group inputs only: `GrimAgeV1` is excluded because it is
+its own column with its own coverage row, and its 1030 probes would both double-count and swamp
+the family's own figure.
+
+---
+
+## 2026-07-22 -- probe_sets are kept for every weights_format; the Dunedin tensor grep is gone
+
+**Decision.** `prune_clock_meta()` no longer drops declared `probe_sets` for clocks that are not
+`external_package`, and `materialize_probe_set()` carries the `file` pointer through alongside the
+resolved CpGs. `dunedin_gold_means()` then reads the declared
+`quantile_normalization_background` probe_set and errors when it is absent or ambiguous.
+
+**Why.** The accessor had been locating its QN target tensor by `grep`-ing bundle tensor names for
+`(^|/)<id>/gold_standard_means`. That was compensating for a regression, not a missing
+declaration: DunedinPACE declares the pointer properly, but it migrated off `external_package` to
+`cpg_coefficient` upstream (`8fed519`) and the prune rule silently discarded the field on the way
+in. A regex over tensor names is the wrong instrument regardless -- it is anchored on an id
+substring, so it would happily match a sibling clock's tensor and return the wrong QN target
+without failing. An accessor that cannot find its declaration has done its job by stopping.
+`clock_norm_cpgs()` also loses its `dunedin_gold_means()` fallback, which existed only to route
+around the same gap.
+
+**Blast radius, measured before syncing.** The build was dry-run against the staged clone first:
+exactly one `quantile_normalization_background` probe_set appears across all 122 clocks, and no
+other clock's scoring panel changed.
+
+---
+
+## 2026-07-22 -- the sex-split branch is deleted, not ported; accessors read with `[[` only
+
+**Decision.** Upstream split the seven DNAmFitAge members into fourteen sex-resolved `clock_id`s
+(meta `eb996f9`), retiring the `linear_sex` recipe op, the `{female, male}` imputation ref and the
+`sex_stratified` / `sex_params` blocks. Downstream we **delete** the corresponding branch rather
+than port it: `score_fitage_member()` and the five `fitage_*` accessors that fed it are gone, the
+twelve biomarker members route through the shared `linear_score()`, and `score_fitage_composite()`
+loses its sex loop entirely (one KDM table per sex, rows keyed by input `clock_id`). The closed
+branch set in the detail plan loses its "Sex-split" row.
+
+**Why deleting beats porting.** The branch existed only to pick one of two coefficient vectors
+from `pheno$Female`. With sex in the key there is nothing to pick: each member is one tensor, one
+intercept, one string `ref` -- exactly the shape `linear_score()` already handles. Porting would
+have kept a named branch whose whole body was a `switch` on a field the catalog no longer has.
+Net effect is 129 lines of scorer and 85 lines of accessor removed for no behavior change, and
+`Female` now enters the family through exactly one door (GrimAgeV1's `stack` covariate).
+
+**The trap this exposed, and why the fix is repo-wide.** The new member entries carry their `Age`
+coefficient on the recipe step, not at top level. `clock_covariate_coefs()` read
+`entry$covariates`, and `$` on a list **partial-matches** -- it silently resolved to
+`covariates_required`, the unnamed string `"Age"`, which `covariate_coefs_from()` maps to
+`numeric(0)`. Members would have scored without their Age term (-0.222 on `DNAmGrip_wAge_Female`)
+and never errored: a wrong number, not a crash, and no fixture would have caught it on a cohort
+where the term is small. So every catalog read in `R/accessors.R` now uses `[[`, not just the one
+that bit. `options(warnPartialMatchDollar)` was rejected -- it is a session-global the package
+cannot set for its users, it does not fire under `R CMD check`, and it warns rather than fails.
+`[[` makes the class of bug unrepresentable instead of detectable.
+
+**Consequence for parity.** The family goes from wholly skipped to ten of fourteen exact. The four
+Grip clocks stay skip-listed for two distinct, now-separated reasons: `Grip_noAge_Female` (4e-6)
+and `Grip_wAge_Male` (3e-6) are float smear against a 1e-6 tolerance, the same open
+exact-tolerance policy question as DNAmADM / DNAmPACKYRS / GrimAgeV2; `Grip_noAge_Male` (~9) and
+`Grip_wAge_Female` (~0.03) are the only two members with any cohort-absent CpG (6 and 3), where
+the `horvath_online` oracle zero-filled and our contract fills from that sex's medians. Upstream
+measured and recorded the same ~9 independently. Both are oracle-vs-contract gaps, not scorer
+defects, and they are listed separately so the first class can be closed by a tolerance decision
+without touching the second.
+
+---
+
+## 2026-07-22 -- MiAge: a reimplemented optimizer branch, and one closed hook for custom payloads
+
+**Decision.** `MiAge` scores through `score_miage()`, a from-scratch reimplementation of the author
+`mitotic.age()` search: per sample, `n = argmin` over `[10, 10000]` of
+`sum_i (c_i + b_i^(n-1) * d_i - beta_i)^2`, minimized by bounded L-BFGS-B (`factr = 1`) from the
+author's five starts, best fit wins, earliest start breaks ties. It is a named branch, not an
+interpreter, and it leaves `CellDRIFT` as the only remaining `reference_code_required` clock
+without one (it has coefficients but its own non-linear reference code, so it is its own job).
+
+**Why a reimplementation and not the vendored author code.** `weights/MiAge/score_miage.R` is
+sourced-and-`sys.source`-ing frozen author code against an `.Rdata` blob. Shipping that would put
+`load()` + `sys.source()` of third-party code on the scoring path, defeat the double-precision
+tensor contract, and make the branch unprofileable and untestable at the altitude every other
+scorer is tested at. The maths is 8 lines; the wrapper around it was the only hard part.
+
+**Why it is safe to call it exact.** Parity through `calc_clocks()` on the EPIC cohort is
+**bit-identical** to the author fixture (`max_abs_diff = 0`, not merely under tolerance). That is
+not luck: the residual sum is order-sensitive in floating point, so the branch keeps the *panel*
+order (the `Additional_File1` order the author's `match()` produces) through the DNAm subset rather
+than the engine's usual `c(cached, raw)` order. Verified separately that present-only summation and
+the author's NA-padded 268-row summation give identical bits, which is what makes dropping absent
+CpGs (policy `omit`) equivalent to the author's `na.rm = TRUE` rather than merely close.
+
+**Why partial NA still goes to the cohort cache.** The author's `na.rm = TRUE` omits an NA *cell*
+from one sample's objective; the package imputes it from the cohort mean like every other clock.
+These differ in principle, and the EPIC cohort cannot tell them apart (240 present CpGs, zero NA
+cells). Imputation living in one place beats per-branch fidelity to an author's incidental NA
+handling -- the invariant is package-wide, and a divergence here would be invisible to the fixture
+either way.
+
+**Why `sync.R` grew `CUSTOM_GROUPS` instead of asking upstream for a CSV tensor.** The meta repo
+deliberately classifies MiAge as `weights_format = "custom"`: the frozen code *is* the declared
+definition, so nothing in the meta JSON references the parameter blob and the generic `weights/`
+ref crawl bundled only the R source text -- a catalog entry with no panel and no coefficients. The
+alternative was a meta change emitting `site_parameters.csv.gz` plus a `components` entry (the
+EpiTOC2 shape). That is a cleaner contract and remains open, but it re-litigates upstream's format
+call for one clock and blocks the package on a second repo's extraction/ledger cycle. The registry
+is deliberately closed and tiny -- a loader plus a component declaration per custom group, applied
+before the bundle crawl -- so everything downstream (probe sets, accessors, coverage gate, sim,
+parity) sees an ordinary cpg-keyed tensor and knows nothing about MiAge. If upstream later ships
+the tensor, deleting the registry entry is the whole migration.
+
+**Consequence for the coverage gate.** MiAge now has a 268-CpG panel, so it is gated like every
+other clock and no longer relies on the "clock with no panel, fails later on the unimplemented
+scorer" escape hatch named in the graded-coverage-floor entry below. No clock in the catalog is
+exempt for having an empty panel today.
+
+---
+
 ## 2026-07-22 -- package renamed to methylCIPHERv2; v1 repo severed without a redirect
 
 **Decision.** The package is `methylCIPHERv2`, published at `hhp94/methylCIPHERv2`. The old

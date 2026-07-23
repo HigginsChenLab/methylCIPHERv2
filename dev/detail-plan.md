@@ -169,8 +169,8 @@ scoring, both run exactly once — never inside the per-clock loop:
     `Horvath1` on a foreign panel used to return `anti_trafo(0)`, a plausible ~40 years, for every
     sample. Full coverage never warns, whatever the threshold. The warn band is *relative* so it
     tracks a caller who moves the floor, rather than pinning an absolute second number. Clocks with
-    no panel at all (`MiAge`) are not gated here; they fail later on the unimplemented-scorer
-    branch, which is the clearer error.
+    no panel at all are not gated here; they fail later on the unimplemented-scorer branch, which
+    is the clearer error.
     **Sample-invariant** — it reads set sizes, so it fires on panel/array mismatch (wrong array, a
     group's weights off-manifest, a simulated panel built from too narrow a clock set), never on
     per-sample NA, which is tier 2's job (§4.2). Running it over the **plan** is what makes a
@@ -196,10 +196,10 @@ are pragmatic, hand-optimized implementations of that contract.
 |---|---|---|
 | Linear engine | Shared `linear_score()` | Most `cpg_coefficient` clocks |
 | Pre-transforms | Small modules feeding linear | Zhang `sample_scale` (stats on full panel -> apply to coef subset) |
-| Sex-split | Linear engine, female/male coef selected on `Female` | DNAmFitAge surrogates |
-| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`); **EpiTOC2** (`score_epitoc2`) |
+| Family orchestrators | Dedicated internal functions | **GrimAge pack** (bundled, per-clock); **Dunedin** (`score_dunedin`); **EpiTOC2** (`score_epitoc2`); **DNAmFitAge** composite (`score_fitage_composite`) |
+| Sex-routed aliases | `score_sex_routed()` -- selects a member per sample | The 7 DNAmFitAge stems |
 | Batched pack scorers | One shared subset + one matmul per group | **PCClocks**, **SystemsAge** packs |
-| Custom | Dedicated helper | MiAge |
+| Custom | Dedicated helper | **MiAge** (`score_miage`) |
 
 Bundled packs may own their orchestration (shared intermediates, multi-column assembly) but call
 the shared `linear_score()` / impute helper for every linear sub-step, so imputation lives in
@@ -430,6 +430,15 @@ The `score_present / score_needed` ratio is also read at **prepare** time by the
 `summary()`. Same numbers, two moments: the floor is the gate, `summary()` the full account of
 what got through it.
 
+**Who records coverage.** A clock assembled from other clocks' scores records coverage **iff every
+component contributes to every sample**. `GrimAgeV1` (8 surrogates) and `DNAmFitAge_{Sex}` (3
+same-sex members + GrimAgeV1) qualify -- every sample they score consumes all of them, so the union
+panel describes each sample truthfully. A **sex-routed alias** does not: its two members apply to
+disjoint halves of the cohort, so no aggregate over their union is true of any sample. Its
+`per_clock` entry is `NULL` and its tier-2 column all-`NA`; coverage lives on the members, which
+appear as their own columns. This is a scoring-contract rule (`score_sex_routed()` emits no
+coverage), not a catalog fact -- the alias also has no panel, so the sec 2.1 floor skips it too.
+
 ### 4.2 Tier 2 — per-clock × per-sample missingness (QC matrix)
 
 Tier 1 collapses the sample axis; tier 2 keeps it. Absence is sample-invariant, but **partial NA is
@@ -464,16 +473,18 @@ threshold reads this matrix — default stays record-and-report.
 - Align by sample id only, never row order; full identity/alignment contract in §5.1.
 - Covariate requirements are **one flattened catalog field** (`covariates_required`, computed by
   sync's `extract_covariates`). It unions every source that can imply a covariate: top-level
-  `covariates`, any recipe step key ending in `covariates` (incl. `female_covariates` /
-  `male_covariates`), a `linear_sex` recipe op, `sex_params.{female,male}.covariates`, a
-  `sex_stratified: true` flag, and sex-keyed imputation refs (`imputation.ref.{female,male}`) --
-  the last three all contribute `Female`. R reads the flattened field once at runtime; it does
-  **not** re-derive from the meta keys in the scoring path. (The source set is empirical -- it
-  grew as clocks were implemented -- so it is the accessor/fixture surface, not a fixed grammar;
-  a wrong extraction surfaces as a covariate error or score mismatch in that clock's golden
-  fixture.)
-- Sex-keyed impute clocks need `Female` before impute (FitAge / VO2max / grip / gait / FEV1
-  family members -- see catalog).
+  `covariates` and any recipe step key ending in `covariates`. R reads the flattened field once at
+  runtime; it does **not** re-derive from the meta keys in the scoring path. (The source set is
+  empirical -- it grew as clocks were implemented -- so it is the accessor/fixture surface, not a
+  fixed grammar; a wrong extraction surfaces as a covariate error or score mismatch in that
+  clock's golden fixture.)
+- Covariate *weights* have two homes and `clock_covariate_coefs()` reads both: top-level
+  `covariates` on single-tensor clocks, and the recipe step producing `score` on recipe-borne ones
+  (the DNAmFitAge members). Missing the second reads as "no covariates" and silently drops the
+  term, so it is asserted directly in `test-score-fitage.R`, not just through a score golden.
+- No clock branches on `Female` to pick its own weights any more. Sex is resolved in the
+  `clock_id` (`{stem}_Female` / `{stem}_Male`); `Female` reaches the FitAge family only as
+  GrimAgeV1's `stack` covariate.
 - `calc_clocks` fails clearly when required covariates are missing.
 
 ### 5.1 Sample identity and pheno alignment
@@ -647,6 +658,35 @@ results, and not a catalog-change detector. No SHA is treated as scientific iden
 Rules: no tensor rehash in R; sync does not score clocks; bundle inputs only whole `weights/`
 paths (never `papers/` or `scripts/`); missing referenced weights path = error.
 
+**Sex-routed aliases.** A group whose `_group.meta.json` carries `routing.sex` gets one alias clock
+per stem, minted by `attach_sex_routed_aliases()` after probe-set resolution (so an alias never
+acquires a panel). The alias is `(weights_format = "routed", computation_type = "sex_routed")`,
+owns no weights, declares `covariates_required = "Female"`, and depends on its two members. The
+members stay in the catalog but leave the **callable pool**: `resolve_clocks()` derives the
+not-callable set from the same routing tables (`sex_routed_members()`), so the pool, the refusal
+and its suggested alias can never disagree. Requesting one is a hard error naming the alias.
+
+**Scoring-panel tiers.** `resolve_group_scoring_probe_sets()` fills a missing `role = scoring`
+panel in order: the clock's own tensors -> the union of the **in-group** clocks it consumes
+(`depends_on_clocks`, to fixpoint) -> the group's shared bare CpG list. Dependencies outrank the
+shared list; taking the shared list first handed the DNAmFitAge composites the family-wide
+627-probe `data_prep2` prep panel instead of the 172/190 they consume. Out-of-group inputs are
+excluded on purpose: `DNAmFitAge_{Sex}` reads `GrimAgeV1`, but GrimAgeV1 is its own column with its
+own coverage row, and folding its 1030 probes in would double-count and swamp the family's own
+figure. `covers` is a family-wide label, not a consumption list, so it is only the fallback for
+clocks declaring no `depends_on_clocks`.
+
+**Custom-group payloads.** A `weights_format = "custom"` group declares frozen author code as its
+definition, so its parameter blob is *not* a meta-referenced tensor path and the generic crawl
+cannot see it. `CUSTOM_GROUPS` in `sync.R` is the closed registry that closes that gap: one entry
+per custom group, naming (a) a loader that reads the vendored artifacts under `weights/{group}/`
+and materializes them as an ordinary bundle tensor, and (b) the cpg-keyed `components` declaration
+grafted onto the clock entry. Downstream nothing is special-cased -- probe-set resolution finds the
+panel through the usual component tier, and the accessor reads the tensor through
+`bundle_tensor()`. Today the registry has exactly one member: `MiAge` (site-specific `b`, `c`, `d`
+from `site_specific_parameters.Rdata`, keyed by the 268-CpG `Additional_File1.csv.gz` panel, in
+panel order).
+
 ### 9.3 Distribution tiers
 
 | Tier | Contents | Delivery |
@@ -758,8 +798,9 @@ fixture lookups only, not a runtime tensor store.
 4. `sample_scale` / Zhang transform -> linear; localized full-panel warn.
 5. GrimAge orchestrator (alias + components + V1/V2 columns).
 6. SystemsAge (and PC\* as needed) + asset resolver.
-7. Remaining component_matrices as more branches/packs; external + MiAge.
-8. Full fixture suite; optional legacy wrappers; docs / CRAN cleanup.
+7. Remaining component_matrices as more branches/packs; external + MiAge; DNAmFitAge sex-resolved
+   members + routed aliases (done).
+8. Full fixture suite; optional legacy wrappers; docs / CRAN cleanup. **(current)**
 
 Track clocks in `dev/clock_tracker.csv` (`uv run python dev/build_clock_tracker.py`).
 
@@ -781,11 +822,22 @@ Track clocks in `dev/clock_tracker.csv` (`uv run python dev/build_clock_tracker.
 - SHA / pin as result provenance; R-side tensor rehashing.
 - A `matrix`-subclass result; a hand-written `schema.md`.
 - Micro-optimizing matrix copies before evidence.
+- `$` on catalog / pack / tensor structures (partial matching returns a wrong value silently).
+- Locating a payload by `grep`/regex instead of resolving its declared pointer.
+- A coverage figure aggregated over components that no single sample consumes.
+- Exposing every catalog `clock_id` as callable when some are routing targets.
 
 ---
 
 ## 13. Follow-ups
 
+- A discovery helper listing the callable pool, with Levenshtein "did you mean" on a typo. Must
+  read `sex_routed_members()` so a rejected routing target answers with its alias rather than a
+  distance guess (sec 8).
+- Whether `mc_groups[[g]]$members` should mean "callable" (aliases) or "real clocks" (today's 14).
+  `test-fixtures-parity.R` reads it expecting scoreable ids.
+- The exact-tolerance parity policy: five clocks now sit in the 3e-6 .. 4e-5 band against a 1e-6
+  `PARITY_EXACT_TOL` and are skip-listed as one class (sec 10.1).
 - Whether SystemsAge members can be derived from shared components only.
 - Whether fixture cohort should be published for cross-language consumers.
 - Permanent vs one-release legacy `calc*` wrappers.
