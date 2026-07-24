@@ -12,6 +12,442 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-24 -- always-on tier trimmed to one golden per scoring path; sim-smoke kept for its configuration, not its clock list
+
+**Decision.** Cut ~114 lines of duplicated always-on tests, and restate why `test-sim-smoke.R`
+survives a coverage argument that looks like it should delete it.
+
+**1. One golden per scoring path, not per clock.** 122 of 129 catalog clocks now have parity
+fixtures on both cohorts, and the tier passes clean. A **fully staged** run -- both cohorts plus
+all three external packs in the runtime cache -- is **492 passed / 0 failed / 0 errors / 0 warnings
+/ 2 skipped**, the 2 being the declared Zhang2019 gaps. With the packs absent it is 380 passed /
+58 skipped, the extra 56 skips being the external pairs; that partial shape looks healthy and is
+easy to mistake for a complete run. The always-on tier had drifted into
+re-deriving the same path on several clocks: the vendor-mean fill offset five times, drop policy
+twice, linear-mean reduction twice, and the generic `used = present + imputed_full` identity three
+times. Each duplicate is a separate breakage on any engine change, for no extra coverage. Kept one
+golden per path; the identity now lives only in `test-coverage-report.R`. Also folded
+`test-accessors-external.R` into `test-score-external.R` (both defined a `fake_pcclocks_pack`),
+dropped three coverage-gate tests that `test-score-dunedin.R` restated with Dunedin, and unpinned
+the per-clock fuzzy-suggestion ranking, which breaks on any change of string metric with no
+behavior change.
+
+Two in-source comments were justifying dead work and were fixed: `test-score-dunedin.R` claimed
+DunedinPACE was "parity skip-listed" (it has two passing fixtures and is not in
+`KNOWN_PARITY_GAPS`), and `test-score-miage.R` said "parity owns the numeric golden" directly above
+three re-derivations of it.
+
+**What was NOT cut, and why.** The FitAge "vendor-fill from that sex's medians" golden was removed
+and then restored: the coverage counts alone prove five CpGs were filled but not *whose* reference
+filled them, and selecting the sibling sex's medians is exactly the bug that test exists to catch.
+External pack builders stay whole. Parity covers external clocks only when a maintainer has
+downloaded the packs into `R_user_dir()` -- machine state, not repo state -- so a fresh clone, CI
+without a download step, and CRAN all skip those 56 pairs. Independently of caching, parity never
+exercises what those tests assert: the in-memory `assets =` path (it loads from the disk cache),
+the closed-set refusal on an absent or wrong pack, PCClocks batching all members in one call, a
+subset request returning no extra columns, or SystemsAge whole-group orchestration -- parity
+requests one clock at a time. Bundled goldens stay because CRAN
+and a default `devtools::test()` never run parity; deleting them on the grounds that "parity owns
+the numbers" would ship a package whose own test suite has no numeric gate.
+
+**2. `test-sim-smoke.R` is kept for its configuration, not its clock coverage.** On clock identity
+parity dominates it: parity invokes 86 of the 87 clocks smoke does (all but Zhang2019) and adds 29
+more when packs are cached, and a `calc_clocks()` blowup surfaces there as an error just as
+loudly. So "catches a clock that stopped running" -- the justification the file and `CLAUDE.md`
+both carried -- is not a reason to keep it, and someone reading the overlap will try to delete it.
+The real reasons: parity is skipped on CRAN and without a staged 670MB cohort, so it contributes
+zero to a default run; it scores with `min_clocks_coverage = 0, min_samples_coverage = 0`, so it
+structurally cannot exercise the default gate path; and it never calls `sim_DNAm()`. Smoke is 29
+lines and 1.0s against a cloned meta repo and ~20 minutes.
+
+Net: always-on tier 1564 -> 1450 lines, 441 -> 414 assertions, parity unchanged. Wall clock was
+not the motivation and is not claimed as a result -- the tier was already ~10s, and run-to-run
+noise on this machine (7-13s for the same suite) swamps the difference. The win is duplication
+surface: one engine change no longer breaks five tests.
+
+---
+
+## 2026-07-24 -- coverage records are written once; accessors read declarations through four helpers
+
+**Decision.** Two cleanups with no behavior change, both verified against the sex-routed path.
+
+**1. `compute_coverage()` builds records last.** It used to build every non-alias record in pass 1
+from the *unmasked* member counts, then reach back in pass 3 and overwrite
+`per_clock[[id]][["score_imputed_partial"]]` with the masked sum. Correct, but a write-then-patch:
+the record was briefly wrong, one field was special-cased outside `coverage_record()`, and any
+future field derived from `score_miss` would have silently missed the patch. The order is now
+**raw counts -> stitch aliases -> mask members -> build records**, so `coverage_record()` is the
+only writer of record fields and each is written once. The two-phase shape is forced and stays
+documented at the top of the file: aliases must stitch from counts *before* masking (a row's count
+is its member's raw count), records need them *after*.
+
+`coverage_for()` is gone -- it and `coverage_record()` were two functions with one caller between
+them, in two files, both computing `clock_impute(...)[["policy"]]`. The policy arithmetic moved
+into `coverage_record()`, which `CLAUDE.md` already names as the owner of record fields.
+`coverage_record()`'s dead `policy =` default went with it, and its partial sums are now
+`na.rm = TRUE` unconditionally, since NA in a miss vector means "this sample was not scored by
+this clock".
+
+**2. `construct_mc_result()` reads `normalizes` instead of re-deriving it.** It picked the norm
+columns by testing `!is.null(sample_miss$norm[[id]])`. Same answer -- both trace to
+`length(nm$needed) > 0L` -- but it was the only reader inferring the declared panel fact rather
+than reading it, which is the pattern the "one declared panel fact" rule exists to stop. Now
+`isTRUE(per_clock[[id]][["normalizes"]])`, which also drops aliases for free (NULL record).
+
+**3. `accessors.R`: four repeated shapes hoisted, and base `stop()` retired.** `required_field()`
+/ `optional_field()` / `require_fields()` / `component_tensor()` + `component_named()` absorb the
+declared-field, missing-column and single-component patterns that were restated per clock family
+(4 sites for the component-tensor pair alone). All ~15 base `stop(..., call. = FALSE)` calls became
+`cli_abort(..., call = NULL)` per the CLI-messages invariant; the shared
+`CATALOG_BUG` bullet states the "this is a sync bug" suffix once. Every error path was fired by
+hand to confirm no cli pluralization or glue fault hides behind the intended diagnostic.
+
+**Also removed as dead:** `clock_cross_sample_at()` (its only caller, `clock_batch_dependent()`,
+went in the entry below; `list_clocks()` reads `batch_dependent` off the index, and the
+`cross_sample_at` catalog field stays for when row-chunk streaming lands), and
+`linear_predictor()`'s returned `used_cols` / `cached` plus two unused `n <- nrow(DNAm)` locals --
+no caller read either field, and `observed_panel()$cached` existed only to feed one of them.
+
+---
+
+## 2026-07-24 -- housekeeping: three tracked dev docs again; DESCRIPTION trimmed to what R/ uses
+
+**Decision.** Two reversals from earlier the same day, plus dead-code removal.
+
+- **`dev/sync-boundary-migration.md` is no longer a tracked doc.** The entry below ("plan/code
+  reconciliation") added it as a fourth tracked `dev/` doc and said it was allow-listed in
+  `.gitignore`. The allow-list line was never written, so the file has been untracked the whole
+  time -- and rather than fix the `.gitignore`, we drop the doc from the tracked set. Reason:
+  `data-raw/sync.R` is self-documenting, so a second prose restatement of the upstream contract is
+  a copy that can only rot against it. Back to three tracked docs (migration-plan, detail-plan,
+  DECISIONS); `.gitignore`'s "three canonical planning docs" comment is now accurate as written.
+  The file stays on disk, local-only, as history.
+- **DESCRIPTION now lists only what ships.** Dropped `digest` and `rlang` from `Imports` (used
+  only in `data-raw/sync.R`, which is `.Rbuildignore`d) and moved `withr` to `Suggests` (used only
+  by `R/dev-utils.R`, itself `.Rbuildignore`d, and by tests). `devtools` stays undeclared for the
+  same reason. `LazyData: true` with no `data/` dir is a known R CMD check warning, left for the
+  maintainer.
+- **Deleted `clock_batch_dependent()`** from `R/accessors.R` -- a one-line negation of
+  `clock_cross_sample_at()` that nothing called; `list_clocks()` reads the index field directly.
+
+**Also fixed in `CLAUDE.md`** (stale, no decision behind them): `curl` listed as a soft dep though
+it appears nowhere in `R/` or `DESCRIPTION`, and `res$provenance$batch_set_id` used as the example
+of assertable output though that field was removed earlier today.
+
+**Not changed, deliberately.** The four stray `#' @export` tags in `R/` and the hand-edited
+`NAMESPACE` are agent leftovers that `document()` will resolve when roxygen is switched on;
+`Config/roxygen2/version` stays as the placeholder for that. The no-roxygen invariant holds --
+what it does not license is hand-editing `NAMESPACE`.
+
+---
+
+## 2026-07-24 -- sync.R fails explicitly: closed op set, declared path kinds, stated pack order
+
+**Decision.** Follow-up hardening pass over `data-raw/sync.R` after the boundary migration. The
+migration removed the places that *re-derived* a declared fact; this pass removes the places that
+**absorbed** an undeclared one. Rule applied throughout: upstream is vendored, so anything the
+snapshot does not declare must stop the sync naming the clock and the field, never fall back,
+default, or skip.
+
+**What changed, and why each was a silent hole.**
+
+- **`declared_path()` / `vendored_path()` replace `startsWith(path, "weights/")` + silent skip.**
+  That one filter was doing real policy work invisibly: 9 of the 11 declared `code_ref`s point into
+  `papers/`, which R may never read, and every other declared pointer (60 components, 6 shared, 1
+  probe_set, 10 imputation refs, 1 code_dep) is already under `weights/`. So the filter's entire job
+  was the `papers/` carve-out -- but expressed as an unconditional `return()`, which means a
+  `weights/` pointer that is typo'd, moved, or prefixed would vanish with no message. Now `papers/`
+  is skipped **by name**, `weights/` is vendored, and a third prefix, an absolute path, an escaping
+  path or an empty string is a stop. Also the single place that normalizes separators, replacing
+  five scattered `gsub("\\\\", "/")` copies.
+- **A declared path carries its KIND from the field that declared it**, ending the
+  `grepl("\\.[Rr]$", rel)` sniff in `build_group_bundles()`. The sniff failed in the dangerous
+  direction: a component whose file ended `.R` would become an `r_source` blob, yield no row keys,
+  and silently reroute the clock to the score-assembled branch.
+- **`KNOWN_OPS` closes the recipe-op vocabulary.** Classifying by membership in `CROSS_SAMPLE_OPS`
+  only works if the vocabulary is closed -- otherwise a new upstream op defaults to chunk-safe and
+  mis-chunks a clock in silence. This is `score_type()`'s "routing is total, a gap is a hard stop"
+  applied on the sync side, and it paid for itself immediately: it caught `epitoc2`, a 13th op that
+  a hand audit had missed (the enumerating regex did not allow digits). Classified per-sample.
+- **`tensor_row_keys()` stops instead of returning `character()`.** `own_scoring_cpgs()` reads empty
+  as "this clock declares no cpg-keyed tensor, walk its recipe inputs", so an absent tensor or an
+  unrecognised shape was changing a clock's *routing*, not just its data. It also found the key
+  column by searching for one named `"cpg"`; `read_tensor_csv()` has already asserted the declared
+  `row_key` against the header, so column 1 is the key column by contract.
+- **Explicit stops replace fallbacks** on: duplicate `clock_id` / `group_id` across metas (last one
+  silently won), a clock or group meta with no id, a manifest row with no `bundle_hash` (the pack
+  staleness key -- `lockfile_hit()`'s `anyNA` was absorbing it as "rebuild forever"), a zero-row
+  tensor, an unnamed numeric reaching `align_double()` (dead branch that would mis-align a whole
+  coefficient column if reached), a missing `release_tag`, `coef_path()` inventing a path from
+  `clock_id` when `group_id` was empty, and `resolve_source()` guessing `origin/master` when
+  `origin/HEAD` would not resolve -- a guessed branch name for the source of truth.
+- **`attach_sex_routed_aliases()` checks the manifest join.** Upstream validates `routing.sex`
+  against the *group*; whether both members survived the manifest cut is ours. Neither vendored is
+  a staged-not-done family -- skipped with a message. Exactly one is a half-vendored family that
+  cannot be scored -- a stop. Previously a NULL donor produced an alias with NULL fields and
+  `clock_inputs` pointing at clocks that do not exist.
+- **`covariate_names()` rejects a partially named object.** The old `flatten_names()` kept
+  `nms[nzchar(nms)]`, so a half-named covariate object silently dropped its unnamed half.
+
+**`pack_canonical_cpgs()`: the order is declared, so do not sort it.** The retired rule took the
+canonical probe order from "the longest named numeric tensor", then swapped in any probe list that
+`setequal`ed it. Column *values* could not be wrong (`align_double()` `setequal`-checks every
+column), but the order feeds `payload_hash`, so the content address was set by a heuristic over
+loaded payloads -- and it was fragile in a specific way: a new member with a longer panel would flip
+the winner and silently repack the group while no weight had changed.
+
+The first attempt here replaced it with a radix sort, on the assumption that no declared order
+exists (SystemsAge ships `_shared/CpGs.csv.gz`, PCClocks does not, PCBrainAge has no group sidecar
+at all) and that **which** order is therefore a packaging choice. **That assumption was wrong, and
+checking it is what settled the design.** Upstream writes every cpg-keyed tensor in a group in ONE
+shared row order -- verified across all 15 PCClocks tensors, both PCBrainAge tensors, and all 24
+SystemsAge tensors, with SystemsAge's `_shared/CpGs.csv.gz` in that same order too. Sorting would
+have discarded a declared fact and computed a replacement: precisely the class of hack this pass
+existed to remove. (PCClocks' declared order happens to already be sorted; the other two are not.)
+
+So the rule is: **the pack order is the order every declared cpg-keyed tensor agrees on, and a
+tensor that disagrees -- in set OR in order -- stops.** That is strictly stronger than the
+set-equality check the sort would have needed, has no reference tensor to pick and therefore none to
+flip, and reads upstream instead of computing. It also reproduces the existing packs bit-for-bit:
+`payload_hash` is unchanged for all three (`a70fc3ed` / `5c04ff6f` / `2c180afc`), so
+`EXTERNAL_ENCODING_VERSION` stays at **3** and nothing needs re-uploading.
+
+Retained from that first attempt: radix sort wherever an order feeds `payload_hash` but is genuinely
+ours -- `member_coef_files()`'s column order and `stable_external_payload()`'s tensor/clock sorts.
+Those were pre-existing locale-collation hazards that would make a content address
+machine-dependent. They are value-identical on ASCII ids here, which the unchanged hashes confirm.
+
+**Verification.** Dry-run build in memory against the on-disk snapshot, diffed against the committed
+`R/sysdata.rda`: 122 clocks, 129 after aliases, **zero** panel diffs, zero catalog field diffs,
+`mc_index` identical, zero bundled-tensor diffs, and all three `payload_hash`es identical to the
+committed release tags. Every pack column additionally re-verified against the source tensor read
+straight off the snapshot and looked up by cpg. Always-on tiers 441 passed, 0 failed, 0 errors, 0
+warnings.
+
+**The publish path got the same treatment.** It only runs under `sync(upload = TRUE)`, but it is the
+one outward-facing, hard-to-undo action in the package, so a silent fallback there is the worst kind:
+
+- **`package_release_repo()` stops instead of falling through to `origin`.** A set-but-unparseable
+  `MC_RELEASE_REPO` used to be discarded silently and the release published to the package's own
+  repo. Measured before the fix: `https://github.com/OWNER/other-repo/` (trailing slash) and
+  `other-repo` (no owner) both resolved to `hhp94/methylCIPHERv2`, and `a/b/c` produced an
+  incoherent `owner=a, repo=c, slug=a/b/c`. `parse_github_owner_repo()` now strips scheme /
+  scp-user / `github.com` host / `.git` / trailing slash and then requires exactly two plain
+  segments; everything else is `NULL`, and both callers treat `NULL` as a stop. **The owner is
+  never inferred** -- a bare repo name is an error, not "same owner, different repo", because the
+  release repo is expected to move.
+- **`upload_pat()` reads `MC_UPLOAD_PAT` and nothing else.** The `GITHUB_TOKEN` / `GH_TOKEN`
+  fallback meant that whatever broad token happened to be in the environment could publish a
+  release. `sync.R` still injects the PAT into the child process under those names -- that is
+  gh_upload.py's auth contract -- but the *source* is now single.
+- **A violated stdout contract stops.** `gh_upload.py` documents stdout as exactly
+  `{"results": [...]}`; R parsed it with `tryCatch(..., error = function(e) NULL)` and then looped
+  over `res$results %||% list()`, so garbage on stdout printed nothing and reported success. Now an
+  unparseable result, or one that does not account for every asset sent, is an error naming what
+  could not be confirmed. Re-running is safe -- publishing is idempotent by `release_tag` + name.
+  (`$` -> `[[` here too; `res$results` was the documented partial-match hazard.)
+- **`gh_upload.py` routes repo resolution through `die_github()`.** `Github()` / `get_repo()` sat
+  outside the `try`, so the two most likely failures -- bad token, inaccessible repo -- escaped as
+  raw tracebacks while the careful handler (status + response body + hint) went unused. Added a 404
+  hint, since GitHub returns 404 rather than 403 for repos a token cannot see. Malformed manifests
+  now return the documented exit-2 contract instead of a `KeyError`.
+
+Verified offline with a stubbed `github` module: 401/404/manifest failures all produce clean
+diagnostics and no traceback, the happy path and the idempotent skip both emit the documented stdout
+object, and an exit-0-with-garbage-stdout run stops on the R side. Left alone deliberately:
+gh_upload.py never re-hashes the file it uploads and decides "already present" by asset **name**.
+That is the stated split -- R owns content identity, the script only publishes -- and it holds as
+long as nothing hand-edits `data-raw/assets/`.
+
+**Not done here.** `R/sysdata.rda` is not regenerated -- nothing it holds would change (the dry run
+proves it), and regenerating is a maintainer step that also stamps `source_git_sha`. Also left
+alone: the vendored `r_source` blobs (`weights/MiAge/*.R`,
+`weights/prcPhenoAge/score_prcphenoage.R`) ship in `mc_bundles` but nothing in `R/` reads
+`r_source` -- MiAge is scored by our own `R/score_MiAge.R`. Dead payload, not a correctness bug.
+
+---
+
+## 2026-07-24 -- plan/code reconciliation after the boundary migration
+
+**Decision.** Audited `CLAUDE.md`, `dev/migration-plan.md` and `dev/detail-plan.md` against the code
+after the boundary migration and fixed every disagreement (code is truth). Also added a fourth
+tracked `dev/` doc, `dev/sync-boundary-migration.md`, and allow-listed it in `.gitignore`: it is the
+only copy of the upstream contract a collaborator can read, since `data-raw/methylCIPHER-meta/` is
+gitignored.
+
+**What was stale.** `CLAUDE.md`: the `CUSTOM_GROUPS` registry (deleted) and the `source_git_sha`
+lockfile key (now `bundle_hash`). `migration-plan.md`: `depends_on_clocks`, `external_package` as a
+live one-off, `CUSTOM_GROUPS`, and the single-cohort parity row. `detail-plan.md`: the same
+`depends_on_clocks` / `CUSTOM_GROUPS` / `source_git_sha` items, plus the three-tier panel-resolution
+description, the alias's invented `(weights_format = "routed", computation_type = "sex_routed")`
+pair, the `sample_scale` batch-op marker (doubly wrong -- `batch_ops` is gone *and* `sample_scale`
+was never cross-sample), the `cohort_EPIC` fixture paths, and a follow-up describing a scale-aware
+tolerance whose motivating skip class no longer exists.
+
+**Why record it.** Most of these were not drift from neglect -- they were correct until this
+session's migration retired the thing they described, and one (`CLAUDE.md`'s sync workflow) was
+made stale by the migration itself while its Testing section was updated in the same sitting. The
+pattern worth remembering: a `sync.R` change can invalidate prose in three files that never mention
+`sync.R`, because the catalog fields it emits are the plans' vocabulary. Grep the retired
+identifiers across all tracked docs, not just the one being edited.
+
+**Deliberately not changed.** `CLAUDE.md` still lists `augment` among the mc_result verbs. Only
+`rbind.mc_result` exists today; the rest is stated intent for in-flight work
+(`tests/testthat/test-mc-result.R`), not a claim about the current build. `dev/id-streaming-plan.md`
+(local-only) now notes the gap explicitly.
+
+## 2026-07-24 -- sync.R migrated to the SoT boundary contract (upstream declares, we classify)
+
+**Decision.** Reworked `data-raw/sync.R` to read declared upstream facts instead of re-deriving
+them, following `control/DOWNSTREAM_SYNC_MIGRATION.md` (the upstream hand-off, tasks D1-D12).
+Retired downstream: the whole-JSON regex path discovery (`WEIGHTS_REF_RE`,
+`collect_weights_refs`), column-count shape sniffing in `read_tensor_csv()`, the covariate
+archaeology (`linear_sex` / `sex_params` / `sex_stratified` / sex-keyed `imputation.ref`), the
+three-tier `covers`-fallback fixpoint in `resolve_group_scoring_probe_sets()`, the MiAge special
+case (`CUSTOM_GROUPS`, `miage_site_parameters`, `attach_custom_components`, positional
+`(b, c, d)` alignment), `EXTERNAL_FIELDS` / the `external` pin object, and the hardcoded external
+encoders (`SYSTEMSAGE_ORGANS`, the PCClocks name-grep, PCBrainAge's two literal paths).
+
+Replacing them: `declared_tensors()` reads the four named pointer fields plus `code_ref` /
+`code_deps` and applies the derived `coef_path()` rule; tensor shape is asserted against the
+declaring `row_key` / `col_key` (`col_key` is optional -- a rotation matrix's PC columns are
+generated, so only `row_key` is checkable there); the scoring panel is a DAG walk over recipe
+`inputs`; and external packs are encoded from declared components plus the group's member
+`coef_path`s, sorted by `clock_id`.
+
+**Why this is safe rather than a rewrite-and-hope.** Two independent gates, both green:
+`assert_declared_n_cpgs()` proves every one of the 122 clocks' derived panel equals its declared
+`n_cpgs` with no exemption list (the retired fixpoint gave `DNAmFitAge_Female` the family-wide
+627-probe prep panel against a declared 172), and the rebuilt external packs are **bit-identical**
+to the old hardcoded encoding -- same matrices, same column order, same `payload_hash` -- so
+`EXTERNAL_ENCODING_VERSION` did not need to move.
+
+**Two corrections the D-list did not cover.** Upstream also split `stack` operands into three
+disjoint namespaces (`inputs` = other clocks, `internal` = a prior step's `out`, `covariates`).
+`physage_surrogates()` and `systemsage_stack_order()` both read `[["inputs"]]`, which is now
+`NULL` for PhysAge and SystemsAge -- silently breaking both composites. They now share
+`stack_operands()`, which concatenates the three declared lists in the documented key order.
+
+**Enum hygiene.** Sex-routed aliases no longer claim invented `weights_format = "routed"` /
+`computation_type = "sex_routed"`; they carry `kind = "sex_routed_alias"` and leave both upstream
+enums `NA`, so `mc_index` only ever holds values from `meta_schema.py`. `score_type()` and the
+coverage split check `kind` before reading either enum. The dependency edge moved from the retired
+`depends_on_clocks` meta field to a derived `clock_inputs` (recipe `inputs`, or an alias's two
+members); `clock_depends_on()` reads that.
+
+**Sample-axis.** `cohort_zscore` is the only genuinely cross-sample op. `sample_scale` is a
+*within-sample* z-score (Zhang2019) and was wrongly flagged batch-dependent; fixed-target
+normalizations (DunedinPACE -> `gold_standard_means`, Horvath-pipeline BMIQ, `noob`) are
+per_sample too. The stored fact is now `cross_sample_at` (the first cross-sample step's position,
+so row-chunk streaming knows where it may stop), and `batch_dependent` is derived from it in
+`build_index()` rather than stored beside it.
+
+## 2026-07-24 -- parity runs on every cohort, and its tolerance is ours, keyed on a declared field
+
+**Decision.** `test-fixtures-parity.R` now runs each (clock, cohort) pair upstream declares a
+`fixtures[]` block for -- `cohort_EPICv1` and `cohort_450K`, one duckdb connection each. Grading:
+a fixture whose `server_normalization` is non-empty is held to **correlation** (> 0.99); every
+other fixture is held to **exact** (max_abs_diff < 1e-6).
+
+**Why keyed on `server_normalization` rather than a clock list.** Upstream retired its `parity`
+policy enum -- tolerance is downstream's (sec 12) -- so we needed our own rule, and a hand-kept
+list of "clocks that cannot be exact" would rot the moment a clock's oracle changed. The declared
+field already draws exactly the right line: it is non-empty iff the golden was produced by the
+Horvath calculator on betas the **server** normalized (BMIQ / noob), and we score raw betas and
+deliberately vendor no BMIQ gold standard (there is none upstream -- its provenance is unknowable,
+so the SoT pins the fixture instead). It partitions the 244 fixture blocks cleanly: 186
+`author_code` / `frozen_reference` blocks saw the same raw betas we do and are the exact gate; 58
+`horvath_online` blocks did not.
+
+**Why the failures this exposed were not regressions.** Running the tier for the first time against
+the new upstream produced 39 failures, and every single one had `oracle: horvath_online` -- zero
+from the other two oracles. Cross-checking the previous committed `sysdata.rda`, 18 of the 22
+distinct clocks had been graded `correlation` or `skipped` by upstream's own retired policy, i.e.
+never held to exact tolerance; the remaining 4 failed only on `cohort_450K`, a cohort that did not
+exist before. So the migration changed no number that was previously being checked.
+
+**Skip list shrank 8 -> 1.** Seven inherited `KNOWN_PARITY_GAPS` entries were GrimAge/FitAge
+surrogates skipped for sub-1e-5 exact-tolerance drift; under the correct grading they pass
+outright and are now real tests. Only `Zhang2019` remains (its `sample_scale` moments are taken
+over the needed-CpG subset rather than the full panel, so exact parity is unreachable by
+construction).
+
+---
+
+## 2026-07-24 -- `batch_set_id` provenance field removed
+
+**Decision.** Dropped `$provenance$batch_set_id` and its computation in `calc_clocks()`
+(`digest(sort(sample_id))` when any clock was `batch_dependent`). `digest` is no longer used
+anywhere in `R/`. The `batch_dependent` catalog flag and `clock_batch_dependent()` accessor stay --
+they still drive `list_clocks()` discovery and the future kind-1/kind-2 split
+(`dev/id-streaming-plan.md` Phase 2).
+
+**Why.** `batch_set_id` was a fingerprint of the record's own `sample_id`, and the full id vector
+already lives at `$provenance$sample_id`. Comparing two `batch_set_id`s is identical to
+`setequal()` on the ids, so it added nothing: `cbind` compatibility reads the id set directly
+(equal sets), and a future streaming `rbind` wants disjoint sets -- both computable from the ids.
+Worse, it hashed the *current* ids, so after a `[` row-subset it could not detect the one thing it
+existed for ("same current ids, but the batch-dependent column was computed over a different
+cohort"): it would silently agree. That cohort-mismatch concern is dissolved anyway by Phase 3
+(move every cross-sample op to `augment`, leaving the scoring loop batch-invariant, so no cohort is
+baked into a score to fingerprint). Surfaced while reasoning through the streaming plan's rbind
+gates; see the 2026-07-24 mandatory-rownames entry for the sibling cleanup.
+
+**Blast radius.** `calc_clocks.R` (computation + `construct_mc_result` param + provenance field);
+`test-score-physage.R` and `test-score-fitage.R` (dropped the `batch_set_id` assertions);
+`detail-plan.md` sec 1.3/6/7/7.1 (`cbind` now two gates, no batch-cohort gate). This reverses the
+sec 6 / sec 7.1-gate-3 "store sample-set id, cbind rejects incompatible sets" design.
+
+## 2026-07-24 -- DNAm rownames are mandatory; positional/synthetic ids deleted
+
+**Decision.** `calc_clocks()` now requires `rownames(DNAm)` and never invents sample ids. This
+reverses the 2026-07-17 design (rowname-less DNAm -> stamp `sample1..N`, mark non-bindable, refuse
+at cbind). Gone: the `allow_positional_ids` param, the positional stamp block, the `positional`
+plumbing threaded through `check_pheno()` / `warn_missing_covariates()` / `resolve_pheno()` (the
+row-order-join branch is deleted), and the write-only `$provenance$positional_ids` field (nothing
+read it). `check_DNAm()` already asserted non-NULL unique rownames -- the stamp existed only to
+satisfy that assertion before it fired, so this is a net deletion; `check_DNAm()` now leads with a
+cli message handing the user the one-liner to name anonymous rows themselves.
+
+**Why.** The positional apparatus existed to guess ids and then carry a `synthetic`/`bindable` flag
+everywhere to remember the guess was meaningless. A real methylation matrix essentially always has
+sample identifiers; a nameless one is a degenerate input, and the honest response is an error, not a
+silent guess. Mandating rownames does not remove the `sample1..N` capability -- it relocates it to a
+caller-written one-liner (`rownames(DNAm) <- paste0("sample", seq_len(nrow(DNAm)))`), moving the
+"these rows are positional" admission to where the knowledge is. It also kills a genuine footgun in
+the planned id-resolution contract (adopting `pheno[[id]]` onto rowname-less DNAm by row order,
+which nrow-checks length but not order). Pre-alpha, so the public API break is acceptable.
+
+**Streaming (future, `dev/id-streaming-plan.md`).** This subsumes that plan's Phase 1. The Phase 4
+rbind refusal loses its `synthetic_ids` gate, but the id-collision gate it already lists catches the
+same failure mode (lazy per-chunk `sample1..N` collides on `sample1`). Phases 2-4 stand unchanged.
+
+## 2026-07-24 -- housekeeping pass: rbind refuses, NAMESPACE trimmed, pick_one re-hoists "exactly one"
+
+**Decision.** A trim/hoist sweep, scores untouched (442 always-on tests green before and after):
+
+- **`rbind.mc_result` now refuses** via `cli_abort` instead of an empty `TODO` stub that silently
+  returned `NULL`. This is the documented invariant ("rbind refuses"); it was registered but unimplemented.
+- **NAMESPACE:** dropped `S3method(as.matrix,mc_result)` and `S3method(print,mc_result)` -- neither
+  method is defined yet, and R warns "declared in NAMESPACE but not found" at load. Re-add each line
+  when its method lands. Also corrected the false "Generated by roxygen2" header (NAMESPACE is
+  hand-managed, see CLAUDE.md).
+- **Dead params trimmed:** `random_betas(seed=)` (never passed; contradicts the unseeded-inputs test
+  policy) and `build_partial_cache(cores=)` (never passed; always 1L, now inlined). `%||% NULL`
+  no-op in `accessors.R` removed.
+- **`pick_one()` re-hoisted.** The ~11 "`Filter(pred, ...)` -> `length != 1L` -> `stop()`" blocks in
+  `accessors.R` collapse into one `pick_one(items, pred, what, id)` that cli-stops when a declared
+  pointer is absent or ambiguous. This looks like the `only_one` helper removed from `score_GrimAge`
+  earlier today, but that removal was a base-`stop` -> cli migration, not a rejection of consolidation:
+  `pick_one` keeps the consolidation *and* is cli-native. `miage_params` gains the exactly-one check it
+  lacked. Sites with non-strict counts (`recipe_step_out`, `physage_poly_coef`, allow 0) stay as-is.
+  `score_GrimAge`'s inline site was left untouched (active uncommitted work).
+
+**Why now.** User-requested housekeeping ("scope creeped a bit"). Kept the fuzzy `did_you_mean`
+suggestion machinery in `resolve_inputs.R` -- helpful, tested, low-maintenance.
+
+---
+
 ## 2026-07-24 -- coverage_table(x, by) splits into clocks_coverage() + samples_coverage()
 
 **Decision.** The single `coverage_table(x, by = c("clock", "sample"))` planned in `detail-plan.md`
@@ -29,7 +465,7 @@ named functions, and two names document themselves.
 
 **Coverage is literally `row_coverage()`.** `samples_coverage()$coverage` on a clock's row-gate panel
 is the value `row_coverage()` returns (`R/resolve_inputs.R`), the same source `check_row_coverage()`
-warns from, so the table and the `min_row_coverage` warning cannot disagree. For an alias (NULL
+warns from, so the table and the `min_samples_coverage` warning cannot disagree. For an alias (NULL
 record) the ratio is stitched from each member's `row_coverage()` over its own masked rows; for the
 non-gate score panel of a normalizing clock (DunedinPACE) it is the same `(present - miss) / needed`
 formula on the score panel, which has no warning to disagree with.
@@ -285,7 +721,7 @@ alignment survives. Two renderings of one manifest is deliberate, not duplicatio
 
 **Decision.** `check_coverage()` now does what the "scoring panel stops, normalization panel warns
 only" entry below already decided: `classify()` grades the **scoring** panel alone (stop under
-`min_col_coverage` or at 0 observed, warn within 10% of the floor), and a thin **normalization**
+`min_clocks_coverage` or at 0 observed, warn within 10% of the floor), and a thin **normalization**
 background is a second, warn-only pass that cannot stop the call. `detail-plan.md`'s column-floor
 section is corrected with it.
 
@@ -392,7 +828,7 @@ easy to re-introduce.
 - `score_systemsage()` -> `score_systemsage_group()`; the `sample_coverage(x)` method was never
   built and the matrix is reached as `$coverage$sample_miss`.
 - sec 4.2 now points at `check_row_coverage()` as the consumer of the tier-2 matrix -- the reason
-  no branch takes `min_row_coverage`.
+  no branch takes `min_samples_coverage`.
 
 **Not reconciled, flagged instead.** sec 1.1 "Exported surface" lists `list_clocks()`,
 `get_clock()`, `get_clock_probes()`, `summary()`, `augment()`; none exist and `NAMESPACE` exports
@@ -408,7 +844,7 @@ names `get_clock` in its accessors invariant and lists the same unbuilt `mc_resu
 
 **Decision.** Three changes, one idea.
 
-**1. `min_coverage` becomes `min_col_coverage` + `min_row_coverage`** (both 0.75, so default
+**1. `min_coverage` becomes `min_clocks_coverage` + `min_samples_coverage`** (both 0.75, so default
 behavior is unchanged; no deprecation shim, pre-alpha). The 2026-07-13 entry below records the
 reuse -- "the gates reuse the existing `min_coverage` argument ... so no new per-clock argument was
 added". That was right when the front end had no gate of its own, but the graded `check_coverage()`
@@ -444,8 +880,8 @@ record -- there is nothing to remember to call. The denominator switches to the 
 a clock has a normalization panel, because that is the panel `count_sample_miss()` counted over
 for DunedinPACE; mixing them would report a coverage above 1 or below 0.
 
-**Validation is up front.** `check_coverage()` asserts `min_col_coverage` and already runs before
-scoring, but `check_row_coverage()` runs after, so `calc_clocks()` asserts `min_row_coverage`
+**Validation is up front.** `check_coverage()` asserts `min_clocks_coverage` and already runs before
+scoring, but `check_row_coverage()` runs after, so `calc_clocks()` asserts `min_samples_coverage`
 early. A bad argument should not cost a full scoring pass first.
 
 ---

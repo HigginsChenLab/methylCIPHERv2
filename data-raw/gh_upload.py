@@ -21,8 +21,10 @@ stdout is a single JSON object {"results": [{group_id, tag, name, action}, ...]}
 where action is "created" | "uploaded" | "skipped"; every human-readable line
 goes to stderr so it cannot corrupt that stdout contract.
 
-Auth: GITHUB_TOKEN or GH_TOKEN in the environment (sync.R injects the upload PAT,
-sourced from MC_UPLOAD_PAT, into this child process only). No gh CLI dependency.
+Auth: GITHUB_TOKEN or GH_TOKEN in this process's environment. sync.R sources the
+PAT from MC_UPLOAD_PAT and *only* MC_UPLOAD_PAT, then injects it under those names
+into this child process alone -- so the broad tokens other tooling sets never
+publish a release. No gh CLI dependency.
 """
 
 from __future__ import annotations
@@ -65,6 +67,13 @@ def die_github(context: str, exc: GithubException) -> int:
             "Contents: read/write (fine-grained) or the classic `repo` scope, and make "
             "sure it has access to the target repository."
         )
+    elif exc.status == 404:
+        log(
+            "  hint: repository not found, OR the token cannot see it -- GitHub returns "
+            "404 rather than 403 for repos a token has no access to. Check the slug "
+            "(MC_RELEASE_REPO, else git remote origin) and, for a fine-grained PAT, that "
+            "the repository is in its selected set."
+        )
     elif exc.status == 422:
         log(
             "  hint: 422 usually means an invalid target_commitish (branch/commit not on "
@@ -85,15 +94,31 @@ def main() -> int:
         log(f"error: could not parse upload manifest on stdin: {exc}")
         return 2
 
-    slug = req["slug"]
+    if not isinstance(req, dict):
+        log("error: upload manifest must be a JSON object")
+        return 2
+    slug = req.get("slug")
+    if not slug:
+        log("error: upload manifest has no `slug`")
+        return 2
     target = req.get("target_commitish") or None
     assets = req.get("assets", [])
 
+    # Resolving the repo is where a bad token or an unreachable slug surfaces --
+    # the two most likely failures -- so it goes through die_github() like every
+    # other API call rather than escaping as a bare traceback.
     gh = Github(auth=Auth.Token(token))
-    repo = gh.get_repo(slug)
+    try:
+        repo = gh.get_repo(slug)
+    except GithubException as exc:
+        return die_github(f"resolving repository {slug}", exc)
 
     results = []
     for a in assets:
+        missing = [k for k in ("group_id", "tag", "path", "name") if k not in a]
+        if missing:
+            log(f"error: asset entry is missing {', '.join(missing)}: {a}")
+            return 2
         gid = a["group_id"]
         tag = a["tag"]
         path = a["path"]

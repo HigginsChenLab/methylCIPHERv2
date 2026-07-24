@@ -46,7 +46,7 @@ structure(
     scores     = <n x k double matrix>,   # dimnames = samples x clock ids
     pheno      = <aligned pheno, or NULL>,# id column + required covariates only (sec 5.1)
     coverage   = <per-column coverage>,   # see sec 4
-    provenance = <clocks, requested, dependencies, covariates_used, pheno_id, batch_set_id>
+    provenance = <clocks, requested, dependencies, covariates_used, pheno_id>
   ),
   class = "mc_result"
 )
@@ -62,8 +62,8 @@ methods so no operation loses data:
 | `as.matrix` | `$scores` -- the naked-numbers escape hatch |
 | `as.data.frame` | scores as a data.frame (sample id column + score columns). **Never** `$pheno` -- see sec 5.1 |
 | `[` | subset rows/cols of `$scores` **and** the matching pheno/coverage/provenance -> `mc_result` |
-| `cbind` | bind score columns; check `batch_set_id` compatibility |
-| `rbind` | **refuses** -- orphans `batch_set_id` and leaves cohort-dependent scores computed against the wrong cohort. Score per cohort, bind the `as.data.frame()` outputs |
+| `cbind` | bind score columns; require equal `sample_id` sets (read straight off `$provenance$sample_id`) |
+| `rbind` | **refuses** -- stacking samples leaves any cohort-dependent score computed against the wrong cohort. Score per cohort, bind the `as.data.frame()` outputs |
 | `augment` | join `$scores` to a table by sample id (generic imported from `generics`) |
 
 Not methods: `clocks_coverage()` / `samples_coverage()` format `$coverage` (never re-touch beta) and
@@ -138,7 +138,8 @@ scoring, both run exactly once — never inside the per-clock loop:
   an empty request can never silently resolve to nothing.
 - `resolve_clocks_sequence(clock_ids)` — **the dependency plan step** (settles the mechanism §2.1
   used to leave open; see DECISIONS 2026-07-17). Takes the resolved set and returns its **transitive
-  closure** over `depends_on_clocks` (read via `clock_depends_on()`), **topologically sorted** so a
+  closure** over `clock_inputs` (the recipe's `inputs`, or a sex-routed alias's two members; read
+  via `clock_depends_on()`), **topologically sorted** so a
   clock always comes after everything it depends on (cycle-guarded; stable first-seen otherwise).
   Cross-clock deps DO exist and are declared in the catalog — only 3 clocks: `GrimAgeV1/V2` -> their
   CpG surrogates; `DNAmFitAge` -> gait/grip/VO2max + `GrimAgeV1`, which **crosses group boundaries**.
@@ -147,11 +148,11 @@ scoring, both run exactly once — never inside the per-clock loop:
   columns (§1.3), tracked apart in `$provenance$dependencies`. This is why the prepare-once unions
   below run over the **plan**, not the raw request.
 - prepare-once, **parametrized by the resolved set, not per clock**:
-  - sample identity runs first, **inline** in `calc_clocks()`: identity-less DNAm gets positional
-    ids `sample1..N` (or a hard error if `allow_positional_ids = FALSE`), flagged
-    `$provenance$positional_ids` so `cbind` can refuse it (§5.1, §7.1).
+  - sample identity is `rownames(DNAm)`, mandatory: `check_DNAm()` hard-errors identity-less DNAm
+    and hands the caller the one-liner to name anonymous rows (§5.1). The package never manufactures
+    ids.
   - `check_DNAm(DNAm)` — *universal* invariants only: double matrix; unique CpG colnames; unique
-    sample-id rownames (non-NULL by now — real or positional); a `^cg`-prefix orientation
+    non-NULL sample-id rownames; a `^cg`-prefix orientation
     warning (the `nrow > ncol` dimensional guess was dropped -- it false-positives on small
     panels). Carries no clock knowledge.
   - covariate check is a **union over the compute plan** (requested + auto-added deps):
@@ -172,14 +173,14 @@ scoring, both run exactly once — never inside the per-clock loop:
 
     | Floor | Axis | When | Action |
     |---|---|---|---|
-    | `min_col_coverage` (0.75) | columns -- which of a clock's CpGs exist in `DNAm` at all | before scoring | **stop** (graded, see below) |
-    | `min_row_coverage` (0.75) | rows -- how much of that panel a given sample observes | after scoring | **warn**, always |
+    | `min_clocks_coverage` (0.75) | columns -- which of a clock's CpGs exist in `DNAm` at all | before scoring | **stop** (graded, see below) |
+    | `min_samples_coverage` (0.75) | rows -- how much of that panel a given sample observes | after scoring | **warn**, always |
 
     A missing column is missing for *every* sample alike -- it is a property of the input matrix,
     so no sample escapes it and the call stops. A sparse row is one bad sample among good ones:
     NA-ing it would silently discard data the caller may still want, so the score stands and the
     warning names it. **No branch NA-s a row for coverage.**
-  - **row floor** — `check_row_coverage(coverage, min_row_coverage)`, run once over the hoisted
+  - **row floor** — `check_row_coverage(coverage, min_samples_coverage)`, run once over the hoisted
     coverage structure (`compute_coverage()` already masked routed members): a sample's observed
     fraction is `(score_present - sample_miss) / score_needed`, or the `norm_*` pair for a clock
     that normalizes (DunedinPACE), since that is the panel `count_sample_miss()` counted over. No
@@ -189,25 +190,25 @@ scoring, both run exactly once — never inside the per-clock loop:
     (sex-routed aliases) are skipped, and the routed members that carry their panels are checked
     under their own ids even though they have no column. `calc_clocks()`
     validates the floor up front so a bad argument does not cost a full scoring pass.
-  - **column floor** — `check_coverage(cpg_list, min_col_coverage = 0.75)`, run once on the
+  - **column floor** — `check_coverage(cpg_list, min_clocks_coverage = 0.75)`, run once on the
     `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's **scoring** panel (`score_present /
     score_needed`) -- the only panel that can stop the call:
 
     | Band | Action |
     |---|---|
-    | 0 observed CpGs, or under `min_col_coverage` | **stop**, naming each clock + counts + percentage |
-    | within 10% above `min_col_coverage` (`< 1.1 x min_col_coverage`, capped at 1) | **warn**, same listing |
+    | 0 observed CpGs, or under `min_clocks_coverage` | **stop**, naming each clock + counts + percentage |
+    | within 10% above `min_clocks_coverage` (`< 1.1 x min_clocks_coverage`, capped at 1) | **warn**, same listing |
     | otherwise | silent |
 
-    A panel at **0 observed CpGs always stops**, regardless of `min_col_coverage`. So
-    `min_col_coverage = 0` relaxes the quality gate but never buys a score computed from nothing --
+    A panel at **0 observed CpGs always stops**, regardless of `min_clocks_coverage`. So
+    `min_clocks_coverage = 0` relaxes the quality gate but never buys a score computed from nothing --
     `Horvath1` on a foreign panel used to return `anti_trafo(0)`, a plausible ~40 years, for every
     sample. Full coverage never warns, whatever the threshold. The warn band is *relative* so it
     tracks a caller who moves the floor, rather than pinning an absolute second number. Clocks with
     no panel at all are not gated here; they fail later on the unimplemented-scorer branch, which
     is the clearer error.
     A clock's **normalization background** (only DunedinPACE carries one) is a *separate,
-    warn-only* check in the same function: under `min_col_coverage` it warns and never stops,
+    warn-only* check in the same function: under `min_clocks_coverage` it warns and never stops,
     because absent gold CpGs fill to their reference mean before quantile-normalizing, so the
     clock still scores. "Cannot score" and "normalized against a thin background" are different
     failures and do not share a band.
@@ -310,8 +311,8 @@ not just a speed win). Prepare-side pipeline, gated so clean betas pay nothing:
   otherwise fill its every cached cell with the column mean and emit a plausible-looking
   **fabricated** score instead of an honest `NA`. (An all-NA row is `isnan`-skipped in every column
   mean, so it never biases other samples; the damage is confined to its own fake score, but that is
-  reason enough to refuse it. Analogous to the `allow_positional_ids` strictness dial in §5.1 — but
-  here there is no permissive mode; empty rows are always an error.)
+  reason enough to refuse it. Like the mandatory-rownames rule in §5.1, this is a hard error with no
+  permissive mode; the honest output is `NA`, not a fabricated number.)
 - **Cache build.** `cache_cpgs = intersect(present_needed_union, partial_na_cols)` — present (a mean
   exists), needed by some clock (don't cache dead columns), and actually partial. Subset **first**,
   then impute: `slideimp::mean_imp_col(DNAm[, cache_cpgs])`. `mean_imp_col` returns a matrix the same
@@ -351,10 +352,13 @@ needs this today, so hard-code the exception: when the worklist includes `Zhang2
 CpGs, but a large-enough subset is usually sufficient. Fired here in the transform, not in the
 prepare front end.
 
-The `sample_scale ∈ batch_ops` catalog marker stays (that's how we know this clock is the
-transform case). `clock_needs_full_panel()` and `check_DNAm_extra()` are **gone**: the generic
-machinery collapsed into `resolve_DNAm_extra()`, one `"Zhang2019" %in% clock_ids` special case, as
-no other clock exercises it.
+There is no `batch_ops` catalog marker any more, and `sample_scale` was never a cross-sample op:
+it is a **within**-sample z-score over one sample's own row, so Zhang2019 is `per_sample` and
+chunk-safe (`cross_sample_at` is `NA`; the retired `extract_batch_ops()` wrongly lumped it with
+`cohort_zscore`). Nothing keys the transform case off the catalog: `clock_needs_full_panel()` and
+`check_DNAm_extra()` are **gone**, the generic machinery having collapsed into
+`resolve_DNAm_extra()` with one `"Zhang2019" %in% clock_ids` special case, as no other clock
+exercises it.
 
 ### 2.4a Normalization policy — annotate, never execute
 
@@ -527,7 +531,7 @@ normalizing columns>)` on the result record, for a sample x clock coverage heatm
 This is what the **row floor** consumes: `check_row_coverage()` (§2.1) reads the per-panel miss
 alongside `$coverage`, derives each sample's observed fraction over the clock's declared row-gate
 panel (`normalizes` -> norm, else score) as `(present - sample_miss) / needed`, and warns. That is
-the whole reason no scoring branch takes `min_row_coverage` as an argument -- coverage already
+the whole reason no scoring branch takes `min_samples_coverage` as an argument -- coverage already
 carries the per-sample signal, so the gate is one function over the finished records rather than a
 check repeated in ten branches.
 
@@ -571,38 +575,35 @@ threshold reads this matrix — default stays record-and-report.
 
 ### 5.1 Sample identity and pheno alignment
 
-`rownames(DNAm)` is the canonical `sample_id`: unique, and **preferred**. Identity-less DNAm is
-**not** a hard error by default -- `calc_clocks()` stamps positional ids `sample1..sampleN` inline
-(before `check_DNAm`), so a workflow that leans on row order rather than ids can still score without
-maximal front-door defensiveness. The `cbind` footgun this used to
-guard against is closed instead **at the bind step**: positional ids are row-order artifacts, not
-comparable across separate matrices, so such records are flagged `$provenance$positional_ids = TRUE`
-and `cbind.mc_result` **refuses** them (§7.1 gate 0). `allow_positional_ids = FALSE` on
-`calc_clocks()` restores the strict hard-error contract. A caller with genuine sample duplicates
-must give each its own id; a caller wanting a clock's score twice duplicates the score column, not
-the input rows. `sample_id` is derived **once**, from DNAm (real or positional), stamped on
+`rownames(DNAm)` is the canonical `sample_id`: unique and **mandatory**. Identity-less DNAm is a
+hard error -- `check_DNAm()` refuses it and hands the caller the one-liner to name anonymous rows
+themselves (`rownames(DNAm) <- paste0("sample", seq_len(nrow(DNAm)))`). The package never
+manufactures ids: a nameless matrix is a degenerate input, and the honest response is an error, not
+a silent guess whose meaninglessness then has to be tracked through the whole record as a
+`positional`/`synthetic` flag (DECISIONS 2026-07-24, reversing the earlier `allow_positional_ids`
+stamp-and-refuse-at-cbind design). Relocating the `sample1..N` step to a caller-written line moves
+the "these rows are positional" admission to where the knowledge is. A caller with genuine sample
+duplicates must give each its own id; a caller wanting a clock's score twice duplicates the score
+column, not the input rows. `sample_id` is derived **once**, from `rownames(DNAm)`, stamped on
 `$provenance$sample_id`, and used as `rownames($scores)`. pheno is never the identity.
 
 `pheno_id` (the id column name) always has a default; only `pheno` itself may be `NULL`. Alignment
-(`resolve_pheno()`) has **two modes**, chosen by whether DNAm had real rownames (i.e. by
-`positional_ids`), never mixed:
+(`resolve_pheno()`) is **always an id join** -- there is no row-order mode, because there are always
+real ids to match on:
 
-| Case | Mode | Rule |
-|---|---|---|
-| `pheno = NULL` | — | `sample_id = rownames(DNAm)`; no covariate side-table |
-| `pheno` given, DNAm had rownames | **id join** | `pheno[[pheno_id]]` present, **unique**, non-missing, and `rownames(DNAm) ⊆ pheno[[pheno_id]]`; else error naming missing ids. Subset + reorder pheno to `rownames(DNAm)` order |
-| `pheno` given, DNAm had **no** rownames | **row-order join** | **`nrow(pheno)` must equal `nrow(DNAm)` exactly** (taller = ambiguous, shorter = short → throw). Row *i* of pheno is sample *i*, taken in given order; the `pheno_id` column is then **overwritten** with the positional `sample_id` |
+| Case | Rule |
+|---|---|
+| `pheno = NULL` | `sample_id = rownames(DNAm)`; no covariate side-table |
+| `pheno` given | `pheno[[pheno_id]]` present, **unique**, non-missing, and `rownames(DNAm)` a subset of `pheno[[pheno_id]]`; else error naming missing ids. Subset + reorder pheno to `rownames(DNAm)` order |
 
-- **Id join.** `rownames(DNAm) ⊆ pheno[[pheno_id]]`, so we filter first; no `unique(pheno)` dedup
-  -- duplicate ids are the caller's error, never silently collapsed. pheno may carry **extra** rows
-  (other cohorts); they are ignored after the subset.
-- **Row-order join** is the only alignment available when DNAm carries no ids (positional mode):
-  there is no key to match on, so covariate-needing clocks can only pair pheno to samples by
-  position, which is why the row counts must match exactly. Such records are already flagged
-  `positional_ids` and refused by `cbind` (§7.1 gate 0).
-- Post-condition (both modes): the returned pheno has `nrow(DNAm)` rows in `sample_id` order, with
-  `pheno[[pheno_id]] == sample_id` (id mode reaches this for free since it matched on that column;
-  positional mode overwrites it). Row names are **dropped** -- identity lives in the id column and
+- **Id join.** `rownames(DNAm)` is a subset of `pheno[[pheno_id]]`, so we filter first; no
+  `unique(pheno)` dedup -- duplicate ids are the caller's error, never silently collapsed. pheno may
+  carry **extra** rows (other cohorts); they are ignored after the subset. This subset rule is what
+  makes streaming ergonomic: pass the full-cohort pheno to every DNAm row-chunk and each chunk
+  narrows to its own ids (`dev/id-streaming-plan.md`).
+- Post-condition: the returned pheno has `nrow(DNAm)` rows in `sample_id` order, with
+  `pheno[[pheno_id]] == sample_id` (reached for free since it matched on that column). Row names are
+  **dropped** -- identity lives in the id column and
   nowhere else, so there is no second copy to drift, and data.frame row names do not survive a
   tibble/dplyr round-trip anyway. The frame is **narrowed** to `c(pheno_id, <covariate
   union>)` -- for the current catalog at most `ID`, `Age`, `Female`, since those are the only
@@ -630,8 +631,12 @@ Rules:
 - Partial-NA imputation (sec 2.3) is also cohort-dependent by design -- imputation borrows
   within-cohort information -- but it is a fallback, not a scoring op, so it is not listed here.
 - Do not global-union-probe-optimize away Zhang's full panel.
-- Store sample-set id on batch-dependent results; `cbind.mc_result` rejects incompatible
-  sets.
+- **No stored `batch_set_id`.** It was `digest(sort(sample_id))` -- a fingerprint of the record's
+  own ids, carrying nothing not already in `$provenance$sample_id`, and hashing the *current* ids
+  meant it could not even survive a `[` subset to catch a cohort mismatch. The compatibility check
+  reads the id set directly: `cbind` requires equal sets, a streaming `rbind` (future) requires
+  disjoint sets. Removed 2026-07-24; the future direction (`dev/id-streaming-plan.md` Phase 3) moves
+  every cross-sample op out of the scoring loop, so no cohort is baked into a score to fingerprint.
 
 ---
 
@@ -640,10 +645,6 @@ Rules:
 `x$provenance` carries:
 
 - `sample_id`
-- `positional_ids` (logical) -- `TRUE` when `sample_id` was manufactured inline by `calc_clocks()`
-  from a rowname-less DNAm; `cbind.mc_result` refuses records flagged `TRUE` (sec 7.1 gate 0). The
-  stamp runs **before** `check_DNAm()`, which requires rownames -- reversing that order makes the
-  whole positional path unreachable
 - `pheno_id` -- the id column name, so `as.data.frame()` and `augment()` agree on the join key
   without either taking an extra argument
 - `clocks` — every scored column's catalog id, in `$scores` column order
@@ -652,7 +653,6 @@ Rules:
 - Covariates actually used — unioned over **all** returned columns, deps included, so a request for
   `DNAmFitAge` alone reports `Age` (its deps' requirement) and not just `Female`
 - Coverage (see sec 4)
-- Batch sample-set id when applicable
 
 No commit SHA / pin is stamped on the result: correctness is proven by fixtures. The one sync-side
 identity key that remains -- the external packs' content-address `payload_hash` -- stays in
@@ -664,12 +664,9 @@ overrides optional).
 ### 7.1 `cbind` compatibility
 
 `cbind.mc_result` ([`R/generics.R`](../R/generics.R)) binds score columns of two or more records
-only after a **positional guard** then **three** independent gates:
+after **two** independent gates. (No positional-id guard is needed: rownames are mandatory, so
+every `sample_id` is real identity -- DECISIONS 2026-07-24.)
 
-0. **Positional-id guard.** If any record has `$provenance$positional_ids = TRUE`, throw. Its
-   `sample1..N` ids are row-order artifacts, not real identity, so the set/order comparisons below
-   are meaningless against another matrix. Positional records score fine; they just cannot be bound
-   -- give DNAm real rownames to opt back in.
 1. **`sample_id` set.** Sets must be equal. Equal set + same order binds directly; equal set +
    different order reorders the later records to the first record's `sample_id` order and
    re-verifies `identical(sample_id)` before binding; unequal sets throw (different samples).
@@ -683,8 +680,11 @@ only after a **positional guard** then **three** independent gates:
    pheno table (sec 12 non-goal). An earlier draft stored a per-covariate hash instead; a hash cannot
    be recomputed after a row subset, which would silently void this gate for any record narrowed
    by `[` (DECISIONS 2026-07-23).
-3. **`batch_set_id`** (§6) -- required equal for any batch-dependent column; a hash of the sample
-   *set*, invariant to gate 1's reorder, so it catches "same samples, scored in two cohorts".
+
+There is no third batch-cohort gate. Gate 1 already compares the full `sample_id` set, so a
+`digest(sample_id)` gate would be redundant; the "same samples scored in two cohorts" case it
+nominally guarded is dissolved by moving cross-sample ops to `augment` (§6, `dev/id-streaming-plan.md`
+Phase 3). `batch_set_id` was removed 2026-07-24.
 
 ---
 
@@ -701,6 +701,16 @@ group_metas <- metas[basename(metas) == "_group.meta.json"]
 ```
 
 - Discriminate clock vs group by basename, not depth.
+- **The crawl locates metas; `manifest.json` decides which are vendored.** `manifest_clocks()` takes
+  the clock set from the manifest's `clocks[]` (exactly the `weights_status=done` set) and errors on
+  a manifest row with no meta on disk. Upstream explicitly permits staging a clock's meta before it
+  is stamped done, and the crawl alone would vendor that unstamped clock.
+- **No path is discovered by pattern.** `declared_tensors()` reads the named pointers
+  (`imputation.ref`, `components/shared/probe_sets[].file`, `code_ref`, `code_deps`) and applies the
+  `coef_path()` rule -- `weights/{group_id}/{clock_id}.csv.gz`, derived from the two keys -- for
+  `cpg_coefficient`. Required there, so absence is an error, never a signal. Tensor shape comes from
+  the declaring `row_key` / `col_key` (`col_key` optional: a rotation's PC columns are generated),
+  asserted against the file's own header rather than inferred from column count.
 - Singleton: `group_id == clock_id`; multi-member groups have `_group.meta.json`.
 - At **sync time** R reads `weights/`, `manifest.json`, and `bibliography/{papers.csv,clocks.bib}`
   (the last joins `pmid -> bib_key` in memory and vendors `clocks.bib` to `inst/`; `papers.csv` is
@@ -737,18 +747,23 @@ qs2 packs (SystemsAge, PCClocks, PCBrainAge):
   it) and R never recomputes it at runtime. Transfer integrity and bit rot are qs2's own
   `validate_checksum` on read (see 9.4).
 
-A gitignored `data-raw/assets/lockfile.rds` (keyed on the meta `source_git_sha` + presence of the
-staged packs) skips only the external-pack rebuild; it is **not** a product pin, not stamped on
-results, and not a catalog-change detector. No SHA is treated as scientific identity.
+A gitignored `data-raw/assets/lockfile.rds` (keyed on the external clocks' `bundle_hash` vector from
+`manifest.json` + presence of the staged packs) skips only the external-pack rebuild; it is **not**
+a product pin, not stamped on results, and not a catalog-change detector. No SHA is treated as
+scientific identity. `bundle_hash` replaced `source_git_sha` as the key on 2026-07-24: the sha moved
+on every upstream commit including docs-only ones, so the cache busted constantly and still could
+not say *which* clock changed, whereas a `bundle_hash` moves iff that clock's meta or one of its
+declared artifacts moved.
 
 ### 9.2 Sync workflow (`data-raw/sync.R`)
 
 1. Resolve meta commit; checkout (`source_git_sha`).
 2. **Always** build catalog + accessors' backing objects + small bundles -> `R/sysdata.rda` (no
    build-skip cache; the rebuild is ~2s).
-3. External packs: if `force = FALSE` and the asset `lockfile.rds` hits (same `source_git_sha` and
-   every staged pack still on disk), reuse them and restore their resolved probe sets from the
-   lockfile; else rebuild the three content-addressed packs and rewrite the lockfile.
+3. External packs: if `force = FALSE` and the asset `lockfile.rds` hits (every external clock's
+   `bundle_hash` unchanged and every staged pack still on disk), reuse them and restore their
+   resolved probe sets from the lockfile; else rebuild the three content-addressed packs and
+   rewrite the lockfile.
 4. `upload = TRUE` publishes packs to GitHub Releases; the content-address (`payload_hash` ->
    filename -> tag) plus the remote "asset already present" skip make reupload idempotent.
 
@@ -757,7 +772,11 @@ paths (never `papers/` or `scripts/`); missing referenced weights path = error.
 
 **Sex-routed aliases.** A group whose `_group.meta.json` carries `routing.sex` gets one alias clock
 per stem, minted by `attach_sex_routed_aliases()` after probe-set resolution (so an alias never
-acquires a panel). The alias is `(weights_format = "routed", computation_type = "sex_routed")`,
+acquires a panel). The alias is `kind = "sex_routed_alias"` -- a package-minted classification in
+its **own** column, leaving `weights_format` / `computation_type` `NA`, because neither `"routed"`
+nor `"sex_routed"` exists in upstream's `meta_schema.py` enums and a user filtering on
+`weights_format` must never see a locally-invented member. `score_type()` and the coverage alias
+split check `kind` *before* reading either enum. The alias
 owns no weights, declares `covariates_required = "Female"`, and depends on its two members. The
 members stay in the catalog but leave the **callable pool**: `resolve_clocks()` derives the
 not-callable set from the same routing tables (`sex_routed_members()`), so the pool, the refusal
@@ -766,26 +785,43 @@ They also leave the **output**: `drop_routed_members()` (same source) keeps them
 `output_ids`, so a routed member is scored, feeds its alias, keeps a coverage row -- and never
 becomes a score column.
 
-**Scoring-panel tiers.** `resolve_group_scoring_probe_sets()` fills a missing `role = scoring`
-panel in order: the clock's own tensors -> the union of the **in-group** clocks it consumes
-(`depends_on_clocks`, to fixpoint) -> the group's shared bare CpG list. Dependencies outrank the
-shared list; taking the shared list first handed the DNAmFitAge composites the family-wide
-627-probe `data_prep2` prep panel instead of the 172/190 they consume. Out-of-group inputs are
-excluded on purpose: `DNAmFitAge_{Sex}` reads `GrimAgeV1`, but GrimAgeV1 is its own column with its
-own coverage row, and folding its 1030 probes in would double-count and swamp the family's own
-figure. `covers` is a family-wide label, not a consumption list, so it is only the fallback for
-clocks declaring no `depends_on_clocks`.
+**Scoring-panel resolution.** `resolve_group_scoring_probe_sets()` is a memoized DAG walk, not a
+fixpoint with fallbacks. The rule is total:
+
+```
+scoring_cpgs(clock) = union of the clock's own cpg-keyed tensors
+                      (coef_path for cpg_coefficient; row_key == "cpg" components otherwise)
+                    = if it owns none (score-assembled):
+                      union(scoring_cpgs(c) for c in every recipe step's `inputs`)
+```
+
+Upstream guarantees `inputs` holds only `clock_id`s (the operand namespaces `inputs` / `internal` /
+`covariates` are disjoint and validated), so this resolves in dependency order with a cycle guard.
+Out-of-group inputs are excluded from the panel on purpose: `DNAmFitAge_{Sex}` reads `GrimAgeV1`,
+but GrimAgeV1 is its own column with its own coverage row, and folding its 1030 probes in would
+double-count and swamp the family's own 172/190. The DAG **edge** is still kept (`clock_inputs`) --
+this is a coverage-reporting decision, not a dependency one.
+
+`assert_declared_n_cpgs()` then checks the derived panel against upstream's declared `n_cpgs` for
+every clock, hard error on mismatch, no exemption list. That is what proves the exclusion above is
+right, and it is the cheapest guard in the sync: the retired three-tier version (own tensors ->
+`depends_on_clocks` falling back to `covers` -> the group's shared bare CpG list) handed the
+DNAmFitAge composites the family-wide 627-probe `data_prep2` prep panel against a declared 172.
+`covers` is the **output** set (every clock the blob or recipe tree serves) and is never an input
+list.
 
 **Custom-group payloads.** A `weights_format = "custom"` group declares frozen author code as its
-definition, so its parameter blob is *not* a meta-referenced tensor path and the generic crawl
-cannot see it. `CUSTOM_GROUPS` in `sync.R` is the closed registry that closes that gap: one entry
-per custom group, naming (a) a loader that reads the vendored artifacts under `weights/{group}/`
-and materializes them as an ordinary bundle tensor, and (b) the cpg-keyed `components` declaration
-grafted onto the clock entry. Downstream nothing is special-cased -- probe-set resolution finds the
-panel through the usual component tier, and the accessor reads the tensor through
-`bundle_tensor()`. Today the registry has exactly one member: `MiAge` (site-specific `b`, `c`, `d`
-from `site_specific_parameters.Rdata`, keyed by the 268-CpG `Additional_File1.csv.gz` panel, in
-panel order).
+definition -- but "the code is the definition" was never a licence to leave the code's own inputs
+undeclared. Upstream closed that: a `custom` meta declares `components` (frozen parameter tensors,
+`row_key: cpg` like any other) and `code_deps` (the code closure `code_ref` reads or sources), and
+an undeclared file under a `custom` group dir fails upstream validation. So MiAge's site-specific
+`(b, c, d)` are one declared `weights/MiAge/site_parameters.csv.gz` (`cpg,b,c,d`) that loads like
+any other cpg-keyed tensor, and its panel resolves by the ordinary rule above -- **no special case
+at all**. The old `CUSTOM_GROUPS` registry (a loader plus a grafted component declaration, needed
+when the blob was an undeclared `.Rdata` aligned to the panel by position) is deleted, along with
+the positional-alignment guard that was the only thing catching a silent mis-key. `code_deps` files
+ride into the pack as `type = "r_source"` alongside `code_ref`; before this, `function_library.r`
+was bundled by nothing and the vendored scorer could not have run.
 
 ### 9.3 Distribution tiers
 
@@ -885,12 +921,22 @@ unexpected value), but the field itself stays on the maintainer side (manifest),
   since the GrimAge surrogates are policy `omit` they would score intercept-only and the composite
   would come back a plausible-looking number rather than an error. `remove = k` drops `k` CpGs to
   exercise the missingness path, and is the intended way to trip the §2.1 coverage floor in tests.
-- **Parity fixtures -- the single clock-golden source, cohort-gated.** Upstream golden fixtures
-  vs `fixtures/cohort_EPIC/beta.duckdb` (gitignored; regenerable via `fixtures/build_cohort.R`;
-  path under the meta clone `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`).
-  Skipped unless `MC_PARITY=1` is set and the cohort is staged (`file.exists()`); run
-  locally via the dev-only, build-ignored `test_parity()` (`R/dev-utils.R`). Parity policy `exact` |
-  `correlation` | `skipped`; failures print clock id + policy.
+- **Parity fixtures -- the single clock-golden source, cohort-gated.** Upstream golden fixtures vs
+  **every registry cohort**: `fixtures/{cohort}/beta.duckdb` for `cohort_EPICv1` and `cohort_450K`
+  (gitignored; regenerable via `fixtures/build_cohort.R`; paths under the meta clone
+  `data-raw/methylCIPHER-meta/`). Upstream ships one `fixtures[]` block per cohort, so each
+  (clock, cohort) pair is its own test, with one duckdb connection per staged cohort. Skipped unless
+  `MC_PARITY=1` is set and that cohort is staged (`file.exists()`); run locally via the dev-only,
+  build-ignored `test_parity()` (`R/dev-utils.R`).
+
+  **Tolerance is ours and is keyed on a declared field, not a clock list.** Upstream retired its
+  `fixtures[].parity` policy enum. A fixture whose `server_normalization` is non-empty was produced
+  by the Horvath calculator on betas the **server** normalized (BMIQ / noob); we score raw betas and
+  deliberately vendor no BMIQ gold standard, so those are graded by **correlation** (> 0.99). Every
+  other fixture's oracle saw the same raw betas we do and is held to **exact** (max_abs_diff <
+  1e-6). That splits the 244 fixture blocks 186 exact / 58 correlation, and it is the real numeric
+  gate. A hand-kept list of "clocks that cannot be exact" would rot the moment a clock's oracle
+  changed. `KNOWN_PARITY_GAPS` holds only genuine skips (today: `Zhang2019`).
 
 No slice of the golden cohort is committed into `tests/` -- that is a second copy of upstream
 golden values and it drifts; a small slice also cannot validate a `correlation`-policy clock.
@@ -951,13 +997,14 @@ Track clocks in `dev/clock_tracker.csv` (`uv run python dev/build_clock_tracker.
   distance guess (sec 8).
 - Whether `mc_groups[[g]]$members` should mean "callable" (aliases) or "real clocks" (today's 14).
   `test-fixtures-parity.R` reads it expecting scoreable ids.
-- The exact-tolerance parity policy is **scale-aware** (numpy-allclose:
+- Make the exact-tolerance parity grade **scale-aware** (numpy-allclose:
   `|got - exp| <= PARITY_ATOL + PARITY_RTOL*|exp|`, atol `1e-8`, rtol `1e-6`), so a `1e-8` diff on a
-  `2.7e6`-scale PC biomarker is not judged like `1e-8` on an age. Under it the PC clocks verify at
-  their true `~1e-14` relative floor and the DNAmFitAge single-tensor members (oracle floor `~1e-7`
-  relative) pass; the DNAmGrip pair still in the `3e-6 .. 9` band is skip-listed as one class
-  (`KNOWN_PARITY_GAPS`, sec 10.1) -- two are oracle rounding, one is a zero-fill-vs-vendor-mean
-  contract diff.
+  `2.7e6`-scale PC biomarker is not judged like `1e-8` on an age. **Not implemented** -- the tier
+  currently grades `max_abs_diff < 1e-6` (or correlation, sec 10.1). It matters most for the PC
+  clocks, which are external-pack-only and therefore skipped until the packs are cached, so it is
+  not currently blocking anything. The old motivating case is gone: the DNAmGrip / GrimAge-surrogate
+  skip class was dissolved on 2026-07-24 when grading moved to the `server_normalization` split, and
+  `KNOWN_PARITY_GAPS` now holds only `Zhang2019`.
 - Whether SystemsAge members can be derived from shared components only.
 - Whether fixture cohort should be published for cross-language consumers.
 - Permanent vs one-release legacy `calc*` wrappers.

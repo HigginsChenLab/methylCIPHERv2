@@ -1,4 +1,4 @@
-# Upfront coverage gate: a clock that cannot be scored stops before any scoring.
+# upfront coverage gate: unscorable clock stops before any scoring
 
 # A panel sharing no CpG with `ids`.
 foreign_panel <- function(ids) {
@@ -10,21 +10,21 @@ test_that("under-covered clocks stop instead of scoring", {
   keep <- cpgs[seq_len(round(0.5 * length(cpgs)))]
   expect_error(calc_clocks(random_betas(keep, n = 4L), "Hannum"))
 
-  # columns now clear; every row is still half-imputed, so the row gate warns
+  # columns now clear -- every row is still half-imputed, so the row gate warns
   expect_warning(
     res <- calc_clocks(
       random_betas(keep, n = 4L),
       "Hannum",
-      min_col_coverage = 0.4
+      min_clocks_coverage = 0.4
     )
   )
   expect_true(all(is.finite(res$scores[, "Hannum"])))
 })
 
-test_that("zero observed CpGs stops even at min_col_coverage = 0", {
+test_that("zero observed CpGs stops even at min_clocks_coverage = 0", {
   DNAm <- random_betas(foreign_panel(c("Hannum", "Horvath1", "EpiTOC")), n = 4L)
   for (id in c("Hannum", "Horvath1", "EpiTOC")) {
-    expect_error(calc_clocks(DNAm, id, min_col_coverage = 0))
+    expect_error(calc_clocks(DNAm, id, min_clocks_coverage = 0))
   }
 })
 
@@ -46,8 +46,7 @@ test_that("a sparse normalization panel warns but still scores (does not stop)",
   model <- clock_scoring_cpgs("DunedinPACE")
 
   keep <- union(model, gold[seq_len(round(0.5 * length(gold)))])
-  # two distinct warnings: the thin background (column gate) and the per-sample
-  # imputation it implies (row gate). Neither may become a stop.
+  # two distinct warnings: thin background (column) and per-sample imputation (row)
   expect_warning(
     expect_warning(
       res <- calc_clocks(random_betas(keep, n = 4L), "DunedinPACE")
@@ -56,12 +55,7 @@ test_that("a sparse normalization panel warns but still scores (does not stop)",
   expect_true(all(is.finite(res$scores[, "DunedinPACE"])))
 })
 
-test_that("min_col_coverage does not gate clocks that clear it", {
-  DNAm <- random_betas(clock_scoring_cpgs("Hannum"), n = 4L)
-  expect_no_error(calc_clocks(DNAm, "Hannum", min_col_coverage = 1))
-})
-
-test_that("clearing min_col_coverage by under 10% warns instead of stopping", {
+test_that("clearing min_clocks_coverage by under 10% warns instead of stopping", {
   cpgs <- clock_scoring_cpgs("Hannum")
 
   keep <- cpgs[seq_len(round(0.78 * length(cpgs)))]
@@ -73,8 +67,7 @@ test_that("clearing min_col_coverage by under 10% warns instead of stopping", {
   expect_silent(calc_clocks(random_betas(cpgs, n = 4L), "Hannum"))
 })
 
-# The row gate is not Dunedin-specific: it reads the record every branch
-# returns, so any clock reporting coverage is checked.
+# row gate reads every branch's coverage record, not just Dunedin
 test_that("an under-covered sample warns on an ordinary linear clock", {
   cpgs <- clock_scoring_cpgs("Hannum")
   DNAm <- random_betas(cpgs, n = 4L)
@@ -83,18 +76,18 @@ test_that("an under-covered sample warns on an ordinary linear clock", {
   expect_warning(res <- calc_clocks(DNAm, "Hannum"))
   expect_true(all(is.finite(res$scores[, "Hannum"])))
 
-  expect_silent(calc_clocks(DNAm, "Hannum", min_row_coverage = 0))
+  expect_silent(calc_clocks(DNAm, "Hannum", min_samples_coverage = 0))
 })
 
-test_that("the warn band scales with min_col_coverage and never fires at full coverage", {
+test_that("the warn band scales with min_clocks_coverage and never fires at full coverage", {
   cpgs <- clock_scoring_cpgs("Hannum")
   keep <- cpgs[seq_len(round(0.78 * length(cpgs)))]
   DNAm <- random_betas(keep, n = 4L)
 
-  expect_silent(calc_clocks(DNAm, "Hannum", min_col_coverage = 0.5))
+  expect_silent(calc_clocks(DNAm, "Hannum", min_clocks_coverage = 0.5))
   expect_silent(calc_clocks(
     random_betas(cpgs, n = 4L),
     "Hannum",
-    min_col_coverage = 1
+    min_clocks_coverage = 1
   ))
 })

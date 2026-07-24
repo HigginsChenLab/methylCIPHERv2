@@ -6,7 +6,7 @@ MC_TAGS <- list(
   mortality = c("GrimAge", "ZhangMortality")
 )
 
-# print the keyword registry; returns it invisibly
+# print the keyword registry (returns it invisibly)
 list_tags <- function() {
   cli::cli_text("Keywords you can pass to {.arg clocks}:")
   for (tag in names(MC_TAGS)) {

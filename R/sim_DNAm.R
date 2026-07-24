@@ -1,13 +1,10 @@
-# n x length(cpgs) U(0,1) beta matrix (seed=NULL = ambient RNG)
-random_betas <- function(cpgs, n = 10L, seed = NULL) {
-  draw <- function() {
-    matrix(
-      stats::runif(n * length(cpgs)),
-      nrow = n,
-      dimnames = list(paste0("sample", seq_len(n)), cpgs)
-    )
-  }
-  if (is.null(seed)) draw() else withr::with_seed(seed, draw())
+# n x length(cpgs) U(0,1) beta matrix over the ambient RNG (unseeded)
+random_betas <- function(cpgs, n = 10L) {
+  matrix(
+    stats::runif(n * length(cpgs)),
+    nrow = n,
+    dimnames = list(paste0("sample", seq_len(n)), cpgs)
+  )
 }
 
 sim_DNAm <- function(

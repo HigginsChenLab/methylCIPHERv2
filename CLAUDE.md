@@ -26,7 +26,7 @@ devtools::test()       # always-on tiers (cohort parity auto-skips if not staged
 devtools::check()      # full R CMD check
 ```
 
-Soft deps (`betanorm`, `duckdb`, `DBI`, `curl`) back specific paths only; tests skip when absent.
+Soft deps (`betanorm`, `duckdb`, `DBI`) back specific paths only; tests skip when absent.
 
 ## Non-negotiable invariants
 
@@ -118,16 +118,22 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
      build-skip cache).
-     - Two **small closed registries** adapt the upstream contract package-side rather than
-       asking upstream to change it: `CUSTOM_GROUPS` (a loader + component declaration for a
-       `custom` group's frozen payload -- MiAge) and `attach_sex_routed_aliases()` (one alias
-       clock per `_group.meta.json` `routing.sex` stem). Both run inside the build so everything
-       downstream sees ordinary catalog entries. Add to a registry; do not add a code path.
+     - **One** small closed registry adapts the upstream contract package-side:
+       `attach_sex_routed_aliases()` (one alias clock per `_group.meta.json` `routing.sex` stem).
+       It runs inside the build so everything downstream sees ordinary catalog entries. Add to the
+       registry; do not add a code path. (A second registry, `CUSTOM_GROUPS`, existed for MiAge's
+       undeclared parameter blob; upstream now declares those tensors as ordinary `components`
+       plus `code_deps`, so it was deleted.)
      - Verify a sync change by **dry-running the build in memory first** (build catalog +
        bundles, diff every panel against the committed `R/sysdata.rda`) before regenerating.
+       `assert_declared_n_cpgs()` is the standing guard: every clock's derived scoring panel must
+       equal its declared `n_cpgs`, with no exemption list.
   3. **External packs** (SystemsAge, PCClocks, PCBrainAge): reuse when `force = FALSE` and
-     `data-raw/assets/lockfile.rds` hits (same `source_git_sha`, every staged pack on disk); else
-     rebuild the three content-addressed `<group>-<payload_hash>.qs2` packs and rewrite the lockfile.
+     `data-raw/assets/lockfile.rds` hits (every external clock's `bundle_hash` unchanged and every
+     staged pack on disk); else rebuild the three content-addressed `<group>-<payload_hash>.qs2`
+     packs and rewrite the lockfile. `bundle_hash` (from `manifest.json`) moves iff that clock's
+     meta or one of its declared artifacts moved -- unlike `source_git_sha`, which moved on every
+     upstream commit and could not say which clock changed.
   4. `upload = TRUE` publishes packs to GitHub Releases; idempotent (content-address + remote
      "asset already present" skip mean unchanged weights are never re-uploaded).
 - **Distribution tiers:** small groups ship **bundled** in `R/sysdata.rda`; the three heavy packs
@@ -156,17 +162,29 @@ output**, not implementation detail (see "Test altitude").
 
 - **Crash smoke (always):** `test-sim-smoke.R` scores every bundled clock in the **callable pool**
   (`resolve_clocks("all")`, not `names(mc_catalog)`) through `sim_DNAm()` + `calc_clocks()` with
-  `expect_no_error`. Cheapest, most refactor-robust net; catches "a clock stopped running" without
-  pinning a value. External clocks excluded (pack-only); routing targets are covered as their
+  `expect_no_error`. External clocks excluded (pack-only); routing targets are covered as their
   alias's dependencies. The pool is **not** filtered by supported-ness -- building it calls
   `score_type()` on every clock, so an unroutable entry fails the tier here.
+  **Its value is not "a clock stopped running"** -- parity proves that over a superset of these
+  clocks. It is the only tier that runs `calc_clocks()` in the **default configuration** (both
+  coverage gates on, full panels, no meta repo), and the only caller of `sim_DNAm()`. Parity
+  scores with `min_clocks_coverage = 0, min_samples_coverage = 0` and is skipped on CRAN, so it
+  can never stand in for this tier (DECISIONS 2026-07-24).
 - **Value goldens (always, no meta dep):** hand-authored engine/machinery unit tests with goldens
   written in-test, one per scoring path (linear sum/mean, sex-split, imputation offset, bundled
   composites). External-pack scoring is smoke-only here; parity owns those goldens.
-- **Cohort-gated parity fixtures** (science gate; only clock-golden source): run against
-  `data-raw/methylCIPHER-meta/fixtures/cohort_EPIC/beta.duckdb`, skipped unless BOTH
-  `MC_PARITY=1` and the cohort is staged (`file.exists()`). Run locally via the dev-only
-  `test_parity()` (`R/dev-utils.R`). CRAN skips this tier; CI must stage the cohort + set the flag.
+- **Cohort-gated parity fixtures** (science gate; only clock-golden source): run against **every
+  registry cohort** -- `data-raw/methylCIPHER-meta/fixtures/{cohort}/beta.duckdb` for
+  `cohort_EPICv1` and `cohort_450K` -- skipped unless BOTH `MC_PARITY=1` and that cohort is staged
+  (`file.exists()`). Upstream ships one `fixtures[]` block per cohort; each (clock, cohort) pair is
+  its own test. Run locally via the dev-only `test_parity()` (`R/dev-utils.R`). CRAN skips this
+  tier; CI must stage the cohorts + set the flag.
+  **Tolerance is ours, and it is read off a declared field, not a clock list.** Upstream retired its
+  `parity` policy (weights_extraction.md sec 12). A fixture whose `server_normalization` is
+  non-empty was produced by the Horvath calculator on betas the *server* normalized (BMIQ / noob);
+  we score raw betas and deliberately vendor no BMIQ gold standard, so those are graded by
+  **correlation**. Every other fixture's oracle saw the same raw betas we do and is held to
+  **exact** tolerance -- that split is the real numeric gate.
 
 ### Test altitude -- keep tests loose enough to move fast
 
@@ -186,12 +204,13 @@ refactor is too tight -- loosen or delete it.
   fixture, that fixture owns the numeric golden and only a smoke stays. In-test re-derivation is
   allowed where parity is still skip-listed -- the only numeric gate meanwhile.
 - **Coverage counts and provenance flags are output** -- asserting
-  `res$coverage$...$score_imputed_full` or `res$provenance$batch_set_id` is fair game.
+  `res$coverage$per_clock[["Hannum"]]$score_imputed_full` or `res$provenance$dependencies` is
+  fair game.
 - **Minimize test-helper files.** A fixture builder/mock lives atop the one test file that uses it;
   promote to `helper-*.R` only when >= 2 files genuinely share it (currently none). `sim_DNAm` /
   `random_betas` are package functions in `R/`, not test helpers.
-- **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`): a single file-scoped
-  read-only connection behind the `MC_PARITY` + `file.exists()` guard, torn down with
+- **Cohort/duckdb parity lives in one file** (`test-fixtures-parity.R`): one file-scoped read-only
+  connection **per staged cohort** behind the `MC_PARITY` + `file.exists()` guard, torn down with
   `withr::defer(..., testthat::teardown_env())` -- not a module-global caching env.
 - **Random inputs are unseeded.** Build DNAm with `random_betas()` (no seed); goldens are computed
   in-test from that same matrix, so they are seed-invariant. Derive the golden from the input, do
@@ -245,6 +264,9 @@ The `dev/` folder is local-only **except** these three, which are tracked:
 - `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals. Add an
   entry when a decision reverses a prior approach or is likely second-guessed; do not restate rules
   already in the plans.
+What upstream declares (coef-path rule, declared-path set, tensor `row_key`/`col_key`, recipe
+operand namespaces, the panel rule) is **not** restated in a `dev/` doc -- `data-raw/sync.R` is
+self-documenting and is the only source for it. Read `sync.R` itself before touching `sync.R`.
 
 Plans state **current truth only** -- superseded design is not annotated inline; its history lives
 solely in `dev/DECISIONS.md`. When code and a plan disagree, the code is truth: fix the plan and

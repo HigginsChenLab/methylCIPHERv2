@@ -1,6 +1,4 @@
-# sex-routed alias: pick the member score matching each sample's sex. The
-# alias's per-sample miss is stitched the same way in compute_coverage; here we
-# only build the score column.
+# sex-routed alias: pick the member score matching each sample's sex
 score_sex_routed <- function(id, results, DNAm, pheno) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)

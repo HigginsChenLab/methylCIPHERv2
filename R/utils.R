@@ -14,13 +14,11 @@ cached_cols <- function(present, partial_cache) {
   }
 }
 
-# observed betas for `present`: cohort-mean-filled columns first, then raw.
-# `values` is n x 0 when nothing is present, which matmuls to a zero column.
+# observed betas for `present`: cohort-mean-filled columns first, then raw
 observed_panel <- function(present, DNAm, partial_cache = NULL) {
   cached <- cached_cols(present, partial_cache)
   raw <- setdiff(present, cached)
   list(
-    cached = cached,
     cols = c(cached, raw),
     values = cbind(
       partial_cache[, cached, drop = FALSE],
@@ -40,6 +38,12 @@ count_sample_miss <- function(DNAm, cached) {
   out
 }
 
+# one panel's per-sample coverage from present/needed scalars and miss counts
+panel_ratio <- function(present, miss, needed) {
+  n_observed <- present - miss
+  list(n_observed = n_observed, cov = n_observed / needed, needed = needed)
+}
+
 # vendor-mean fill for fully absent CpGs
 vendor_offset <- function(coef, absent, ref, id) {
   miss_ref <- setdiff(absent, names(ref))
@@ -55,33 +59,28 @@ vendor_offset <- function(coef, absent, ref, id) {
   sum(coef[absent] * ref[absent])
 }
 
-# one clock's coverage record. `used`, `imputed_full` and `dropped` are counts;
-# the rest derives from the cpg split. Partial-fill counts are per panel:
-# `score_imputed_partial` sums the score-panel miss, `norm_imputed_partial` the
-# norm-panel miss (0 when the clock does not normalize). `normalizes` is the one
-# declared panel fact -- readers must not re-derive it from `norm_needed`.
-coverage_record <- function(
-  cpgs,
-  score_miss,
-  norm_miss = NULL,
-  used,
-  imputed_full = 0L,
-  dropped = 0L,
-  policy = clock_impute(cpgs$clock_id)[["policy"]]
-) {
+# one clock's coverage record (the only writer of record fields)
+coverage_record <- function(cpgs, score_miss, norm_miss = NULL) {
+  policy <- clock_impute(cpgs$clock_id)[["policy"]]
+  fill <- identical(policy, "vendor_mean")
+  n_absent <- length(cpgs$score_absent)
   list(
     clock_id = cpgs$clock_id,
     policy = policy,
     normalizes = isTRUE(cpgs$normalizes),
     score_needed = length(cpgs$score_needed),
     score_present = length(cpgs$score_present),
-    score_used = used,
-    score_imputed_partial = sum(score_miss),
-    score_imputed_full = imputed_full,
-    score_dropped = dropped,
+    score_used = length(cpgs$score_present) + if (fill) n_absent else 0L,
+    score_imputed_partial = sum(score_miss, na.rm = TRUE),
+    score_imputed_full = if (fill) n_absent else 0L,
+    score_dropped = if (fill) 0L else n_absent,
     norm_needed = length(cpgs$norm_needed),
     norm_present = length(cpgs$norm_present),
-    norm_imputed_partial = if (is.null(norm_miss)) 0L else sum(norm_miss),
+    norm_imputed_partial = if (is.null(norm_miss)) {
+      0L
+    } else {
+      sum(norm_miss, na.rm = TRUE)
+    },
     missing_cpgs = cpgs$score_absent
   )
 }

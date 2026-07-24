@@ -9,8 +9,7 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
   model_present <- cpgs$score_present
   model_absent <- cpgs$score_absent
 
-  # PACE: gold QN panel; PoAm: model CpGs. One declared fact drives the panel,
-  # the fill ref, and the row-gate denominator (see resolve_cpgs / row_coverage).
+  # PACE uses the gold QN panel, PoAm the model CpGs
   qn <- isTRUE(cpgs$normalizes)
   if (qn) {
     fill_ref <- dunedin_gold_means(id)

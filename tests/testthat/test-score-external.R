@@ -1,6 +1,6 @@
-# External pack scorers via in-memory assets (closed set; CRAN-safe smoke/shape).
+# external pack scorers via in-memory assets (closed set, CRAN-safe)
 
-# Synthetic packs over a synthetic scoring panel.
+# synthetic packs over a synthetic scoring panel
 
 fake_pcbrainage_pack <- function(cpgs, seed = 42L) {
   withr::with_seed(seed, {
@@ -38,7 +38,7 @@ fake_pcclocks_pack <- function(cpgs, seed = 3L) {
   )
 }
 
-# SystemsAge full pack layout for the family orchestrator.
+# SystemsAge full pack layout for the family orchestrator
 fake_systemsage_pack <- function(cpgs, seed = 1L) {
   order <- systemsage_stack_order("SystemsAge") # 12 labels, stack order
   organs <- setdiff(order, "Age_prediction") # 11 organ labels
@@ -94,7 +94,7 @@ fake_systemsage_pack <- function(cpgs, seed = 1L) {
   )
 }
 
-# Synthetic pack panels (closed set; sizes differ to catch cross-wiring).
+# synthetic pack panels (closed set, sizes differ to catch cross-wiring)
 fake_panel <- function(n) sprintf("cg%08d", seq_len(n))
 
 pcba_cpgs <- fake_panel(400L)
@@ -201,6 +201,38 @@ test_that("calc_clocks() vendor-fills absent SystemsAge CpGs from the pack $impu
   expect_false(anyNA(res$scores))
   cov <- res$coverage$per_clock$Age_prediction
   expect_identical(cov$score_imputed_full, 4L)
-  # used counts the vendor-filled absent CpGs (used = present + imputed_full)
-  expect_identical(cov$score_used, cov$score_present + cov$score_imputed_full)
+})
+
+# accessors over a pack (shares the pack builders above).
+
+test_that("external accessors read the named column and impute vector from the pack", {
+  packs <- list(PCClocks = pcc_pack)
+  expect_identical(
+    clock_coefs("PCADM", packs),
+    stats::setNames(pcc_pack$coefficient_matrix[, "PCADM"], pcc_cpgs)
+  )
+  expect_identical(
+    clock_impute_ref("PCADM", packs),
+    stats::setNames(pcc_pack$impute, pcc_cpgs)
+  )
+})
+
+test_that("external accessors error without the group's pack, or without its column", {
+  expect_error(clock_coefs("PCADM", NULL))
+  expect_error(clock_coefs("PCADM", list()))
+  expect_error(clock_impute_ref("PCADM", list()))
+
+  no_column <- pcc_pack
+  no_column$coefficient_matrix <- no_column$coefficient_matrix[,
+    setdiff(pcc_members, "PCADM"),
+    drop = FALSE
+  ]
+  expect_error(clock_coefs("PCADM", list(PCClocks = no_column)))
+})
+
+test_that("bundled clocks ignore `packs` and still resolve from mc_bundles", {
+  expect_identical(
+    clock_coefs("Hannum"),
+    clock_coefs("Hannum", list(PCClocks = pcc_pack))
+  )
 })

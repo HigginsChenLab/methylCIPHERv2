@@ -1,15 +1,18 @@
-# Cohort-gated golden parity. Requires MC_PARITY=1 and staged EPIC cohort.
+# cohort-gated golden parity (needs MC_PARITY=1 and a staged cohort)
 
 # cohort fixture access
 meta_clone_path <- function(...) {
   testthat::test_path("..", "..", "data-raw", "methylCIPHER-meta", ...)
 }
 
-cohort_beta_db <- function() {
-  meta_clone_path("fixtures", "cohort_EPIC", "beta.duckdb")
+# registry cohorts (scripts/cohorts.py). paths derive from the id.
+PARITY_COHORTS <- c("cohort_EPICv1", "cohort_450K")
+
+cohort_beta_db <- function(cohort) {
+  meta_clone_path("fixtures", cohort, "beta.duckdb")
 }
 
-# Samples x CpGs from the tall beta table.
+# samples x CpGs from the tall beta table
 cohort_betas <- function(con, cpgs) {
   raw <- DBI::dbGetQuery(
     con,
@@ -23,70 +26,84 @@ cohort_betas <- function(con, cpgs) {
   t(mat)
 }
 
-# Cohort pheno: ID + Age + Female (0/1).
-cohort_pheno <- function() {
+# cohort pheno: id, Tissue, Age, Female
+cohort_pheno <- function(cohort) {
   ph <- utils::read.csv(
-    meta_clone_path("fixtures", "cohort_EPIC", "pheno.csv"),
+    meta_clone_path("fixtures", cohort, "pheno.csv"),
     stringsAsFactors = FALSE
   )
   data.frame(
-    ID = ph$sample_id,
-    Age = ph$age,
-    Female = as.integer(tolower(ph$sex) == "female"),
+    ID = ph$id,
+    Age = ph$Age,
+    Female = as.integer(ph$Female),
     stringsAsFactors = FALSE
   )
 }
 
-# Golden scores from the clock's fixture$expected path.
-expected_scores <- function(id) {
-  rel <- clock_fixture(id)$expected
+# golden scores from the clock's fixture block for this cohort
+expected_scores <- function(id, cohort) {
+  rel <- clock_fixture(id, cohort)[["expected"]]
   if (is.null(rel)) {
-    stop("Clock '", id, "' has no fixture$expected path.", call. = FALSE)
+    stop(
+      "Clock '",
+      id,
+      "' has no fixture expected path for ",
+      cohort,
+      call. = FALSE
+    )
   }
   utils::read.csv(gzfile(meta_clone_path(rel)), stringsAsFactors = FALSE)
 }
 
+# grade by correlation when server_normalization is set, else exact
 PARITY_EXACT_TOL <- 1e-6
 PARITY_COR_MIN <- 0.99
 
-# Assert scores vs golden per fixture parity_policy.
-expect_parity <- function(got, id) {
-  policy <- clock_fixture(id)$parity_policy
-  if (identical(policy, "skipped")) {
-    testthat::skip(paste0("fixture parity_policy = 'skipped' for ", id))
-  }
-  exp <- expected_scores(id)
+expect_parity <- function(got, id, cohort) {
+  fx <- clock_fixture(id, cohort)
+  server_norm <- as.character(
+    unlist(fx[["server_normalization"]] %||% character())
+  )
+  exp <- expected_scores(id, cohort)
   aligned <- as.numeric(got[exp$sample_id])
   testthat::expect_false(
     anyNA(aligned),
-    label = paste0(id, ": scored samples missing for some fixture ids")
+    label = paste0(id, "/", cohort, ": scored samples missing for fixture ids")
   )
-  if (identical(policy, "exact")) {
-    mad <- max(abs(aligned - exp$value))
-    testthat::expect_lt(
-      mad,
-      PARITY_EXACT_TOL,
-      label = paste0(id, " max_abs_diff")
-    )
-  } else if (identical(policy, "correlation")) {
+  if (length(server_norm)) {
     cr <- suppressWarnings(stats::cor(aligned, exp$value))
-    testthat::expect_gt(cr, PARITY_COR_MIN, label = paste0(id, " correlation"))
+    testthat::expect_gt(
+      cr,
+      PARITY_COR_MIN,
+      label = paste0(
+        id,
+        "/",
+        cohort,
+        " correlation (server ",
+        paste(server_norm, collapse = "+"),
+        ")"
+      )
+    )
   } else {
-    stop("Unknown parity_policy '", policy, "' for ", id, ".", call. = FALSE)
+    testthat::expect_lt(
+      max(abs(aligned - exp$value)),
+      PARITY_EXACT_TOL,
+      label = paste0(id, "/", cohort, " max_abs_diff")
+    )
   }
 }
 
-# Parity tier flag (gates duckdb, pack scan, and per-test skips).
+# parity tier flag (gates duckdb, pack scan, and per-test skips)
 parity_on <- nzchar(Sys.getenv("MC_PARITY"))
 
-# Cached external packs (empty when tier is off).
+# cached external packs (empty when tier is off)
 cached_pack_groups <- if (parity_on) {
   Filter(function(g) length(mc_cached_files(g)) > 0L, mc_external_groups())
 } else {
   character(0)
 }
 
-# Skip external clocks whose pack is not cached.
+# skip external clocks whose pack is not cached
 skip_if_no_pack <- function(clock_id) {
   if (!clock_is_external(clock_id)) {
     return(invisible())
@@ -98,13 +115,12 @@ skip_if_no_pack <- function(clock_id) {
   )
 }
 
-# One read-only duckdb connection for this file when parity is on and cohort is staged.
-cohort_con <- NULL
+# one read-only duckdb connection per staged cohort, for this file
+cohort_cons <- list()
 if (
   parity_on &&
     requireNamespace("duckdb", quietly = TRUE) &&
-    requireNamespace("DBI", quietly = TRUE) &&
-    file.exists(cohort_beta_db())
+    requireNamespace("DBI", quietly = TRUE)
 ) {
   # duckdb extensions in a throwaway temp dir.
   withr::local_options(
@@ -115,97 +131,130 @@ if (
     ),
     .local_envir = testthat::teardown_env()
   )
-  cohort_con <- DBI::dbConnect(
-    duckdb::duckdb(),
-    cohort_beta_db(),
-    read_only = TRUE
-  )
-  withr::defer(
-    try(DBI::dbDisconnect(cohort_con, shutdown = TRUE), silent = TRUE),
-    envir = testthat::teardown_env()
-  )
+  for (cohort in PARITY_COHORTS) {
+    if (!file.exists(cohort_beta_db(cohort))) {
+      next
+    }
+    con <- DBI::dbConnect(
+      duckdb::duckdb(),
+      cohort_beta_db(cohort),
+      read_only = TRUE
+    )
+    cohort_cons[[cohort]] <- con
+    local({
+      cc <- con
+      withr::defer(
+        try(DBI::dbDisconnect(cc, shutdown = TRUE), silent = TRUE),
+        envir = testthat::teardown_env()
+      )
+    })
+  }
 }
 
-skip_if_no_cohort <- function() {
+skip_if_no_cohort <- function(cohort) {
   testthat::skip_if_not(
     parity_on,
     "parity tier off (set MC_PARITY=1, e.g. via dev test_parity())"
   )
-  testthat::skip_if(is.null(cohort_con), "EPIC cohort fixture not staged")
+  testthat::skip_if(
+    is.null(cohort_cons[[cohort]]),
+    paste0(cohort, " fixture not staged")
+  )
 }
 
-# Known gaps: skip so the suite stays green.
+# known gaps: skip so the suite stays green
 KNOWN_PARITY_GAPS <- c(
-  DNAmADM = "exact-tolerance policy under development (max_abs_diff ~4e-5)",
-  DNAmPACKYRS = "exact-tolerance policy under development (max_abs_diff ~2e-5)",
-  GrimAgeV2 = "exact-tolerance policy under development (max_abs_diff ~7e-6)",
-  DNAmGrip_noAge_Female = "exact-tolerance policy under development (max_abs_diff ~4e-6)",
-  DNAmGrip_wAge_Male = "exact-tolerance policy under development (max_abs_diff ~3e-6)",
-  # The only two FitAge members with any cohort-absent CpG (6 and 3). The
-  # contract is vendor_mean; the horvath_online oracle zero-filled.
-  DNAmGrip_noAge_Male = "oracle zero-filled absent CpGs, contract is sex-median vendor_mean (max_abs_diff ~9)",
-  DNAmGrip_wAge_Female = "oracle zero-filled absent CpGs, contract is sex-median vendor_mean (max_abs_diff ~0.03)",
   Zhang2019 = "sample_scale moments over needed-CpG subset, not full panel; exact parity unreachable"
 )
 
-parity_targets <- function() {
-  ids <- names(mc_catalog)
-  ids <- ids[vapply(ids, function(id) !is.null(clock_fixture(id)), logical(1))]
-  ids[
-    vapply(ids, function(id) clock_fixture(id)$parity_policy, character(1)) !=
-      "skipped"
-  ]
+parity_gap <- function(id, cohort) {
+  key <- paste0(id, "@", cohort)
+  if (key %in% names(KNOWN_PARITY_GAPS)) {
+    return(KNOWN_PARITY_GAPS[[key]])
+  }
+  if (id %in% names(KNOWN_PARITY_GAPS)) {
+    return(KNOWN_PARITY_GAPS[[id]])
+  }
+  NULL
 }
 
-for (id in parity_targets()) {
+# (clock, cohort) pairs upstream declares a fixture for.
+parity_targets <- function() {
+  out <- list()
+  for (id in names(mc_catalog)) {
+    for (fx in clock_fixtures(id) %||% list()) {
+      out[[length(out) + 1L]] <- list(
+        id = id,
+        cohort = as.character(fx[["cohort"]])
+      )
+    }
+  }
+  out
+}
+
+for (target in parity_targets()) {
   local({
-    clock_id <- id
-    test_that(paste0("parity: ", clock_id), {
-      skip_if_no_cohort()
+    clock_id <- target$id
+    cohort <- target$cohort
+    test_that(paste0("parity: ", clock_id, " @ ", cohort), {
+      skip_if_no_cohort(cohort)
       skip_if_no_pack(clock_id)
-      if (clock_id %in% names(KNOWN_PARITY_GAPS)) {
-        skip(paste0("known parity gap -- ", KNOWN_PARITY_GAPS[[clock_id]]))
+      gap <- parity_gap(clock_id, cohort)
+      if (!is.null(gap)) {
+        skip(paste0("known parity gap -- ", gap))
       }
-      # Routed members are scored as their alias's dependency; the fixture is
-      # already restricted to that member's sex, so the column aligns.
+      # routed members scored as their alias's dependency
       routed <- sex_routed_members()$alias
       request <- if (clock_id %in% names(routed)) {
         routed[[clock_id]]
       } else {
         clock_id
       }
-      # Packs carry their group's scoring panel, so resolve them before the union.
+      # packs carry their group's scoring panel -- resolve before the union
       seq_ids <- resolve_clocks_sequence(resolve_clocks(request))
       packs <- load_mc_assets(pack_groups_needed(seq_ids), NULL, FALSE)
       cpgs <- panels_union(clock_panels(seq_ids, packs))
-      DNAm <- cohort_betas(cohort_con, cpgs)
-      # Parity gates numbers, not coverage policy: the cohort under-covers some
-      # panels (e.g. CausAge 420/585) and the oracle saw the same subset.
+      DNAm <- cohort_betas(cohort_cons[[cohort]], cpgs)
+      # parity gates numbers, not coverage policy
       res <- calc_clocks(
         DNAm,
         request,
-        pheno = cohort_pheno(),
+        pheno = cohort_pheno(cohort),
         assets = packs,
-        min_col_coverage = 0,
-        min_row_coverage = 0
+        min_clocks_coverage = 0,
+        min_samples_coverage = 0
       )
-      expect_parity(res$scores[, clock_id], clock_id)
+      # routed member scores land on the alias column for that sex's samples
+      expect_parity(res$scores[, request], clock_id, cohort)
     })
   })
 }
 
-# Both PhysAge composites in one call.
-test_that("PhysAge composites match the author fixtures on the EPIC cohort", {
-  skip_if_no_cohort()
-  members <- mc_groups[["PhysAge"]]$members
-  cpgs <- unique(unlist(lapply(members, clock_scoring_cpgs)))
-  DNAm <- cohort_betas(cohort_con, cpgs)
-  res <- calc_clocks(
-    DNAm,
-    c("DNAmPhysAge", "DNAmPhysAge_years"),
-    min_col_coverage = 0,
-    min_row_coverage = 0
-  )
-  expect_parity(res$scores[, "DNAmPhysAge"], "DNAmPhysAge")
-  expect_parity(res$scores[, "DNAmPhysAge_years"], "DNAmPhysAge_years")
-})
+# both PhysAge composites in one call, per cohort
+for (cohort_i in PARITY_COHORTS) {
+  local({
+    cohort <- cohort_i
+    test_that(
+      paste0("PhysAge composites match the author fixtures @ ", cohort),
+      {
+        skip_if_no_cohort(cohort)
+        members <- mc_groups[["PhysAge"]]$members
+        cpgs <- unique(unlist(lapply(members, clock_scoring_cpgs)))
+        DNAm <- cohort_betas(cohort_cons[[cohort]], cpgs)
+        res <- calc_clocks(
+          DNAm,
+          c("DNAmPhysAge", "DNAmPhysAge_years"),
+          pheno = cohort_pheno(cohort),
+          min_clocks_coverage = 0,
+          min_samples_coverage = 0
+        )
+        expect_parity(res$scores[, "DNAmPhysAge"], "DNAmPhysAge", cohort)
+        expect_parity(
+          res$scores[, "DNAmPhysAge_years"],
+          "DNAmPhysAge_years",
+          cohort
+        )
+      }
+    )
+  })
+}

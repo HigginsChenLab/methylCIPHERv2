@@ -1,10 +1,9 @@
-test_that("did_you_mean puts the intended clock first", {
-  pool <- suggestion_pools()$clock
-  expect_identical(did_you_mean("systemage", pool)[[1L]], "SystemsAge")
-  expect_identical(did_you_mean("phenoage", pool)[[1L]], "PhenoAge")
-  expect_identical(did_you_mean("Zhang", pool)[[1L]], "Zhang2019")
-  expect_identical(did_you_mean("fitage", pool)[[1L]], "DNAmFitAge")
-  expect_identical(did_you_mean("grimage", pool)[[1L]], "GrimAgeV1")
+# rank is pinned on one typo only
+test_that("did_you_mean puts the intended clock first, per namespace", {
+  expect_identical(
+    did_you_mean("systemage", suggestion_pools()$clock)[[1L]],
+    "SystemsAge"
+  )
   expect_identical(
     did_you_mean("grimage", suggestion_pools()$group)[[1L]],
     "GrimAge"
@@ -26,7 +25,8 @@ test_that("case is a suggestion, never a resolution", {
     "SystemsAge"
   )
   expect_error(resolve_clocks("SYSTEMSAGE"))
-  expect_identical(resolve_clocks("PRCPhenoAge"), "PRCPhenoAge")
+  # exact id resolves exactly, and a group token beats a same-named clock
+  expect_identical(resolve_clocks("non_prcPhenoAge"), "non_prcPhenoAge")
   expect_length(resolve_clocks("prcPhenoAge"), 2L)
 })
 
