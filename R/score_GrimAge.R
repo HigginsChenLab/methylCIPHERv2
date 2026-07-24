@@ -1,7 +1,6 @@
 # GrimAgeV1/V2: Cox stack of surrogates + Age/Female, then rescale to years
 score_GrimAge <- function(
   id,
-  cpgs,
   results,
   usable,
   DNAm,
@@ -35,14 +34,12 @@ score_GrimAge <- function(
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
-      comp <- Filter(function(c) identical(c[["name"]], nm), comps)
-      if (length(comp) != 1L) {
-        cli::cli_abort(
-          "{.val {id}} is missing internal surrogate {.val {nm}}.",
-          call = NULL
-        )
-      }
-      comp <- comp[[1]]
+      comp <- only_one(
+        comps,
+        function(c) identical(c[["name"]], nm),
+        paste0("internal surrogate '", nm, "'"),
+        id
+      )
       coef <- bundle_tensor(group_id, comp[["file"]])
       intercept <- if (is.null(comp[["intercept"]])) 0 else comp[["intercept"]]
       lp <- linear_predictor(
@@ -64,35 +61,16 @@ score_GrimAge <- function(
           call = NULL
         )
       }
-      X[, nm] <- as.numeric(r$score)
+      X[, nm] <- as.numeric(r)
     }
   }
 
   cox_score <- X[, stack_names, drop = FALSE] %*% cox
-  score <- score_matrix(
+  score_matrix(
     grimage_rescale(cox_score, grimage_rescale_params(id)),
     sample_id,
     id
   )
-
-  cached <- cached_cols(cpgs$score_present, partial_cache)
-  sample_miss <- count_sample_miss(DNAm, cached)
-
-  coverage <- list(
-    clock_id = id,
-    policy = clock_impute(id)[["policy"]],
-    score_needed = length(cpgs$score_needed),
-    score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_present),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = 0L,
-    score_dropped = length(cpgs$score_absent),
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = cpgs$score_absent
-  )
-
-  list(score = score, coverage = coverage, sample_miss = sample_miss)
 }
 
 # Cox scale -> years

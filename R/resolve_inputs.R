@@ -126,12 +126,22 @@ warn_missing_covariates <- function(
   invisible(names(n_na))
 }
 
-# align pheno to sample_id (id-join, or row-order when positional)
-resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
+# id column + required covariates only; identity lives in the id column, so
+# row names are dropped rather than kept as a second copy
+narrow_pheno <- function(pheno, keep) {
+  out <- pheno[, keep, drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
+# align pheno to sample_id (id-join, or row-order when positional), then
+# narrow to the id column plus the covariates this run actually needs
+resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids, keep) {
   if (is.null(pheno)) {
     return(NULL)
   }
   sample_id <- rownames(DNAm)
+  keep <- unique(c(pheno_id, keep))
 
   if (positional_ids) {
     if (nrow(pheno) != nrow(DNAm)) {
@@ -145,7 +155,7 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
       )
     }
     pheno[[pheno_id]] <- sample_id
-    return(pheno)
+    return(narrow_pheno(pheno, keep))
   }
   missing <- setdiff(sample_id, pheno[[pheno_id]])
   if (length(missing)) {
@@ -158,17 +168,18 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids) {
     )
   }
   pheno <- pheno[match(sample_id, pheno[[pheno_id]]), , drop = FALSE]
-  pheno
+  narrow_pheno(pheno, keep)
 }
 
-# suggestion pools: names are matched, values are recommended tokens
+# suggestion pools: names are matched, values are recommended tokens.
+# The list names label the bullets suggestion_bullets() prints.
 suggestion_pools <- function() {
   routed <- sex_routed_members()
   callable <- setdiff(mc_index[["clock_id"]], names(routed$alias))
   groups <- unique(mc_index[["group_id"]])
   list(
-    clock = c(stats::setNames(callable, callable), routed$alias),
-    group = stats::setNames(groups, groups)
+    groups = stats::setNames(groups, groups),
+    clocks = c(stats::setNames(callable, callable), routed$alias)
   )
 }
 
@@ -178,17 +189,31 @@ did_you_mean <- function(tok, pool, n = 5L) {
   utils::head(unique(unname(pool[order(d, nchar(names(pool)))])), n)
 }
 
-# one unmatched token with nearest groups and clocks
+# nearest-match bullets for unmatched tokens: a single pool renders on one
+# line, several get a token header plus one labelled line each
 suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
   unlist(lapply(toks, function(tok) {
+    hits <- lapply(pools, function(pool) did_you_mean(tok, pool, n))
+    if (length(hits) == 1L) {
+      h <- hits[[1L]]
+      return(c(
+        "*" = cli::format_inline(
+          "{.val {tok}} -- did you mean {.or {.val {h}}}?"
+        )
+      ))
+    }
+    lines <- vapply(
+      names(hits),
+      function(label) {
+        h <- hits[[label]]
+        cli::format_inline("{label}: {.or {.val {h}}}")
+      },
+      character(1L),
+      USE.NAMES = FALSE
+    )
     c(
       "*" = cli::format_inline("{.val {tok}}"),
-      " " = cli::format_inline(
-        "groups: {.or {.val {did_you_mean(tok, pools$group, n)}}}"
-      ),
-      " " = cli::format_inline(
-        "clocks: {.or {.val {did_you_mean(tok, pools$clock, n)}}}"
-      )
+      stats::setNames(lines, rep(" ", length(lines)))
     )
   }))
 }
@@ -252,7 +277,8 @@ resolve_clocks <- function(clocks) {
       if (length(dead)) {
         cli::cli_abort(
           c(
-            "Keyword {.val {tok}} points at missing token{?s}: {.val {dead}}.",
+            "Keyword {.val {tok}} points at {cli::qty(dead)} missing
+             token{?s}: {.val {dead}}.",
             "i" = "This is a package bug -- please report it."
           ),
           call = NULL
@@ -270,7 +296,7 @@ resolve_clocks <- function(clocks) {
     bad <- unique(bad)
     cli::cli_abort(
       c(
-        "{length(bad)} bad input{?s} passed: {.val {bad}}.",
+        "{length(bad)} unknown token{?s} in {.arg clocks}: {.val {bad}}.",
         "i" = "Closest matches:",
         suggestion_bullets(bad),
         "i" = "See {.fn list_clocks} or {.fn list_tags}
@@ -382,7 +408,9 @@ resolve_cpgs <- function(usable_cols, panels) {
       norm_needed = nm$needed,
       norm_present = nm$present,
       norm_absent = nm$absent,
-      norm_scheme = clock_norm_scheme(clock_sequence[[i]])
+      norm_scheme = clock_norm_scheme(clock_sequence[[i]]),
+      # the one declared panel fact: does this clock count over a norm panel?
+      normalizes = length(nm$needed) > 0L
     )
   })
   names(per_clock) <- clock_sequence
@@ -392,7 +420,18 @@ resolve_cpgs <- function(usable_cols, panels) {
     use.names = FALSE
   ))
 
-  list(per_clock = per_clock, present_needed_union = present_needed_union)
+  # distinct-panel parts + per-clock index, so coverage counts each distinct
+  # panel's per-sample miss once and fans out (FitAge/GrimAge share panels)
+  panel_index <- list(
+    score = list(parts = score_parts, idx = panels$score$idx),
+    norm = list(parts = norm_parts, idx = panels$norm$idx)
+  )
+
+  list(
+    per_clock = per_clock,
+    present_needed_union = present_needed_union,
+    panel_index = panel_index
+  )
 }
 
 # pre-score scoring-panel coverage gate
@@ -453,7 +492,8 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         "{length(fail)} clock{?s} {?doesn't/don't} have enough CpGs to score
          ({.arg min_col_coverage} = {format(threshold)}):",
         coverage_bullets(fail),
-        "i" = "Drop them from {.arg clocks}, or lower {.arg min_col_coverage}."
+        "i" = "Drop {cli::qty(fail)}{?it/them} from {.arg clocks}, or lower
+               {.arg min_col_coverage}."
       ),
       call = NULL
     )
@@ -502,28 +542,32 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   invisible(unique(c(names(levels)[levels != ""], names(thin))))
 }
 
-# per-sample observed fraction of a clock's needed panel
-row_coverage <- function(r) {
-  cov <- r[["coverage"]]
-  if (is.null(cov) || is.null(r[["sample_miss"]])) {
+# per-sample observed fraction of a clock's row-gate panel: the norm panel when
+# the clock normalizes (declared fact), else the score panel
+row_coverage <- function(cov, score_miss, norm_miss) {
+  if (is.null(cov)) {
     return(NULL)
   }
-  # same panel sample_miss used (norm when present)
-  qn <- isTRUE(cov[["norm_needed"]] > 0L)
+  qn <- isTRUE(cov[["normalizes"]])
   needed <- if (qn) cov[["norm_needed"]] else cov[["score_needed"]]
   present <- if (qn) cov[["norm_present"]] else cov[["score_present"]]
-  if (!length(needed) || needed == 0L) {
+  miss <- if (qn) norm_miss else score_miss
+  if (is.null(miss) || !length(needed) || needed == 0L) {
     return(NULL)
   }
-  list(cov = (present - r[["sample_miss"]]) / needed, needed = needed)
+  list(cov = (present - miss) / needed, needed = needed)
 }
 
-# post-score per-sample coverage gate (warn only)
-check_row_coverage <- function(results, threshold = 0.75) {
+# per-sample coverage gate (warn only) over the hoisted coverage structure
+check_row_coverage <- function(coverage, threshold = 0.75) {
   checkmate::assert_number(threshold, lower = 0, upper = 1)
 
   line_for <- function(id) {
-    rc <- row_coverage(results[[id]])
+    rc <- row_coverage(
+      coverage$per_clock[[id]],
+      coverage$sample_miss$score[[id]],
+      coverage$sample_miss$norm[[id]]
+    )
     if (is.null(rc)) {
       return(NA_character_)
     }
@@ -542,7 +586,7 @@ check_row_coverage <- function(results, threshold = 0.75) {
     )
   }
 
-  lines <- vapply(names(results), line_for, character(1L))
+  lines <- vapply(names(coverage$per_clock), line_for, character(1L))
   lines <- lines[!is.na(lines)]
   if (length(lines)) {
     cli::cli_warn(

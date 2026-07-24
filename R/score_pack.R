@@ -6,29 +6,13 @@ pack_design <- function(pack, usable, DNAm, partial_cache) {
   hit <- match(panel, usable, 0L) > 0L
   present <- panel[hit]
   absent <- panel[!hit]
-  cached_hit <- if (is.null(partial_cache)) {
-    logical(length(present))
-  } else {
-    match(present, colnames(partial_cache), 0L) > 0L
-  }
-  cached <- present[cached_hit]
-  raw <- present[!cached_hit]
-  X <- cbind(
-    if (length(cached)) partial_cache[, cached, drop = FALSE] else NULL,
-    if (length(raw)) DNAm[, raw, drop = FALSE] else NULL
-  )
-  if (is.null(X)) {
-    X <- matrix(0, nrow = nrow(DNAm), ncol = 0L)
-  }
-  sample_miss <- count_sample_miss(DNAm, cached)
+  obs <- observed_panel(present, DNAm, partial_cache)
   list(
     present = present,
     absent = absent,
-    cached = cached,
-    used = c(cached, raw),
-    X = X,
-    ref = stats::setNames(as.numeric(pack[["impute"]]), pack[["cpgs"]]),
-    sample_miss = sample_miss
+    used = obs$cols,
+    X = obs$values,
+    ref = stats::setNames(as.numeric(pack[["impute"]]), pack[["cpgs"]])
   )
 }
 
@@ -55,8 +39,9 @@ pack_cov_contrib <- function(ids, pheno, n) {
   if (is.null(pheno) || !all(need %in% names(pheno))) {
     cli::cli_abort(
       c(
-        "These pack clocks need pheno column{?s} {.field {need}}.",
-        "i" = "Add {?it/them} to {.arg pheno}."
+        "These pack clocks need {cli::qty(need)} pheno column{?s}
+         {.field {need}}.",
+        "i" = "Add {cli::qty(need)}{?it/them} to {.arg pheno}."
       ),
       call = NULL
     )
@@ -71,28 +56,10 @@ pack_cov_contrib <- function(ids, pheno, n) {
   as.matrix(pheno[, need, drop = FALSE]) %*% Cmat
 }
 
-# coverage record for a vendor-mean pack member
-pack_linear_coverage <- function(cpgs, sample_miss) {
-  list(
-    clock_id = cpgs$clock_id,
-    policy = "vendor_mean",
-    score_needed = length(cpgs$score_needed),
-    score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_present) + length(cpgs$score_absent),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(cpgs$score_absent),
-    score_dropped = 0L,
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = cpgs$score_absent
-  )
-}
-
 # dispatch a pack group to its batched scorer
 score_pack_group <- function(
   group_id,
   ids,
-  cpg_list,
   usable,
   DNAm,
   partial_cache,
@@ -103,7 +70,6 @@ score_pack_group <- function(
     score_type(ids[[1]]),
     pack_systemsage = score_systemsage_group(
       ids,
-      cpg_list,
       usable,
       DNAm,
       partial_cache,
@@ -112,7 +78,6 @@ score_pack_group <- function(
     ),
     pack_linear = score_linear_pack(
       ids,
-      cpg_list,
       usable,
       DNAm,
       partial_cache,
@@ -131,7 +96,6 @@ score_pack_group <- function(
 # coefficient_matrix packs (PCClocks, PCBrainAge)
 score_linear_pack <- function(
   ids,
-  cpg_list,
   usable,
   DNAm,
   partial_cache,
@@ -170,15 +134,7 @@ score_linear_pack <- function(
   names(out) <- ids
   for (id in ids) {
     tf <- resolve_output_transform(clock_output_transform(id))
-    score <- score_matrix(tf(linpred[, id]), sample_id, id)
-    out[[id]] <- list(
-      score = score,
-      coverage = pack_linear_coverage(
-        cpg_list$per_clock[[id]],
-        design$sample_miss
-      ),
-      sample_miss = design$sample_miss
-    )
+    out[[id]] <- score_matrix(tf(linpred[, id]), sample_id, id)
   }
   out
 }

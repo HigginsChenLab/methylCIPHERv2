@@ -40,13 +40,32 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   catalog entry or `stop()`s naming the clock's group / `weights_format` / `computation_type`.
   There is no `"unsupported"` tag and nothing filters on one: a sync that adds a routing pair no
   branch claims must fail the always-on tier, never silently shrink it (see DECISIONS 2026-07-23).
-- **Every branch returns the same record**: `list(score = <n x 1 matrix>, coverage = , sample_miss = )`.
-  The helpers that build it live once in `R/utils.R` (`cached_cols()`, `count_sample_miss()`,
-  `score_matrix()`) -- reuse them in a new branch rather than re-inlining the shape.
-- **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double),
-  `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset). All
-  verbs are methods (`as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, `summary`, ...).
-- **Scores only.** No auto-appended phenotype columns. Align pheno by sample id, never row order.
+- **A branch returns only its score** (`<n x 1 matrix>`), never a coverage record. Coverage/QC
+  depends on no score, so it is computed once upstream of the scoring loop by `compute_coverage()`
+  (`R/coverage.R`), keyed by clock id, and merged in `construct_mc_result()`. Per-sample miss is
+  counted **once per distinct panel** (FitAge/GrimAge reuse panels) and kept **per panel role**:
+  every clock has a score panel; a normalizing clock (only DunedinPACE) also has a norm panel. The
+  counts follow the policy uniformly -- `vendor_mean` fills every absent CpG into the predictor
+  (`used = present + imputed_full`), anything else drops them (`used = present`, `dropped = absent`).
+  Sex-routed aliases keep a `NULL` record and a stitched score-panel miss; routed members are masked
+  to the samples they scored. `coverage_record()` (`R/utils.R`) owns the per-clock record fields --
+  including `normalizes` (**the one declared panel fact**; readers must not re-derive it from
+  `norm_needed`) and the per-panel `score_imputed_partial` / `norm_imputed_partial`.
+  `$coverage$sample_miss` is `list(score = <n x k matrix>, norm = <n x k' matrix over just the
+  normalizing columns>)`. `cached_cols()` / `count_sample_miss()` (integer) / `score_matrix()`
+  remain the shared shape helpers (see DECISIONS 2026-07-24).
+- **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double), `$pheno`,
+  `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
+  Verbs are methods (`print`, `as.matrix`, `as.data.frame`, `[`, `cbind`, `augment`, ...), with
+  three settled exceptions: coverage is the plain `clocks_coverage()` / `samples_coverage()`,
+  **not** `summary()`; `rbind` **refuses**; `citation` / `codebook` are plain functions, since
+  `utils::citation` is not an S3 generic (DECISIONS 2026-07-23, 2026-07-24).
+- **Scores only, and the record remembers its inputs.** `$scores` is scores and
+  `as.data.frame()` is scores plus the id column -- no auto-appended phenotype columns on either.
+  Separately, `$pheno` carries the *aligned* pheno narrowed to the id column plus the covariates
+  the run actually required, so a saved record can answer what was fed in; keeping it off the
+  `as.data.frame()` path is what stops it leaking by accident. Align pheno by sample id, never row
+  order.
 - **Imputation in one place, never crossing sources.** Partial NA on a present probe -> cohort mean
   (shared cache); a fully absent probe -> the clock's vendored ref, or drop by policy.
 - **Accessors are the executable schema.** `calc_clocks` consumes accessors (`get_clock`,
@@ -65,12 +84,20 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 - **Coverage is never reported for a sample it is not true of.** A clock assembled from other
   clocks' scores records coverage **iff every component contributes to every sample**
   (`GrimAgeV1`, `DNAmFitAge_{Sex}` do). Where components are selected per sample -- sex-routed
-  aliases -- the entry is `NULL` and the per-sample column all-`NA`; coverage lives on the
-  components, which appear as their own columns.
-- **The callable pool is not the catalog.** Clocks that exist only as routing targets (the 14
-  sex-resolved DNAmFitAge members) are internal machinery: scored, returned as columns, but a
-  hard error if requested by name, pointing at their alias. The pool, the refusal and its
-  suggestion all derive from one source (`sex_routed_members()`), so they cannot drift.
+  aliases -- **the split is per-sample vs per-panel, not scores vs coverage.** A per-sample
+  quantity routes exactly as the score does, because the row was scored by exactly one member: the
+  alias's `sample_miss` is stitched and real. A per-panel quantity does not, because the two
+  members' panels differ (172 vs 190 CpGs for FitAge) and a count only means something against the
+  panel it was counted over: `per_clock[[alias]]` is `NULL` and those counts stay on the members,
+  which keep `per_clock` rows without having columns. Do not "fill in" that `NULL` with a merged
+  figure; read the member rows for the denominators.
+- **The callable pool is not the catalog, and neither is the output.** Clocks that exist only as
+  routing targets (the 14 sex-resolved DNAmFitAge members) are internal machinery: scored, kept
+  for coverage, **never a score column**, and a hard error if requested by name, pointing at their
+  alias. A sex-routed family returns exactly one column per alias, populated for every sample --
+  never a male column, a female column and NAs. The pool, the refusal, its suggestion and the
+  output filter (`drop_routed_members()`) all derive from one source (`sex_routed_members()`), so
+  they cannot drift.
 - **No network at install/build/check/CRAN test.** Double-precision coefficients only.
 - **No commit SHA / pin as result provenance.** Correctness is proven by fixtures.
 - **No roxygen yet.** Do not write roxygen blocks or run `devtools::document()`; use short `#`
@@ -180,6 +207,27 @@ out set notation.
   `data-raw/*.R`): non-ASCII triggers R CMD check warnings and breaks on Windows encodings.
 - **Default everywhere else** (markdown, commit messages) too, for portability. Some old `dev/*.md`
   lines predate this rule -- do not add more, and prefer ASCII when editing them.
+
+## CLI messages
+
+Every user-facing error, warning and note goes through `cli` (`cli_abort` / `cli_warn` /
+`cli_inform`) with `call = NULL`.
+
+- **Bind every `{?}` plural marker with an explicit `cli::qty()` unless the quantity is the
+  interpolation immediately before it.** cli resolves a marker against the *last interpolated
+  value earlier in the same string*; with none it scans forward and needs exactly one candidate,
+  and the quantity never carries across elements of a `c()` message vector. Get this wrong and
+  the handler itself throws (`Cannot pluralize without a quantity`, `Multiple quantities for
+  pluralization`) **in place of** the real diagnostic. Safe form:
+  `"Add {cli::qty(need)}{?it/them} to {.arg pheno}."`
+- The silent variant is worse than the crash: in
+  `"{.val {id}} needs pheno column{?s} {.field {need}}"` the marker binds to `id`, so it is
+  always singular no matter how many columns are missing. A marker that follows a styled
+  `{.val {x}}` is bound to `x`, not to the vector you meant.
+- **cli reflows whitespace.** A pre-aligned block (a manifest, a table) collapses onto one line
+  when interpolated into a bullet. Emit it as separate bullets, or keep it out of cli entirely --
+  the plain `utils::askYesNo()` consent prompts do the latter on purpose.
+- Tests assert *that* a message errors, never its wording -- see "Test altitude".
 
 ## Comments
 

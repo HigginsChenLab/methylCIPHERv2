@@ -9,8 +9,9 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
   model_present <- cpgs$score_present
   model_absent <- cpgs$score_absent
 
-  # PACE: gold QN panel; PoAm: model CpGs
-  qn <- identical(clock_norm_scheme(id), "quantile")
+  # PACE: gold QN panel; PoAm: model CpGs. One declared fact drives the panel,
+  # the fill ref, and the row-gate denominator (see resolve_cpgs / row_coverage).
+  qn <- isTRUE(cpgs$normalizes)
   if (qn) {
     fill_ref <- dunedin_gold_means(id)
     panel_needed <- cpgs$norm_needed
@@ -25,9 +26,7 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
 
   score <- score_matrix(NA_real_, sample_id, id)
 
-  cached <- cached_cols(panel_present, partial_cache)
-  raw_cols <- setdiff(panel_present, cached)
-  sample_miss <- count_sample_miss(DNAm, cached)
+  obs <- observed_panel(panel_present, DNAm, partial_cache)
 
   panel <- matrix(
     0,
@@ -35,11 +34,8 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
     ncol = length(panel_needed),
     dimnames = list(sample_id, panel_needed)
   )
-  if (length(cached)) {
-    panel[, cached] <- partial_cache[, cached, drop = FALSE]
-  }
-  if (length(raw_cols)) {
-    panel[, raw_cols] <- DNAm[, raw_cols, drop = FALSE]
+  if (length(obs$cols)) {
+    panel[, obs$cols] <- obs$values
   }
   if (length(panel_absent)) {
     panel[, panel_absent] <- rep(fill_ref[panel_absent], each = n)
@@ -68,20 +64,5 @@ score_Dunedin <- function(id, cpgs, DNAm, partial_cache = NULL) {
   score[, 1] <- as.numeric(
     intercept + scored[, model_needed, drop = FALSE] %*% coef[model_needed]
   )
-
-  coverage <- list(
-    clock_id = id,
-    policy = clock_impute(id)[["policy"]],
-    score_needed = length(model_needed),
-    score_present = length(model_present),
-    score_used = length(model_needed),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(model_absent),
-    score_dropped = 0L,
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = model_absent
-  )
-
-  list(score = score, coverage = coverage, sample_miss = sample_miss)
+  score
 }

@@ -61,7 +61,7 @@ calc_clocks(DNAm, clocks, pheno = NULL, ...)
     external / custom   # MiAge
   mask routing targets  # blank rows a one-sex model does not apply to
   assemble              # mc_result record: scores + coverage + provenance
-summary(result)         # data.frame from coverage (free if scorers recorded it)
+clocks_coverage(result) / samples_coverage(result)  # data.frames from coverage
 augment(result, data)   # join scores to analysis tables
 ```
 
@@ -84,7 +84,8 @@ profiling says so.
 `message()` (not a warning) that its moments are computed over all CpGs but a big-enough subset
 usually suffices. No generic flagged-clock warning; not on every call.
 
-Details, imputation table, coverage/`summary()`, GrimAge pack policy, batch rules ->
+Details, imputation table, coverage/`clocks_coverage()`+`samples_coverage()`, GrimAge pack policy,
+batch rules ->
 [`detail-plan.md`](detail-plan.md).
 
 ---
@@ -95,15 +96,19 @@ Details, imputation table, coverage/`summary()`, GrimAge pack policy, batch rule
 |---|---|
 | `list_clocks()` / `get_clock()` / `get_clock_probes()` | Discover and inspect |
 | `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Score -> `mc_result` record |
-| `summary(x)` | Coverage table (per-role needed / used / imputed / missing) |
+| `clocks_coverage(x)` | Per-clock coverage table (per-role needed / used / imputed / missing) |
+| `samples_coverage(x)` | Per-(sample, clock, panel) coverage table (long; carries per-row denominators) |
 | `augment()` | Join scores to phenotype / analysis data |
 | `clear_mc_cache()` + download helpers | Heavy assets |
 | Optional legacy `calc*()` | Thin -> `calc_clocks`; not the engine |
 
 `calc_clocks()` returns an S3 record over `list` (class `"mc_result"`): `$scores` (n x k
-double), `$coverage`, `$provenance`. Verbs are methods (`as.matrix`, `as.data.frame`, `[`,
-`cbind`, `augment`, `summary`, `codebook`, `citation`, `print`) -- so subsetting never
-silently drops coverage/provenance. Results are **scores only** (no auto-appended pheno). Align
+double), `$pheno`, `$coverage`, `$provenance`. Verbs are methods (`print`, `as.matrix`,
+`as.data.frame`, `[`, `cbind`, `augment`) -- so subsetting never silently drops
+coverage/provenance; `rbind` refuses, and `clocks_coverage()` / `samples_coverage()` / `codebook()`
+/ `citation()` are plain functions (detail-plan sec 1.3). `$scores` and `as.data.frame()` are **scores only** (no
+auto-appended pheno); `$pheno` separately retains the aligned id column plus required
+covariates, which is what `augment()` reads. Align
 pheno by sample id, never row order. `rownames(DNAm)` is the canonical sample id; rowname-less
 DNAm gets inline positional ids (`sample1..N`) unless `allow_positional_ids = FALSE`, and such
 records are refused by `cbind` (footgun closed at the bind step, not the front door). Canonical
@@ -115,17 +120,22 @@ structural test -- not a hand-written schema doc. Accessors read the catalog wit
 Covariate requirements are one flattened catalog field, read once, never re-derived in the
 scoring path.
 
-**Callable pool != catalog.** Some clock_ids exist only as routing targets: the 14 sex-resolved
-DNAmFitAge members are scored and returned as columns, but requesting one by name is a hard error
-naming its alias (`DNAmGrip_wAge_Female` -> use `DNAmGrip_wAge`), because a one-sex model returns
-a plausible number for the other sex rather than failing. `"all"` and group ids expand to
-callables only. A planned discovery helper (available options + Levenshtein "did you mean") reads
-the same routing tables, so the pool, the refusal and the suggestion cannot drift apart.
+**Callable pool != catalog, and neither is the output.** Some clock_ids exist only as routing
+targets: the 14 sex-resolved DNAmFitAge members are scored but never returned as columns, and
+requesting one by name is a hard error naming its alias (`DNAmGrip_wAge_Female` -> use
+`DNAmGrip_wAge`), because a one-sex model returns a plausible number for the other sex rather than
+failing. A sex-routed family is one column per alias, filled for every sample. `"all"` and group
+ids expand to callables only. A planned discovery helper (available options + Levenshtein "did you
+mean") reads the same routing tables, so the pool, the refusal, the suggestion and the output
+filter cannot drift apart.
 
 **Coverage never describes a sample it is not true of.** A clock assembled from other clocks'
 scores reports coverage only when every component contributes to every sample; a sex-routed alias
-therefore reports none (its members cover disjoint halves of the cohort) and coverage stays on
-the members -> [`detail-plan.md`](detail-plan.md) sec 4.
+therefore reports no panel counts (its members cover disjoint halves of the cohort, with
+different-sized panels) and those stay on the member rows, which survive without columns. **What
+crosses the routing split is per-sample, not per-panel**: the score and the per-sample
+`sample_miss` route to the member that scored each row, while a count that is only readable
+against its panel stays on that panel's row -> [`detail-plan.md`](detail-plan.md) sec 4.
 
 ---
 
@@ -161,7 +171,7 @@ CRAN skips it. Details -> [`detail-plan.md`](detail-plan.md) sec 10.
 ## Implementation sequence (high level)
 
 1. Accessor layer over `sysdata` (executable schema) + catalog readers.
-2. Prepare path + result record + `summary()`.
+2. Prepare path + result record + `clocks_coverage()` / `samples_coverage()`.
 3. Linear engine + impute policies + fixture batch for `cpg_coefficient`.
 4. Zhang-style pre-transform into linear engine.
 5. GrimAge / SystemsAge orchestrators; then other packs as needed.

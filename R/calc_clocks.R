@@ -92,11 +92,16 @@ calc_clocks <- function(
 ) {
   clock_ids <- resolve_clocks(clocks)
   clock_sequence <- resolve_clocks_sequence(clock_ids)
-  output_ids <- c(clock_ids, setdiff(clock_sequence, clock_ids))
-  check_DNAm(DNAm)
+  # routed members are internal machinery: scored, but never a score column
+  output_ids <- drop_routed_members(c(
+    clock_ids,
+    setdiff(clock_sequence, clock_ids)
+  ))
   checkmate::assert_number(min_row_coverage, lower = 0, upper = 1)
 
-  positional_ids <- is.null(rownames(DNAm))
+  # stamp positional ids first -- check_DNAm() requires rownames. A non-matrix
+  # skips the stamp so check_DNAm() reports it rather than the assignment.
+  positional_ids <- is.matrix(DNAm) && is.null(rownames(DNAm))
   if (positional_ids) {
     if (!allow_positional_ids) {
       cli::cli_abort(
@@ -110,18 +115,24 @@ calc_clocks <- function(
     }
     rownames(DNAm) <- paste0("sample", seq_len(nrow(DNAm)))
   }
+  check_DNAm(DNAm)
   sample_id <- rownames(DNAm)
   resolve_DNAm_extra(clock_sequence)
 
+  # the one covariate union: gates the pheno check, narrows the carried
+  # pheno, and is stamped as provenance
   extra_columns <- unique(unlist(lapply(
     clock_sequence,
     clock_covariates_required
   )))
+  if (is.null(extra_columns)) {
+    extra_columns <- character(0)
+  }
   if (length(extra_columns) && is.null(pheno)) {
     cli::cli_abort(
       c(
-        "These clocks need pheno column{?s} {.field {extra_columns}},
-         but {.arg pheno} is missing.",
+        "These clocks need {cli::qty(extra_columns)} pheno column{?s}
+         {.field {extra_columns}}, but {.arg pheno} is missing.",
         "i" = "Pass a pheno table with {cli::qty(extra_columns)}
                {?that/those} column{?s}."
       ),
@@ -135,7 +146,7 @@ calc_clocks <- function(
     positional = positional_ids,
     sample_id = sample_id
   )
-  pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids)
+  pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids, extra_columns)
 
   packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
 
@@ -148,6 +159,19 @@ calc_clocks <- function(
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
   )
 
+  # coverage/QC needs no score: compute it once, keyed by clock id
+  coverage <- compute_coverage(
+    clock_sequence,
+    cpg_list,
+    DNAm,
+    partial_cache,
+    pheno
+  )
+  # gate every clock actually computed -- a routed member's panel is the one
+  # that carries the alias's samples, and it has no column of its own
+  check_row_coverage(coverage, min_row_coverage)
+
+  # scoring loop returns score matrices only; coverage was hoisted above
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
 
@@ -159,7 +183,6 @@ calc_clocks <- function(
       grp <- score_pack_group(
         g,
         pack_ids[pgroups == g],
-        cpg_list,
         mna$usable_cols,
         DNAm,
         partial_cache,
@@ -177,20 +200,13 @@ calc_clocks <- function(
       linear = linear_score(cpgs, DNAm, partial_cache, pheno, packs),
       GrimAge = score_GrimAge(
         p,
-        cpgs,
         results,
         mna$usable_cols,
         DNAm,
         partial_cache,
         pheno
       ),
-      DNAmFitAge = score_DNAmFitAge(
-        p,
-        cpgs,
-        results,
-        DNAm,
-        partial_cache
-      ),
+      DNAmFitAge = score_DNAmFitAge(p, results, DNAm),
       PhysAge = score_PhysAge(p, cpgs, DNAm, partial_cache),
       Dunedin = score_Dunedin(p, cpgs, DNAm, partial_cache),
       EpiTOC2 = score_EpiTOC2(p, cpgs, DNAm, partial_cache),
@@ -205,11 +221,8 @@ calc_clocks <- function(
     )
   }
 
-  results <- mask_routed_members(results, clock_sequence, pheno)
-  check_row_coverage(results[output_ids], min_row_coverage)
-
   batch_set_id <- if (
-    any(vapply(output_ids, clock_batch_dependent, logical(1)))
+    any(vapply(clock_sequence, clock_batch_dependent, logical(1)))
   ) {
     digest::digest(sort(sample_id))
   } else {
@@ -217,57 +230,78 @@ calc_clocks <- function(
   }
 
   construct_mc_result(
-    results[output_ids],
+    results,
+    coverage,
     output_ids,
     clock_ids,
     sample_id,
     positional_ids,
-    batch_set_id
+    pheno = pheno,
+    pheno_id = pheno_id,
+    covariates_used = extra_columns,
+    batch_set_id = batch_set_id
   )
 }
 
-# stack scorer outputs into mc_result
+# n x length(ids) per-sample miss matrix; a NULL entry (no such panel) is NA
+miss_matrix <- function(miss_list, ids, sample_id) {
+  m <- matrix(
+    NA_integer_,
+    nrow = length(sample_id),
+    ncol = length(ids),
+    dimnames = list(sample_id, ids)
+  )
+  for (id in ids) {
+    v <- miss_list[[id]]
+    if (!is.null(v)) {
+      m[, id] <- v
+    }
+  }
+  m
+}
+
+# stack scorer outputs into mc_result. `results` are the per-clock score
+# matrices; `coverage` is the hoisted structure keyed by clock id. `output_ids`
+# are the ones that get a score column -- coverage is kept for every clock
+# computed, so a routed member still reports the panel its alias's samples used.
 construct_mc_result <- function(
   results,
+  coverage,
   output_ids,
   requested_ids,
   sample_id,
   positional_ids,
+  pheno = NULL,
+  pheno_id = "ID",
+  covariates_used = character(0),
   batch_set_id = NULL
 ) {
-  scores <- do.call(cbind, lapply(results, function(r) r$score))
+  scores <- do.call(cbind, results[output_ids])
   dimnames(scores) <- list(sample_id, output_ids)
 
-  # NULL coverage -> all-NA sample QC column
-  per_clock <- lapply(results, function(r) r$coverage)
-  names(per_clock) <- output_ids
-  sample_miss <- do.call(
-    cbind,
-    lapply(results, function(r) {
-      if (is.null(r$sample_miss)) {
-        rep(NA_integer_, length(sample_id))
-      } else {
-        r$sample_miss
-      }
-    })
+  # NULL coverage (aliases) stays a key. sample_miss is per panel: a score
+  # matrix over every column, and a norm matrix over just the columns whose
+  # clock normalizes (a NULL norm entry means no norm panel).
+  per_clock <- coverage$per_clock
+  norm_ids <- output_ids[vapply(
+    output_ids,
+    function(id) !is.null(coverage$sample_miss$norm[[id]]),
+    logical(1L)
+  )]
+  sample_miss <- list(
+    score = miss_matrix(coverage$sample_miss$score, output_ids, sample_id),
+    norm = miss_matrix(coverage$sample_miss$norm, norm_ids, sample_id)
   )
-  dimnames(sample_miss) <- list(sample_id, output_ids)
-
-  covariates_used <- unique(unlist(
-    lapply(output_ids, clock_covariates_required),
-    use.names = FALSE
-  ))
-  if (is.null(covariates_used)) {
-    covariates_used <- character(0)
-  }
 
   structure(
     list(
       scores = scores,
+      pheno = pheno,
       coverage = list(per_clock = per_clock, sample_miss = sample_miss),
       provenance = list(
         sample_id = sample_id,
         positional_ids = positional_ids,
+        pheno_id = pheno_id,
         clocks = output_ids,
         requested = requested_ids,
         dependencies = setdiff(output_ids, requested_ids),
