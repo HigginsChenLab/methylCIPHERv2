@@ -268,7 +268,7 @@ resolve_clocks <- function(clocks) {
         cli::cli_abort(
           c(
             "Keyword {.val {tok}} points at {cli::qty(dead)} missing
-             token{?s}: {.val {dead}}.",
+             input{?s}: {.val {dead}}.",
             "i" = "This is a package bug -- please report it."
           ),
           call = NULL
@@ -286,7 +286,7 @@ resolve_clocks <- function(clocks) {
     bad <- unique(bad)
     cli::cli_abort(
       c(
-        "{length(bad)} unknown token{?s} in {.arg clocks}: {.val {bad}}.",
+        "{length(bad)} unknown input{?s} in {.arg clocks}: {.val {bad}}.",
         "i" = "Closest matches:",
         suggestion_bullets(bad),
         "i" = "See {.fn list_clocks} or {.fn list_tags}
