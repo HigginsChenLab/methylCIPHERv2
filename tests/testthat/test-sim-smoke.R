@@ -1,9 +1,7 @@
-# Crash-smoke: every bundled, supported clock scores on random betas without error.
+# crash-smoke: every bundled callable clock scores on random betas without error
 
 bundled_smoke_clocks <- function() {
-  # Callable pool only (routed members exercise via their alias). No
-  # supported-ness filter: score_type() errors on an unroutable clock, so a
-  # catalog gap fails the tier loudly instead of shrinking it.
+  # callable pool only (routed members exercise via their alias)
   ids <- resolve_clocks("all")
   ids[!vapply(ids, clock_is_external, logical(1))]
 }

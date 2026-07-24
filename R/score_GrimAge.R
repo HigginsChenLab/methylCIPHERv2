@@ -34,10 +34,10 @@ score_GrimAge <- function(
       }
       X[, nm] <- as.numeric(pheno[[nm]])
     } else if (startsWith(nm, "_internal_")) {
-      comp <- only_one(
+      comp <- pick_one(
         comps,
         function(c) identical(c[["name"]], nm),
-        paste0("internal surrogate '", nm, "'"),
+        sprintf("internal surrogate components named '%s'", nm),
         id
       )
       coef <- bundle_tensor(group_id, comp[["file"]])

@@ -53,7 +53,7 @@ are optimized implementations of that contract.
 calc_clocks(DNAm, clocks, pheno = NULL, ...)
   prepare once          # DNAm check, pheno align-by-ID, covariate requirements
   resolve requests      # callable pool only; group ids expand; routing targets refused
-  expand deps           # transitive depends_on_clocks, deps first
+  expand deps           # transitive clock_inputs (recipe `inputs`), deps first
   route each unit on (weights_format, computation_type):
     linear engine       # most cpg_coefficient (+ optional pre-transforms)
     family packs        # GrimAge, SystemsAge, Dunedin (shared intermediates; not generic)
@@ -71,7 +71,7 @@ augment(result, data)   # join scores to analysis tables
 | **Transform modules** | e.g. Zhang `sample_scale`: row moments on **full** matrix, apply to coef subset only |
 | **Family orchestrators** | GrimAge / SystemsAge / DNAmFitAge composite: pack UX, shared work, multi-column return |
 | **Sex-routed aliases** | The 7 DNAmFitAge stems: no weights of their own; select a member per sample |
-| **One-offs** | `external_package`, `custom` (MiAge) |
+| **One-offs** | `custom` (MiAge) -- `external_package` was retired upstream 2026-07-24 and left zero metas |
 
 Packs may own their orchestration (shared intermediates, column assembly) but call the shared
 linear/impute helpers for every linear sub-step -- imputation lives in exactly one place.
@@ -109,9 +109,9 @@ coverage/provenance; `rbind` refuses, and `clocks_coverage()` / `samples_coverag
 / `citation()` are plain functions (detail-plan sec 1.3). `$scores` and `as.data.frame()` are **scores only** (no
 auto-appended pheno); `$pheno` separately retains the aligned id column plus required
 covariates, which is what `augment()` reads. Align
-pheno by sample id, never row order. `rownames(DNAm)` is the canonical sample id; rowname-less
-DNAm gets inline positional ids (`sample1..N`) unless `allow_positional_ids = FALSE`, and such
-records are refused by `cbind` (footgun closed at the bind step, not the front door). Canonical
+pheno by sample id, never row order. `rownames(DNAm)` is the canonical sample id and is
+**mandatory** -- rowname-less DNAm is a hard error that hands the caller the one-liner to name
+anonymous rows themselves; the package never manufactures ids (DECISIONS 2026-07-24). Canonical
 covariates: `Age`, `Female` (0/1).
 
 The sysdata schema is the **accessor layer** (`get_clock`, `clock_scoring_cpgs`, ...) plus a
@@ -150,9 +150,10 @@ No install/check-time network. Sync via `data-raw/sync.R` (a gitignored `lockfil
 external-pack rebuild; not a product pin).
 
 Where the upstream contract does not match what a caller needs, sync adapts it in a **small closed
-registry** rather than pushing a change upstream or adding a runtime code path: `CUSTOM_GROUPS`
-(MiAge's frozen payload) and `attach_sex_routed_aliases()` (one alias per `routing.sex` stem).
-Both emit ordinary catalog entries, so nothing downstream is special-cased.
+registry** rather than adding a runtime code path. One remains: `attach_sex_routed_aliases()` (one
+alias per `routing.sex` stem), emitting ordinary catalog entries so nothing downstream is
+special-cased. `CUSTOM_GROUPS` (MiAge's frozen payload) is gone -- upstream now declares those
+tensors, which is the better fix. See [`sync-boundary-migration.md`](sync-boundary-migration.md).
 
 ---
 
@@ -161,7 +162,7 @@ Both emit ordinary catalog entries, so nothing downstream is special-cased.
 | Tier | Runs where | Job |
 |---|---|---|
 | Engine units + `sim_DNAm` smoke | Always (no meta dependency) | `linear_score` arithmetic, impute accounting, accessors, coverage math, result methods (golden values hand-authored in-test); plus `sim_DNAm` `expect_no_error` over every shipped clock |
-| Parity fixtures | `MC_PARITY=1` + cohort staged (`file.exists` gate); dev `test_parity()` | Upstream golden fixtures vs `cohort_EPIC/beta.duckdb` -- the single clock-golden source |
+| Parity fixtures | `MC_PARITY=1` + cohort staged (`file.exists` gate); dev `test_parity()` | Upstream golden fixtures vs **every registry cohort** (`cohort_EPICv1`, `cohort_450K`) -- the single clock-golden source. Tolerance is ours: exact, or correlation where the fixture's `server_normalization` says the oracle saw server-normalized betas |
 
 No shipped slice of the golden cohort (it would drift). CI may stage the cohort and run parity;
 CRAN skips it. Details -> [`detail-plan.md`](detail-plan.md) sec 10.

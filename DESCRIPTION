@@ -16,21 +16,19 @@ Depends:
 Imports:
     checkmate,
     cli,
-    digest,
     fs,
     matrixStats,
     qs2,
-    rlang,
     slideimp,
     stats,
     tools,
-    utils,
-    withr
+    utils
 Suggests:
     betanorm,
     DBI,
     duckdb,
-    testthat (>= 3.0.0)
+    testthat (>= 3.0.0),
+    withr
 Remotes:
     hhp94/betanorm
 biocViews:

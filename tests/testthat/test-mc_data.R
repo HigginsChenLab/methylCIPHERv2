@@ -1,6 +1,6 @@
-# External clock-data cache tests (file://; live network opt-in).
+# external clock-data cache tests (file://, live network opt-in)
 
-# Fake external pack on disk; returns its provenance row.
+# fake external pack on disk, returns its provenance row
 fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   if (is.null(payload)) {
     payload <- list(
@@ -32,7 +32,7 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   )
 }
 
-# Mock provenance registry + file:// download URLs.
+# mock provenance registry + file:// download URLs
 local_fake_registry <- function(rows, .env = parent.frame()) {
   if (!is.null(rows$group_id)) {
     rows <- stats::setNames(list(rows), rows$group_id)
@@ -174,11 +174,11 @@ test_that("clear_mc_cache() removes cached packs only on explicit consent", {
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
 
-  # Nothing cached: reports and is a no-op.
+  # nothing cached: reports and is a no-op
   expect_message(clear_mc_cache(assets = cache))
 
   suppressMessages(mc_data_download(assets = cache, ask = FALSE))
-  # Unprompted deletion is refused non-interactively; the file survives.
+  # unprompted deletion is refused non-interactively (file survives)
   expect_error(clear_mc_cache(assets = cache))
   expect_true(file.exists(file.path(cache, row$file)))
 
@@ -199,7 +199,7 @@ test_that("download -> load -> clear round trips and leaves the cache empty", {
   expect_true(all(file.exists(paths)))
   expect_false(any(grepl(".part", list.files(cache), fixed = TRUE)))
 
-  # Cached: loads from disk, needs no consent even with ask = TRUE.
+  # cached: loads from disk, needs no consent even with ask = TRUE
   packs <- load_mc_assets("all")
   expect_named(packs, c("GroupA", "GroupB"))
   expect_identical(packs[["GroupA"]], a$.payload)
@@ -211,8 +211,11 @@ test_that("download -> load -> clear round trips and leaves the cache empty", {
   expect_length(mc_cached_files("all"), 0)
   expect_length(list.files(cache), 0)
 
-  # Really gone: the next load would have to download, so it refuses.
+  # really gone: the next load would have to download, so it refuses
   expect_error(load_mc_assets("all"))
+
+  # an empty request stays empty (it is not "all")
+  expect_length(load_mc_assets(character(0)), 0)
 })
 
 test_that("a non-path `assets` errors instead of silently hitting the cache dir", {
@@ -224,9 +227,7 @@ test_that("a non-path `assets` errors instead of silently hitting the cache dir"
   staged <- file.path(cache, row$file)
   expect_true(file.exists(staged))
 
-  # A loaded pack is a legal `assets` for load_mc_assets() but names no
-  # directory; the cache verbs must reject it, not fall back to the resolved
-  # cache dir and delete what is there.
+  # a loaded pack names no directory -- cache verbs must reject it
   pack <- row$.payload
   expect_error(clear_mc_cache(assets = pack, ask = FALSE))
   expect_error(mc_data_download(assets = pack, ask = FALSE))
@@ -257,18 +258,6 @@ test_that("`ask` is a strict flag -- only FALSE consents", {
     expect_error(clear_mc_cache(ask = bad))
   }
   expect_true(file.exists(staged)) # and nothing deleted under one either
-})
-
-test_that("load_mc_assets() resolves groups = 'all'", {
-  dir <- withr::local_tempdir()
-  a <- fake_asset(dir, group = "GroupA")
-  b <- fake_asset(dir, group = "GroupB")
-  local_fake_registry(stats::setNames(list(a, b), c("GroupA", "GroupB")))
-
-  packs <- load_mc_assets("all", assets = list(a$.payload, b$.payload))
-  expect_named(packs, c("GroupA", "GroupB"))
-  # An empty request stays empty (it is not "all").
-  expect_length(load_mc_assets(character(0)), 0)
 })
 
 test_that("the real PCBrainAge release asset downloads and verifies", {

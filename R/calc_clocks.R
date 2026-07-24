@@ -13,13 +13,14 @@ unroutable <- function(p, gid, wf, ct) {
 
 # scorer tag for calc_clocks() dispatch
 score_type <- function(p) {
+  # package-minted aliases route on `kind` before weights_format / computation_type
+  if (identical(clock_kind(p), "sex_routed_alias")) {
+    return("sex_routed")
+  }
+
   ct <- clock_type(p)
   wf <- clock_weights_format(p)
   gid <- clock_group_id(p)
-
-  if (identical(ct, "sex_routed")) {
-    return("sex_routed")
-  }
 
   if (clock_is_external(p)) {
     if (identical(gid, "SystemsAge")) {
@@ -84,9 +85,8 @@ calc_clocks <- function(
   clocks,
   pheno = NULL,
   pheno_id = "ID",
-  allow_positional_ids = TRUE,
-  min_col_coverage = 0.75,
-  min_row_coverage = 0.75,
+  min_clocks_coverage = 0.75,
+  min_samples_coverage = 0.75,
   assets = NULL,
   ask = TRUE
 ) {
@@ -97,24 +97,9 @@ calc_clocks <- function(
     clock_ids,
     setdiff(clock_sequence, clock_ids)
   ))
-  checkmate::assert_number(min_row_coverage, lower = 0, upper = 1)
+  checkmate::assert_number(min_samples_coverage, lower = 0, upper = 1)
 
-  # stamp positional ids first -- check_DNAm() requires rownames. A non-matrix
-  # skips the stamp so check_DNAm() reports it rather than the assignment.
-  positional_ids <- is.matrix(DNAm) && is.null(rownames(DNAm))
-  if (positional_ids) {
-    if (!allow_positional_ids) {
-      cli::cli_abort(
-        c(
-          "DNAm has no rownames.",
-          "i" = "Set them, or pass {.code allow_positional_ids = TRUE}
-                 to use sample1..sampleN."
-        ),
-        call = NULL
-      )
-    }
-    rownames(DNAm) <- paste0("sample", seq_len(nrow(DNAm)))
-  }
+  # sample ids are the DNAm rownames -- mandatory, enforced by check_DNAm().
   check_DNAm(DNAm)
   sample_id <- rownames(DNAm)
   resolve_DNAm_extra(clock_sequence)
@@ -143,17 +128,16 @@ calc_clocks <- function(
     pheno,
     ID = pheno_id,
     extra_columns = extra_columns,
-    positional = positional_ids,
     sample_id = sample_id
   )
-  pheno <- resolve_pheno(DNAm, pheno, pheno_id, positional_ids, extra_columns)
+  pheno <- resolve_pheno(DNAm, pheno, pheno_id, extra_columns)
 
   packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
 
   panels <- clock_panels(clock_sequence, packs)
   mna <- scan_missing_cpgs(DNAm, panels_union(panels))
   cpg_list <- resolve_cpgs(mna$usable_cols, panels)
-  check_coverage(cpg_list, min_col_coverage)
+  check_coverage(cpg_list, min_clocks_coverage)
   partial_cache <- build_partial_cache(
     DNAm,
     intersect(cpg_list$present_needed_union, mna$partial_na_cols)
@@ -167,11 +151,10 @@ calc_clocks <- function(
     partial_cache,
     pheno
   )
-  # gate every clock actually computed -- a routed member's panel is the one
-  # that carries the alias's samples, and it has no column of its own
-  check_row_coverage(coverage, min_row_coverage)
+  # row-gate every clock actually computed (including routed members)
+  check_row_coverage(coverage, min_samples_coverage)
 
-  # scoring loop returns score matrices only; coverage was hoisted above
+  # scoring loop returns score matrices only -- coverage was computed above
   results <- vector("list", length(clock_sequence))
   names(results) <- clock_sequence
 
@@ -221,29 +204,19 @@ calc_clocks <- function(
     )
   }
 
-  batch_set_id <- if (
-    any(vapply(clock_sequence, clock_batch_dependent, logical(1)))
-  ) {
-    digest::digest(sort(sample_id))
-  } else {
-    NULL
-  }
-
   construct_mc_result(
     results,
     coverage,
     output_ids,
     clock_ids,
     sample_id,
-    positional_ids,
     pheno = pheno,
     pheno_id = pheno_id,
-    covariates_used = extra_columns,
-    batch_set_id = batch_set_id
+    covariates_used = extra_columns
   )
 }
 
-# n x length(ids) per-sample miss matrix; a NULL entry (no such panel) is NA
+# n x length(ids) per-sample miss matrix (NULL entry -> NA)
 miss_matrix <- function(miss_list, ids, sample_id) {
   m <- matrix(
     NA_integer_,
@@ -260,32 +233,26 @@ miss_matrix <- function(miss_list, ids, sample_id) {
   m
 }
 
-# stack scorer outputs into mc_result. `results` are the per-clock score
-# matrices; `coverage` is the hoisted structure keyed by clock id. `output_ids`
-# are the ones that get a score column -- coverage is kept for every clock
-# computed, so a routed member still reports the panel its alias's samples used.
+# stack scorer outputs into an mc_result record
 construct_mc_result <- function(
   results,
   coverage,
   output_ids,
   requested_ids,
   sample_id,
-  positional_ids,
   pheno = NULL,
   pheno_id = "ID",
-  covariates_used = character(0),
-  batch_set_id = NULL
+  covariates_used = character(0)
 ) {
   scores <- do.call(cbind, results[output_ids])
   dimnames(scores) <- list(sample_id, output_ids)
 
-  # NULL coverage (aliases) stays a key. sample_miss is per panel: a score
-  # matrix over every column, and a norm matrix over just the columns whose
-  # clock normalizes (a NULL norm entry means no norm panel).
+  # sample_miss is per panel role: score for every column, norm for normalizers only
   per_clock <- coverage$per_clock
+  # normalizers from the record's `normalizes` flag (aliases are NULL / dropped)
   norm_ids <- output_ids[vapply(
     output_ids,
-    function(id) !is.null(coverage$sample_miss$norm[[id]]),
+    function(id) isTRUE(per_clock[[id]][["normalizes"]]),
     logical(1L)
   )]
   sample_miss <- list(
@@ -300,13 +267,11 @@ construct_mc_result <- function(
       coverage = list(per_clock = per_clock, sample_miss = sample_miss),
       provenance = list(
         sample_id = sample_id,
-        positional_ids = positional_ids,
         pheno_id = pheno_id,
         clocks = output_ids,
         requested = requested_ids,
         dependencies = setdiff(output_ids, requested_ids),
-        covariates_used = covariates_used,
-        batch_set_id = batch_set_id
+        covariates_used = covariates_used
       )
     ),
     class = "mc_result"

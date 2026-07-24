@@ -29,7 +29,9 @@ test_that("clocks_coverage marks members routing_target and the alias returned",
   expect_true(is.na(alias$score_needed))
 
   # the two members are routing targets carrying the per-sex denominators
-  members <- cc[cc$clock_id %in% c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male"), ]
+  members <- cc[
+    cc$clock_id %in% c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male"),
+  ]
   expect_identical(sort(unique(members$role)), "routing_target")
   expect_setequal(members$score_needed, c(length(fem), length(mal)))
 })
@@ -90,7 +92,7 @@ test_that("samples_coverage coverage is literally row_coverage() for a partial f
   sc <- samples_coverage(res)
   alias <- sc[sc$clock_id == "DNAmGrip_wAge", ]
 
-  # sample 1 is one CpG short of its female panel; the rest are full
+  # sample 1 is one CpG short of its female panel, the rest are full
   expect_identical(alias$n_observed[1], length(fem) - 1L)
   expect_equal(alias$coverage[1], (length(fem) - 1L) / length(fem))
   expect_true(all(alias$coverage[-1] == 1))
@@ -102,7 +104,7 @@ test_that("samples_coverage gives a normalizing clock a score and a norm row", {
   score_panel <- clock_scoring_cpgs("DunedinPACE")
   DNAm <- random_betas(norm_panel, n = 4L)
 
-  res <- calc_clocks(DNAm, "DunedinPACE", min_row_coverage = 0)
+  res <- calc_clocks(DNAm, "DunedinPACE", min_samples_coverage = 0)
   sc <- samples_coverage(res)
   dp <- sc[sc$clock_id == "DunedinPACE", ]
 

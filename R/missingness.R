@@ -1,4 +1,4 @@
-# partial NA -> cohort mean; fully absent -> vendor ref
+# partial NA -> cohort mean, fully absent -> vendor ref
 
 # NA scan over needed columns
 scan_missing_cpgs <- function(DNAm, needed_cpgs) {
@@ -42,10 +42,10 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs) {
 }
 
 # cohort column means for partial-NA fill
-build_partial_cache <- function(DNAm, cache_cpgs, cores = 1L) {
+build_partial_cache <- function(DNAm, cache_cpgs) {
   if (!length(cache_cpgs)) {
     return(NULL)
   }
   sub <- DNAm[, cache_cpgs, drop = FALSE]
-  slideimp::mean_imp_col(sub, cores = cores)
+  slideimp::mean_imp_col(sub, cores = 1L)
 }

@@ -1,4 +1,4 @@
-# Engine reduction (sum vs mean) via calc_clocks() output.
+# engine reduction (sum vs mean) via calc_clocks() output.
 
 test_that("linear_mean clocks reduce by mean, not sum (EpiTOC regression)", {
   co <- clock_coefs("EpiTOC")

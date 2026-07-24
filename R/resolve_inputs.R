@@ -8,6 +8,17 @@ check_DNAm <- function(DNAm) {
     min.cols = 1
   )
   checkmate::assert_character(colnames(DNAm), unique = TRUE, null.ok = FALSE)
+  # sample ids are mandatory -- the package never invents them
+  if (is.null(rownames(DNAm))) {
+    cli::cli_abort(
+      c(
+        "{.arg DNAm} needs sample ids as rownames.",
+        "i" = "If the rows are anonymous, name them yourself:
+               {.code rownames(DNAm) <- paste0(\"sample\", seq_len(nrow(DNAm)))}"
+      ),
+      call = NULL
+    )
+  }
   checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
   # cg... ids should be columns
   if (ncol(DNAm) < 2e5 && !any(startsWith(colnames(DNAm), "cg"))) {
@@ -43,23 +54,20 @@ check_pheno <- function(
   pheno,
   ID = NULL,
   extra_columns = NULL,
-  positional = FALSE,
   sample_id = NULL
 ) {
   if (is.null(pheno)) {
     return(invisible(TRUE))
   }
   checkmate::assert_data_frame(pheno, min.rows = 1)
-  if (!positional) {
-    checkmate::assert_string(ID, null.ok = FALSE)
-    checkmate::assert_choice(ID, names(pheno))
-    checkmate::assert_character(
-      pheno[[ID]],
-      any.missing = FALSE,
-      unique = TRUE,
-      null.ok = FALSE
-    )
-  }
+  checkmate::assert_string(ID, null.ok = FALSE)
+  checkmate::assert_choice(ID, names(pheno))
+  checkmate::assert_character(
+    pheno[[ID]],
+    any.missing = FALSE,
+    unique = TRUE,
+    null.ok = FALSE
+  )
   if ("Female" %in% extra_columns) {
     checkmate::assert_integerish(
       pheno[["Female"]],
@@ -77,7 +85,7 @@ check_pheno <- function(
       any.missing = TRUE
     )
   }
-  warn_missing_covariates(pheno, ID, extra_columns, positional, sample_id)
+  warn_missing_covariates(pheno, ID, extra_columns, sample_id)
   invisible(TRUE)
 }
 
@@ -86,7 +94,6 @@ warn_missing_covariates <- function(
   pheno,
   ID,
   extra_columns,
-  positional,
   sample_id
 ) {
   cols <- intersect(extra_columns, names(pheno))
@@ -94,7 +101,7 @@ warn_missing_covariates <- function(
     return(invisible(character(0)))
   }
   # only rows that survive the id-join
-  rows <- if (positional || is.null(sample_id)) {
+  rows <- if (is.null(sample_id)) {
     seq_len(nrow(pheno))
   } else {
     idx <- match(sample_id, pheno[[ID]])
@@ -126,37 +133,22 @@ warn_missing_covariates <- function(
   invisible(names(n_na))
 }
 
-# id column + required covariates only; identity lives in the id column, so
-# row names are dropped rather than kept as a second copy
+# id column + required covariates only (row names dropped)
 narrow_pheno <- function(pheno, keep) {
   out <- pheno[, keep, drop = FALSE]
   rownames(out) <- NULL
   out
 }
 
-# align pheno to sample_id (id-join, or row-order when positional), then
-# narrow to the id column plus the covariates this run actually needs
-resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids, keep) {
+# align pheno to sample_id by id-join, then narrow to the id column plus the
+# covariates this run actually needs
+resolve_pheno <- function(DNAm, pheno, pheno_id, keep) {
   if (is.null(pheno)) {
     return(NULL)
   }
   sample_id <- rownames(DNAm)
   keep <- unique(c(pheno_id, keep))
 
-  if (positional_ids) {
-    if (nrow(pheno) != nrow(DNAm)) {
-      cli::cli_abort(
-        c(
-          "DNAm has no rownames, so pheno is matched by row order and needs
-           exactly {nrow(DNAm)} row{?s} (got {nrow(pheno)}).",
-          "i" = "Set DNAm rownames to join pheno by id instead."
-        ),
-        call = NULL
-      )
-    }
-    pheno[[pheno_id]] <- sample_id
-    return(narrow_pheno(pheno, keep))
-  }
   missing <- setdiff(sample_id, pheno[[pheno_id]])
   if (length(missing)) {
     cli::cli_abort(
@@ -171,8 +163,7 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, positional_ids, keep) {
   narrow_pheno(pheno, keep)
 }
 
-# suggestion pools: names are matched, values are recommended tokens.
-# The list names label the bullets suggestion_bullets() prints.
+# typo-suggestion pools: matched names, recommended token values
 suggestion_pools <- function() {
   routed <- sex_routed_members()
   callable <- setdiff(mc_index[["clock_id"]], names(routed$alias))
@@ -189,8 +180,7 @@ did_you_mean <- function(tok, pool, n = 5L) {
   utils::head(unique(unname(pool[order(d, nchar(names(pool)))])), n)
 }
 
-# nearest-match bullets for unmatched tokens: a single pool renders on one
-# line, several get a token header plus one labelled line each
+# nearest-match bullets for unmatched tokens
 suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
   unlist(lapply(toks, function(tok) {
     hits <- lapply(pools, function(pool) did_you_mean(tok, pool, n))
@@ -232,7 +222,7 @@ resolve_clocks <- function(clocks) {
   members <- split(mc_index[["clock_id"]], mc_index[["group_id"]])
   clock_ids <- mc_index[["clock_id"]]
 
-  # sex-routed members are internal; request the alias instead
+  # sex-routed members are internal -- request the alias instead
   routed <- sex_routed_members()
   asked_routed <- intersect(clocks, names(routed$alias))
   if (length(asked_routed)) {
@@ -310,7 +300,7 @@ resolve_clocks <- function(clocks) {
   out[!duplicated(out)]
 }
 
-# depends_on_clocks closure, deps before dependents
+# clock_inputs closure, deps before dependents
 resolve_clocks_sequence <- function(clocks) {
   st <- new.env(parent = emptyenv())
   st$out <- character(length(mc_index[["clock_id"]]))
@@ -420,8 +410,7 @@ resolve_cpgs <- function(usable_cols, panels) {
     use.names = FALSE
   ))
 
-  # distinct-panel parts + per-clock index, so coverage counts each distinct
-  # panel's per-sample miss once and fans out (FitAge/GrimAge share panels)
+  # distinct-panel parts + per-clock index (shared panels counted once)
   panel_index <- list(
     score = list(parts = score_parts, idx = panels$score$idx),
     norm = list(parts = norm_parts, idx = panels$norm$idx)
@@ -490,10 +479,10 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     cli::cli_abort(
       c(
         "{length(fail)} clock{?s} {?doesn't/don't} have enough CpGs to score
-         ({.arg min_col_coverage} = {format(threshold)}):",
+         ({.arg min_clocks_coverage} = {format(threshold)}):",
         coverage_bullets(fail),
         "i" = "Drop {cli::qty(fail)}{?it/them} from {.arg clocks}, or lower
-               {.arg min_col_coverage}."
+               {.arg min_clocks_coverage}."
       ),
       call = NULL
     )
@@ -503,7 +492,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(marginal)) {
     cli::cli_warn(
       c(
-        "{length(marginal)} clock{?s} just clear{?s/} {.arg min_col_coverage}
+        "{length(marginal)} clock{?s} just clear{?s/} {.arg min_clocks_coverage}
          = {format(threshold)}:",
         coverage_bullets(marginal),
         "i" = "Scores still run, but more of the panel is imputed."
@@ -531,7 +520,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     cli::cli_warn(
       c(
         "{length(thin)} clock{?s} {?has/have} a thin normalization background
-         (under {.arg min_col_coverage} = {format(threshold)}):",
+         (under {.arg min_clocks_coverage} = {format(threshold)}):",
         coverage_bullets(thin),
         "i" = "Missing background CpGs are filled from the reference mean."
       ),
@@ -542,8 +531,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   invisible(unique(c(names(levels)[levels != ""], names(thin))))
 }
 
-# per-sample observed fraction of a clock's row-gate panel: the norm panel when
-# the clock normalizes (declared fact), else the score panel
+# per-sample observed fraction of the row-gate panel (norm if normalizes, else score)
 row_coverage <- function(cov, score_miss, norm_miss) {
   if (is.null(cov)) {
     return(NULL)
@@ -555,7 +543,7 @@ row_coverage <- function(cov, score_miss, norm_miss) {
   if (is.null(miss) || !length(needed) || needed == 0L) {
     return(NULL)
   }
-  list(cov = (present - miss) / needed, needed = needed)
+  panel_ratio(present, miss, needed)
 }
 
 # per-sample coverage gate (warn only) over the hoisted coverage structure
@@ -592,7 +580,7 @@ check_row_coverage <- function(coverage, threshold = 0.75) {
     cli::cli_warn(
       c(
         "{length(lines)} clock{?s} scored some samples under
-         {.arg min_row_coverage} = {format(threshold)}:",
+         {.arg min_samples_coverage} = {format(threshold)}:",
         coverage_bullets(lines),
         "i" = "Those sample scores lean on imputed CpGs."
       ),

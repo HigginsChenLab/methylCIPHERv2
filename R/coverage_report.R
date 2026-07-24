@@ -1,7 +1,4 @@
-# Pure formatters over a finished record's $coverage. They read the hoisted
-# structure and never re-touch beta or recompute a ratio: per-sample coverage is
-# always row_coverage() (R/resolve_inputs.R), the single source the
-# min_row_coverage warning also uses, so a table and its warning cannot disagree.
+# formatters over a finished record's $coverage (no re-touch of beta)
 
 check_mc_result <- function(x, arg = "x") {
   if (!inherits(x, "mc_result")) {
@@ -24,10 +21,7 @@ norm_miss_vec <- function(x, id) {
   if (!is.null(m) && id %in% colnames(m)) m[, id] else NULL
 }
 
-# per-clock aggregate: one row per clock COMPUTED (returned columns, dependency
-# columns, and routing_target members kept for coverage). A sex-routed alias has
-# a NULL record, so its panel fields are NA and only its member rows carry the
-# per-sex denominators. `role` splits returned score columns from routing targets.
+# one row per clock computed (returned + routing targets). aliases have NA panels.
 #' @export
 clocks_coverage <- function(x) {
   check_mc_result(x)
@@ -76,44 +70,31 @@ clocks_coverage <- function(x) {
   out
 }
 
-# one panel's per-sample rows for a non-alias returned clock. `coverage` is the
-# ratio; for the row-gate panel it IS row_coverage() so the table and warning
-# agree, for the other panel it is the same (present - miss) / needed formula.
-panel_rows <- function(id, panel, present, needed, miss, coverage, sample_id) {
+# one panel's per-sample rows for a non-alias returned clock
+panel_rows <- function(id, panel, ratio, sample_id) {
   data.frame(
     id = sample_id,
     clock_id = id,
     panel = panel,
-    n_observed = as.integer(present - miss),
-    n_needed = as.integer(needed),
-    coverage = coverage,
+    n_observed = as.integer(ratio[["n_observed"]]),
+    n_needed = as.integer(ratio[["needed"]]),
+    coverage = ratio[["cov"]],
     stringsAsFactors = FALSE,
     row.names = NULL
   )
 }
 
-# a returned non-alias clock: always a score row, plus a norm row when it
-# normalizes. The row-gate panel's coverage comes from row_coverage().
+# score-panel rows, plus a norm-panel row when the clock normalizes
 clock_sample_rows <- function(x, id, sample_id) {
   rec <- x[["coverage"]][["per_clock"]][[id]]
   sm <- score_miss_vec(x, id)
   nm <- norm_miss_vec(x, id)
-  gate <- row_coverage(rec, sm, nm)
 
   rows <- list()
-  # score panel (gate iff the clock does not normalize)
-  score_cov <- if (isTRUE(rec[["normalizes"]])) {
-    (rec[["score_present"]] - sm) / rec[["score_needed"]]
-  } else {
-    gate[["cov"]]
-  }
   rows[["score"]] <- panel_rows(
     id,
     "score",
-    rec[["score_present"]],
-    rec[["score_needed"]],
-    sm,
-    score_cov,
+    panel_ratio(rec[["score_present"]], sm, rec[["score_needed"]]),
     sample_id
   )
   # norm panel (the gate) only when the clock normalizes
@@ -121,20 +102,14 @@ clock_sample_rows <- function(x, id, sample_id) {
     rows[["norm"]] <- panel_rows(
       id,
       "norm",
-      rec[["norm_present"]],
-      rec[["norm_needed"]],
-      nm,
-      gate[["cov"]],
+      panel_ratio(rec[["norm_present"]], nm, rec[["norm_needed"]]),
       sample_id
     )
   }
   do.call(rbind, rows)
 }
 
-# a sex-routed alias: NULL record, so each sample's denominators come from the
-# member that scored it (routed by pheno$Female, the same split the score used).
-# The alias's stitched miss column is each row's own member's raw count, so
-# row_coverage() over the masked member record reproduces that member's ratio.
+# alias sample rows: denominators from the member that scored each row
 alias_sample_rows <- function(x, alias, sample_id) {
   route <- clock_routing(alias)
   pheno_id <- x[["provenance"]][["pheno_id"]]
@@ -166,7 +141,7 @@ alias_sample_rows <- function(x, alias, sample_id) {
     rc <- row_coverage(rec, member_miss, NULL)
     coverage[applies] <- rc[["cov"]][applies]
     n_needed[applies] <- rc[["needed"]]
-    n_observed[applies] <- as.integer(rec[["score_present"]] - member_miss[applies])
+    n_observed[applies] <- as.integer(rc[["n_observed"]][applies])
   }
 
   data.frame(
@@ -181,10 +156,7 @@ alias_sample_rows <- function(x, alias, sample_id) {
   )
 }
 
-# per-(sample, clock, panel) coverage: one row per returned score column and
-# panel. A normalizing clock (DunedinPACE) contributes a score row and a norm
-# row with different denominators; everything else just a score row. `coverage`
-# is n_observed / n_needed, literally row_coverage() on the row-gate panel.
+# one row per (sample, returned clock, panel)
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)

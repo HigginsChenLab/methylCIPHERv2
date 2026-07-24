@@ -28,11 +28,8 @@ linear_predictor <- function(
   pheno = NULL,
   id = "<component>"
 ) {
-  n <- nrow(DNAm)
-
   obs <- observed_panel(score_present, DNAm, partial_cache)
-  used_cols <- obs$cols
-  cpg_contrib <- obs$values %*% coef[used_cols]
+  cpg_contrib <- obs$values %*% coef[obs$cols]
 
   cov_contrib <- 0
   if (length(cov_coefs)) {
@@ -55,9 +52,7 @@ linear_predictor <- function(
   list(
     linpred = linpred,
     cpg_contrib = cpg_contrib,
-    cov_contrib = cov_contrib,
-    used_cols = used_cols,
-    cached = obs$cached
+    cov_contrib = cov_contrib
   )
 }
 
@@ -74,7 +69,6 @@ linear_score <- function(
   reduction <- clock_reduction(id)
   coef <- clock_coefs(id, packs)
   sample_id <- rownames(DNAm)
-  n <- nrow(DNAm)
 
   absent <- cpgs$score_absent
   vendor_mean <- length(absent) && identical(policy, "vendor_mean")
