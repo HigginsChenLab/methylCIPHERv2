@@ -1,4 +1,6 @@
-# sex-routed alias: pick the member score matching each sample's sex
+# sex-routed alias: pick the member score matching each sample's sex. The
+# alias's per-sample miss is stitched the same way in compute_coverage; here we
+# only build the score column.
 score_sex_routed <- function(id, results, DNAm, pheno) {
   sample_id <- rownames(DNAm)
   n <- nrow(DNAm)
@@ -14,50 +16,24 @@ score_sex_routed <- function(id, results, DNAm, pheno) {
         call = NULL
       )
     }
-    as.numeric(r[["score"]])
+    r
   }
 
   female <- as.numeric(pheno[["Female"]])
   score_vec <- rep(NA_real_, n)
   rows <- list(female = which(female == 1), male = which(female == 0))
   for (key in names(rows)) {
-    if (length(rows[[key]])) {
-      score_vec[rows[[key]]] <- member_score(key)[rows[[key]]]
-    }
-  }
-
-  list(
-    score = score_matrix(score_vec, sample_id, id),
-    coverage = NULL,
-    sample_miss = NULL
-  )
-}
-
-# blank wrong-sex rows on routed member columns
-mask_routed_members <- function(results, clock_sequence, pheno) {
-  routed <- sex_routed_members()
-  ids <- intersect(clock_sequence, names(routed$sex))
-  if (!length(ids) || is.null(pheno)) {
-    return(results)
-  }
-  female <- as.numeric(pheno[["Female"]])
-
-  for (id in ids) {
-    applies <- if (identical(routed$sex[[id]], "female")) {
-      female == 1
-    } else {
-      female == 0
-    }
-    applies[is.na(applies)] <- FALSE
-    if (all(applies)) {
+    i <- rows[[key]]
+    if (!length(i)) {
       next
     }
-    results[[id]]$score[!applies, ] <- NA_real_
-    results[[id]]$sample_miss[!applies] <- NA_integer_
-    results[[id]]$coverage$score_imputed_partial <- sum(
-      results[[id]]$sample_miss,
-      na.rm = TRUE
-    )
+    score_vec[i] <- as.numeric(member_score(key))[i]
   }
-  results
+
+  score_matrix(score_vec, sample_id, id)
+}
+
+# routed members are internal: scored and kept for coverage, never a column
+drop_routed_members <- function(ids) {
+  setdiff(ids, names(sex_routed_members()$sex))
 }

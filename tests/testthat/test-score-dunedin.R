@@ -47,6 +47,32 @@ test_that("DunedinPACE quantile-normalizes the gold panel before the linear scor
   expect_false(isTRUE(all.equal(golden, linear)))
 })
 
+# A normalizing clock counts partial fills over BOTH panels, kept apart: the
+# score-panel count for DunedinPACE was not computed before the per-panel widen.
+test_that("DunedinPACE reports score and norm panel miss separately", {
+  skip_if_not_installed("betanorm")
+  norm_panel <- names(dunedin_gold_means("DunedinPACE"))
+  score_panel <- clock_scoring_cpgs("DunedinPACE")
+  norm_only <- setdiff(norm_panel, score_panel)
+
+  DNAm <- random_betas(norm_panel, n = 4L)
+  DNAm[1, norm_only[1]] <- NA_real_ # norm panel only
+  DNAm[2, score_panel[1]] <- NA_real_ # in both panels (score subset of norm)
+
+  res <- calc_clocks(DNAm, "DunedinPACE", min_row_coverage = 0)
+  sm <- res$coverage$sample_miss
+  expect_identical(colnames(sm$score), "DunedinPACE")
+  expect_identical(colnames(sm$norm), "DunedinPACE")
+
+  expect_identical(unname(sm$norm[, "DunedinPACE"]), c(1L, 1L, 0L, 0L))
+  expect_identical(unname(sm$score[, "DunedinPACE"]), c(0L, 1L, 0L, 0L))
+
+  cov <- res$coverage$per_clock$DunedinPACE
+  expect_true(cov$normalizes)
+  expect_identical(cov$score_imputed_partial, 1L) # sample 2 only
+  expect_identical(cov$norm_imputed_partial, 2L) # samples 1 and 2
+})
+
 test_that("whole-clock coverage stops upfront", {
   cpgs <- clock_scoring_cpgs("DunedinPoAm38")
   keep <- cpgs[seq_len(round(0.6 * length(cpgs)))] # ~60% < 80%

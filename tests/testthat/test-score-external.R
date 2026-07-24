@@ -199,5 +199,8 @@ test_that("calc_clocks() vendor-fills absent SystemsAge CpGs from the pack $impu
 
   res <- calc_clocks(DNAm, "Age_prediction", assets = sa_pack)
   expect_false(anyNA(res$scores))
-  expect_identical(res$coverage$per_clock$Age_prediction$score_imputed_full, 4L)
+  cov <- res$coverage$per_clock$Age_prediction
+  expect_identical(cov$score_imputed_full, 4L)
+  # used counts the vendor-filled absent CpGs (used = present + imputed_full)
+  expect_identical(cov$score_used, cov$score_present + cov$score_imputed_full)
 })

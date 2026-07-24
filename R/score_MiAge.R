@@ -45,27 +45,9 @@ score_MiAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
   b <- params$b[present]
   cc <- params$c[present]
   d <- params$d[present]
-  score <- score_matrix(
+  score_matrix(
     vapply(seq_len(n), function(i) miage_fit(betas[i, ], b, cc, d), numeric(1)),
     sample_id,
     id
   )
-
-  sample_miss <- count_sample_miss(DNAm, cached)
-
-  coverage <- list(
-    clock_id = id,
-    policy = clock_impute(id)[["policy"]],
-    score_needed = length(cpgs$score_needed),
-    score_present = length(present),
-    score_used = length(present),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = 0L,
-    score_dropped = length(cpgs$score_absent),
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = cpgs$score_absent
-  )
-
-  list(score = score, coverage = coverage, sample_miss = sample_miss)
 }

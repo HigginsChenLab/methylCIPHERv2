@@ -9,27 +9,9 @@ sa_poly <- function(L, coef) {
   out
 }
 
-# coverage record for a SystemsAge composite
-systemsage_composite_coverage <- function(cpgs, sample_miss) {
-  list(
-    clock_id = cpgs$clock_id,
-    policy = "vendor_mean",
-    score_needed = length(cpgs$score_needed),
-    score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_present),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(cpgs$score_absent),
-    score_dropped = 0L,
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = cpgs$score_absent
-  )
-}
-
 # batched scorer for the SystemsAge group
 score_systemsage_group <- function(
   ids,
-  cpg_list,
   usable,
   DNAm,
   partial_cache,
@@ -44,12 +26,8 @@ score_systemsage_group <- function(
   composites <- intersect(ids, c("Age_prediction", "SystemsAge"))
   organs_req <- setdiff(ids, composites)
 
-  record <- function(id, score_vec, coverage) {
-    list(
-      score = score_matrix(score_vec, sample_id, id),
-      coverage = coverage,
-      sample_miss = design$sample_miss
-    )
+  record <- function(id, score_vec) {
+    score_matrix(score_vec, sample_id, id)
   }
 
   out <- vector("list", length(ids))
@@ -60,11 +38,7 @@ score_systemsage_group <- function(
     rownames(Mo) <- pack[["cpgs"]]
     O <- pack_linpred(design, Mo, organs_req)
     for (org in organs_req) {
-      out[[org]] <- record(
-        org,
-        O[, org] + clock_intercept(org),
-        pack_linear_coverage(cpg_list$per_clock[[org]], design$sample_miss)
-      )
+      out[[org]] <- record(org, O[, org] + clock_intercept(org))
     }
   }
 
@@ -80,11 +54,7 @@ score_systemsage_group <- function(
       L <- age_matmul + systemsage_age_intercept("Age_prediction")
       out[["Age_prediction"]] <- record(
         "Age_prediction",
-        sa_poly(L, systemsage_poly("Age_prediction", "score")),
-        systemsage_composite_coverage(
-          cpg_list$per_clock[["Age_prediction"]],
-          design$sample_miss
-        )
+        sa_poly(L, systemsage_poly("Age_prediction", "score"))
       )
     }
 
@@ -113,11 +83,7 @@ score_systemsage_group <- function(
       pcs <- cs %*% pca$rotation
       out[[id]] <- record(
         id,
-        as.numeric(systemsage_final_intercept(id) + pcs %*% pca$model),
-        systemsage_composite_coverage(
-          cpg_list$per_clock[[id]],
-          design$sample_miss
-        )
+        as.numeric(systemsage_final_intercept(id) + pcs %*% pca$model)
       )
     }
   }

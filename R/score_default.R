@@ -30,19 +30,9 @@ linear_predictor <- function(
 ) {
   n <- nrow(DNAm)
 
-  cached <- cached_cols(score_present, partial_cache)
-  raw <- setdiff(score_present, cached)
-  used_cols <- c(cached, raw)
-
-  if (length(used_cols)) {
-    sub <- cbind(
-      partial_cache[, cached, drop = FALSE],
-      DNAm[, raw, drop = FALSE]
-    )
-    cpg_contrib <- sub %*% coef[used_cols]
-  } else {
-    cpg_contrib <- matrix(0, nrow = n, ncol = 1L)
-  }
+  obs <- observed_panel(score_present, DNAm, partial_cache)
+  used_cols <- obs$cols
+  cpg_contrib <- obs$values %*% coef[used_cols]
 
   cov_contrib <- 0
   if (length(cov_coefs)) {
@@ -50,8 +40,9 @@ linear_predictor <- function(
     if (is.null(pheno) || !all(need %in% names(pheno))) {
       cli::cli_abort(
         c(
-          "{.val {id}} needs pheno column{?s} {.field {need}}.",
-          "i" = "Add {?it/them} to {.arg pheno}."
+          "{.val {id}} needs {cli::qty(need)} pheno column{?s}
+           {.field {need}}.",
+          "i" = "Add {cli::qty(need)}{?it/them} to {.arg pheno}."
         ),
         call = NULL
       )
@@ -66,7 +57,7 @@ linear_predictor <- function(
     cpg_contrib = cpg_contrib,
     cov_contrib = cov_contrib,
     used_cols = used_cols,
-    cached = cached
+    cached = obs$cached
   )
 }
 
@@ -114,11 +105,9 @@ linear_score <- function(
       id
     )
     vendor_filled <- absent
-    dropped <- character(0)
   } else {
     absent_offset <- 0
     vendor_filled <- character(0)
-    dropped <- absent
   }
 
   if (identical(reduction, "mean")) {
@@ -130,23 +119,5 @@ linear_score <- function(
   }
 
   transform <- resolve_output_transform(clock_output_transform(id))
-  score <- score_matrix(transform(linpred), sample_id, id)
-
-  sample_miss <- count_sample_miss(DNAm, lp$cached)
-
-  coverage <- list(
-    clock_id = id,
-    policy = policy,
-    score_needed = length(cpgs$score_needed),
-    score_present = length(cpgs$score_present),
-    score_used = length(lp$used_cols) + length(vendor_filled),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(vendor_filled),
-    score_dropped = length(dropped),
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = absent
-  )
-
-  list(score = score, coverage = coverage, sample_miss = sample_miss)
+  score_matrix(transform(linpred), sample_id, id)
 }

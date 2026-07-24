@@ -52,26 +52,7 @@ score_PhysAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
     poly_eval(as.numeric(scale(phys)), poly)
   }
 
-  score <- score_matrix(score_vec, sample_id, id)
-
-  cached <- cached_cols(cpgs$score_present, partial_cache)
-  sample_miss <- count_sample_miss(DNAm, cached)
-
-  coverage <- list(
-    clock_id = id,
-    policy = clock_impute(id)[["policy"]],
-    score_needed = length(cpgs$score_needed),
-    score_present = length(cpgs$score_present),
-    score_used = length(cpgs$score_needed),
-    score_imputed_partial = sum(sample_miss),
-    score_imputed_full = length(cpgs$score_absent),
-    score_dropped = 0L,
-    norm_needed = length(cpgs$norm_needed),
-    norm_present = length(cpgs$norm_present),
-    missing_cpgs = cpgs$score_absent
-  )
-
-  list(score = score, coverage = coverage, sample_miss = sample_miss)
+  score_matrix(score_vec, sample_id, id)
 }
 
 # y = sum_k coef[k+1] * x^k (lowest degree first)

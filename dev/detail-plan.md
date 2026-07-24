@@ -22,7 +22,8 @@ their history lives solely in [`DECISIONS.md`](DECISIONS.md).
 | `get_clock(id)` | Lightweight metadata for one id |
 | `get_clock_probes(id)` | Required probes + imputation refs |
 | `calc_clocks(DNAm, clocks, pheno = NULL, ...)` | Main scorer |
-| `summary(x)` | Coverage data.frame from the result record |
+| `clocks_coverage(x)` | Per-clock coverage data.frame (wide) from the result record |
+| `samples_coverage(x)` | Per-(sample, clock, panel) coverage data.frame (long) from the result record |
 | `augment(scores, data, ...)` | Join scores to analysis / pheno tables |
 | `clear_mc_cache()` | Report cached external packs; consent-gated removal (never auto-deletes) |
 | `mc_data_download()` | Explicit pre-fetch (cache dir overridden by `options(mc.cache_dir=)`) |
@@ -43,8 +44,9 @@ their history lives solely in [`DECISIONS.md`](DECISIONS.md).
 structure(
   list(
     scores     = <n x k double matrix>,   # dimnames = samples x clock ids
+    pheno      = <aligned pheno, or NULL>,# id column + required covariates only (sec 5.1)
     coverage   = <per-column coverage>,   # see sec 4
-    provenance = <clocks, requested, dependencies, covariates_used, batch_set_id>
+    provenance = <clocks, requested, dependencies, covariates_used, pheno_id, batch_set_id>
   ),
   class = "mc_result"
 )
@@ -56,20 +58,25 @@ methods so no operation loses data:
 
 | Method | Behavior |
 |---|---|
+| `print` | dims, then a labelled preview per component (`<$pheno>`, `<$scores>`, ...) so the record reads as the list it is; never a full matrix dump |
 | `as.matrix` | `$scores` -- the naked-numbers escape hatch |
-| `as.data.frame` | scores as a data.frame (sample id column + score columns) |
-| `[` | subset rows/cols of `$scores` **and** the matching coverage/provenance -> `mc_result` |
+| `as.data.frame` | scores as a data.frame (sample id column + score columns). **Never** `$pheno` -- see sec 5.1 |
+| `[` | subset rows/cols of `$scores` **and** the matching pheno/coverage/provenance -> `mc_result` |
 | `cbind` | bind score columns; check `batch_set_id` compatibility |
+| `rbind` | **refuses** -- orphans `batch_set_id` and leaves cohort-dependent scores computed against the wrong cohort. Score per cohort, bind the `as.data.frame()` outputs |
 | `augment` | join `$scores` to a table by sample id (generic imported from `generics`) |
-| `summary` | format `$coverage`; never re-touches beta |
-| `codebook` | per-column clock metadata from the catalog |
-| `citation` | `bib_key` -> BibTeX for the columns present |
-| `print` | dims + coverage summary, not a full matrix dump |
+
+Not methods: `clocks_coverage()` / `samples_coverage()` format `$coverage` (never re-touch beta) and
+replace the `summary` that earlier drafts listed; `codebook()` and `citation()` are plain functions,
+since `utils::citation` is not an S3 generic. See DECISIONS 2026-07-23, 2026-07-24.
 
 Rules:
 
 - One clock -> still `n x 1` scores, never a bare vector.
-- Scores only; no automatic pheno columns.
+- Scores only; no automatic pheno columns. This governs `$scores` and the `as.data.frame()`
+  shape. `$pheno` is a separate component holding the aligned, narrowed covariates (sec 5.1) --
+  it is what `augment()` and `cbind` gate 2 read, and keeping it off `as.data.frame()` is what
+  keeps subject data from riding the normal export path.
 - Multi-output / pack requests -> multiple columns.
 - **Dependency clocks are returned as columns**, after the requested ones (§2.1). They were
   genuinely computed and each carries its own coverage row, so dropping them would hide the state
@@ -101,10 +108,11 @@ calc_clocks
   |- prepare_inputs (once)
   |    check_dnam, align_pheno by ID, covariates_required
   |    full-panel warn if needed (localized)
+  |- compute_coverage (once, keyed by clock id) -- needs no score
   |- for each work unit -> score_*  (engine or pack)
-  |    returns list(score = matrix, coverage = list(...))
+  |    returns just the score matrix
   \- construct_mc_result -> record (scores + coverage + provenance)
-summary(x)  # pure read of x$coverage
+clocks_coverage(x) / samples_coverage(x)  # pure reads of x$coverage
 ```
 
 **Resolve + prepare-once front end** (in `R/resolve_inputs.R`). Two phases, both *before* any
@@ -171,15 +179,16 @@ scoring, both run exactly once — never inside the per-clock loop:
     so no sample escapes it and the call stops. A sparse row is one bad sample among good ones:
     NA-ing it would silently discard data the caller may still want, so the score stands and the
     warning names it. **No branch NA-s a row for coverage.**
-  - **row floor** — `check_row_coverage(results, min_row_coverage)`, run once after scoring (and
-    after `mask_routed_members()`), over the record every branch already returns: a sample's
-    observed fraction is `(score_present - sample_miss) / score_needed`, or the `norm_*` pair for
-    a clock that normalizes (DunedinPACE), since that is the panel `count_sample_miss()` counted
-    over. No branch takes the floor as an argument and no branch re-implements the check -- it is
-    one function reading `$coverage` + `$sample_miss`, so a new branch is covered by returning the
-    standard record. Clocks reporting `coverage = NULL` (sex-routed aliases) are skipped; their
-    components carry the coverage and are checked as their own columns. `calc_clocks()` validates
-    the floor up front so a bad argument does not cost a full scoring pass.
+  - **row floor** — `check_row_coverage(coverage, min_row_coverage)`, run once over the hoisted
+    coverage structure (`compute_coverage()` already masked routed members): a sample's observed
+    fraction is `(score_present - sample_miss) / score_needed`, or the `norm_*` pair for a clock
+    that normalizes (DunedinPACE), since that is the panel `count_sample_miss()` counted over. No
+    branch takes the floor as an argument and no branch re-implements the check -- it is one
+    function (`row_coverage()`) reading the per-clock record + its `sample_miss` vector. It runs
+    over **every clock computed**, not just the returned columns: clocks with a `NULL` record
+    (sex-routed aliases) are skipped, and the routed members that carry their panels are checked
+    under their own ids even though they have no column. `calc_clocks()`
+    validates the floor up front so a bad argument does not cost a full scoring pass.
   - **column floor** — `check_coverage(cpg_list, min_col_coverage = 0.75)`, run once on the
     `resolve_cpgs()` skeleton (§2.3a). **Graded**, on a clock's **scoring** panel (`score_present /
     score_needed`) -- the only panel that can stop the call:
@@ -410,7 +419,8 @@ calc_clocks(DNAm, c("Zhang2019", "GrimAge"), pheno = pheno)
    Female for GrimAge pack.
 3. Zhang: full-matrix row moments -> EN subset -> scale -> linear(drop) -> 1 column + coverage.
 4. GrimAge: orchestrator -> multi-column matrix + per-column coverage.
-5. Assemble -> `mc_result` record; `summary(out)` without re-touching DNAm.
+5. Assemble -> `mc_result` record; `clocks_coverage(out)` / `samples_coverage(out)` without
+   re-touching DNAm.
 
 ---
 
@@ -427,12 +437,12 @@ clock-sized `j`.
 
 ---
 
-## 4. Coverage and `summary()`
+## 4. Coverage: `clocks_coverage()` and `samples_coverage()`
 
 Scorers **must** return coverage; assembly stores it on `x$coverage`. Coverage has **two tiers** at
 two granularities, both recorded at score time (never re-intersecting beta):
 
-### 4.1 Tier 1 — per-clock aggregate (`summary()`)
+### 4.1 Tier 1 -- per-clock aggregate (`clocks_coverage()`)
 
 Recorded **per role** (a clock's scoring CpG set and its normalization/background set are different
 sizes) and splitting the two impute sources. **Sample-invariant** — these are set sizes against the
@@ -452,21 +462,23 @@ usable column universe, the same for every sample:
 | `policy` | Impute policy used |
 
 ```r
-summary(x)  # data.frame, one row per score column; NA where a stage does not apply
+clocks_coverage(x)  # data.frame, one row per clock computed; NA where a stage does not apply
 ```
 
-The `n_cpg_score` / `n_cpg_norm` / `n_cpg_score_miss` / `n_cpg_norm_miss` counts are just
-`length()` of these sets — `resolve_cpgs()` (§2.3a) already computes the present/absent split, so
-they ride the skeleton to assembly and `summary()` only **formats**; it never recomputes.
+One row per clock **computed** (not per score column): a `role` column tags each row `returned`
+(any score column, including a sex-routed alias with an all-NA panel row, and dependency columns) or
+`routing_target` (a member kept for coverage, never a column -- it carries the per-sex denominator).
+The counts are just `length()` of the present/absent sets `resolve_cpgs()` (§2.3a) already computed,
+so they ride the skeleton to assembly and `clocks_coverage()` only **formats**; it never recomputes.
 
-- **Free** if recorded at score time; `summary()` must not re-intersect beta.
+- **Free** if recorded at score time; `clocks_coverage()` must not re-intersect beta.
 - Zhang: `score_needed` = EN coef count (not full array); `norm_needed` = panel size.
 - Messaging that implies confidence must not ship without coverage context.
 
 The `score_present / score_needed` ratio is also read at **prepare** time by the coverage floor
 (§2.1), which stops before any scoring happens rather than waiting for the user to call
-`summary()`. Same numbers, two moments: the floor is the gate, `summary()` the full account of
-what got through it.
+`clocks_coverage()`. Same numbers, two moments: the floor is the gate, `clocks_coverage()` the full
+account of what got through it.
 
 **Who records coverage.** A clock assembled from other clocks' scores records coverage **iff every
 component contributes to every sample**. `GrimAgeV1` (8 surrogates) and `DNAmFitAge_{Sex}` (3
@@ -482,29 +494,46 @@ Both floors read the same declared panel, so the two agree with each other -- bu
 is at 100%" is a statement about the fitness CpGs, not about everything feeding the score. A
 **sex-routed alias** does not qualify at all: its two members apply to
 disjoint halves of the cohort, so no aggregate over their union is true of any sample. Its
-`per_clock` entry is `NULL` and its tier-2 column all-`NA`; coverage lives on the members, which
-appear as their own columns. This is a scoring-contract rule (`score_sex_routed()` emits no
-coverage), not a catalog fact -- the alias also has no panel, so the sec 2.1 floor skips it too.
+`per_clock` entry is `NULL` -- the panel counts live on the members, which keep their `per_clock`
+rows even though they are not columns. This is a scoring-contract rule (`score_sex_routed()` emits
+no coverage record), not a catalog fact -- the alias also has no panel, so the sec 2.1 floor skips
+it too.
 
-### 4.2 Tier 2 — per-clock × per-sample missingness (QC matrix)
+**What crosses a routing split is decided per-sample vs per-panel, not score vs coverage.** A
+routed sample was scored by exactly one member, so anything indexed *by sample* routes with it and
+stays true of its row: the score, and the tier-2 `sample_miss`, both stitched in
+`score_sex_routed()`. Anything indexed *by panel* does not, because the panels differ (172 F / 190
+M) and a count only means something against the one it was counted over -- "4 imputed" is 4 of 172
+for a woman and 4 of 190 for a man. Merging those numerators into one figure while the
+denominators stay on two separate rows yields a number nobody can read, so `per_clock[[alias]]`
+stays `NULL` and the caller reads the member rows for the denominators.
+
+The same asymmetry is why `check_row_coverage()` runs over every clock computed rather than the
+returned columns (sec 2.1): the row floor **is** a per-panel division, so it can only be evaluated
+on the member records, which have no columns of their own.
+
+### 4.2 Tier 2 — per-clock x per-sample missingness (QC matrix, `samples_coverage()`)
 
 Tier 1 collapses the sample axis; tier 2 keeps it. Absence is sample-invariant, but **partial NA is
 sample-specific**: a sample 10% missing *globally* can be ~100% missing *for one clock* if its gaps
 concentrate in that clock's scoring set — invisible to the global empty-row check (§2.3a), and **not
 an error** (one clock being locally empty for one sample must not fail the batch — record it, don't
-throw). Each scorer emits a length-`n` vector = row-wise NA count over its **own** present scoring
-CpGs, computed on the **raw** subset *before* the cache fills it (post-fill it reads ~0 — the
-imputation masks exactly the QC signal). Assembly stacks the `k` vectors into the `n × k`
-`$coverage$sample_miss` matrix on the result record, for a sample × clock coverage heatmap.
+throw). `compute_coverage()` builds a length-`n` vector = row-wise NA count over a panel's present
+CpGs, **once per distinct panel** and **per panel role** (score always; norm when the clock
+normalizes -- only DunedinPACE), fanned out to clocks via `resolve_cpgs()`'s panel index. Assembly
+stacks these into `$coverage$sample_miss = list(score = <n x k>, norm = <n x k' over just the
+normalizing columns>)` on the result record, for a sample x clock coverage heatmap per panel.
 
-This matrix is what the **row floor** consumes: `check_row_coverage()` (§2.1) reads it back
-alongside `$coverage`, derives each sample's observed fraction as
-`(score_present - sample_miss) / score_needed`, and warns. That is the whole reason no scoring
-branch takes `min_row_coverage` as an argument -- tier 2 already carries the per-sample signal, so
-the gate is one function over the finished records rather than a check repeated in ten branches.
+This is what the **row floor** consumes: `check_row_coverage()` (§2.1) reads the per-panel miss
+alongside `$coverage`, derives each sample's observed fraction over the clock's declared row-gate
+panel (`normalizes` -> norm, else score) as `(present - sample_miss) / needed`, and warns. That is
+the whole reason no scoring branch takes `min_row_coverage` as an argument -- coverage already
+carries the per-sample signal, so the gate is one function over the finished records rather than a
+check repeated in ten branches.
 
-It is literally the row-wise decomposition of tier 1's `score_imputed_partial` (sum the sample axis
-and you get the scalar back), so no new mechanism — same `slideimp::mat_miss` primitive, `col = FALSE`.
+It is literally the row-wise decomposition of tier 1's per-panel `score_imputed_partial` /
+`norm_imputed_partial` (sum the sample axis of that panel's vector and you get the scalar back), so
+no new mechanism — same `slideimp::mat_miss` primitive, `col = FALSE`, coerced to integer.
 Efficient by the same gate cascade: skip entirely when `!scan$has_na`; per clock,
 `intersect(score_present, partial_na_cols)` is a **free** set op (reuses the prepare-side
 `mat_miss(col = TRUE)` result — no re-scan), and `mat_miss(col = FALSE)` runs only over that clock's
@@ -572,10 +601,17 @@ the input rows. `sample_id` is derived **once**, from DNAm (real or positional),
   position, which is why the row counts must match exactly. Such records are already flagged
   `positional_ids` and refused by `cbind` (§7.1 gate 0).
 - Post-condition (both modes): the returned pheno has `nrow(DNAm)` rows in `sample_id` order, with
-  `pheno[[pheno_id]] == rownames(pheno) == sample_id` (id mode reaches this for free since it matched
-  on that column; positional mode overwrites it). The record stays scores-only (§1.3); this aligned
-  pheno feeds covariate scorers and is not appended. `as.data.frame()` surfaces `sample_id` under the
-  `pheno_id` name beside the scores.
+  `pheno[[pheno_id]] == sample_id` (id mode reaches this for free since it matched on that column;
+  positional mode overwrites it). Row names are **dropped** -- identity lives in the id column and
+  nowhere else, so there is no second copy to drift, and data.frame row names do not survive a
+  tibble/dplyr round-trip anyway. The frame is **narrowed** to `c(pheno_id, <covariate
+  union>)` -- for the current catalog at most `ID`, `Age`, `Female`, since those are the only
+  covariates any clock requires. Columns the caller supplied but no clock needed are dropped, so an
+  arbitrary clinical table cannot ride into the record.
+- That narrowed frame both feeds the covariate scorers and is stamped on the record as `$pheno`
+  (sec 1.3), which is what lets `augment()` derive age acceleration and `cbind` gate 2 compare shared
+  covariates per sample. `$scores` stays scores-only, and `as.data.frame()` surfaces `sample_id`
+  under the `pheno_id` name beside the scores -- **covariates are not on that path**.
 
 ---
 
@@ -605,7 +641,11 @@ Rules:
 
 - `sample_id`
 - `positional_ids` (logical) -- `TRUE` when `sample_id` was manufactured inline by `calc_clocks()`
-  from a rowname-less DNAm; `cbind.mc_result` refuses records flagged `TRUE` (§7.1 gate 0)
+  from a rowname-less DNAm; `cbind.mc_result` refuses records flagged `TRUE` (sec 7.1 gate 0). The
+  stamp runs **before** `check_DNAm()`, which requires rownames -- reversing that order makes the
+  whole positional path unreachable
+- `pheno_id` -- the id column name, so `as.data.frame()` and `augment()` agree on the join key
+  without either taking an extra argument
 - `clocks` — every scored column's catalog id, in `$scores` column order
 - `requested` / `dependencies` — the partition of `clocks` into what the caller asked for and what
   the plan pulled in (§1.3, §2.1). The only place that distinction survives; both are real columns
@@ -637,8 +677,12 @@ only after a **positional guard** then **three** independent gates:
    in `covariates_used` of **more than one** record. Their per-sample values (keyed by `sample_id`)
    must agree, so the same `Age` / `Female` is bound to the same sample across records. Moot when
    only one side carries covariates, or both do but they are disjoint (nothing shared to compare); a
-   covariate used by exactly one record is never checked. Hashes each shared covariate keyed by
-   `sample_id` -- never the whole pheno table (§12 non-goal).
+   covariate used by exactly one record is never checked. Reads the values from each record's
+   `$pheno` (sec 5.1) keyed by `sample_id`, so a mismatch can name the offending samples. That frame
+   is already narrowed to the id column plus required covariates, so this never touches the whole
+   pheno table (sec 12 non-goal). An earlier draft stored a per-covariate hash instead; a hash cannot
+   be recomputed after a row subset, which would silently void this gate for any record narrowed
+   by `[` (DECISIONS 2026-07-23).
 3. **`batch_set_id`** (§6) -- required equal for any batch-dependent column; a hash of the sample
    *set*, invariant to gate 1's reorder, so it catches "same samples, scored in two cohorts".
 
@@ -718,6 +762,9 @@ owns no weights, declares `covariates_required = "Female"`, and depends on its t
 members stay in the catalog but leave the **callable pool**: `resolve_clocks()` derives the
 not-callable set from the same routing tables (`sex_routed_members()`), so the pool, the refusal
 and its suggested alias can never disagree. Requesting one is a hard error naming the alias.
+They also leave the **output**: `drop_routed_members()` (same source) keeps them out of
+`output_ids`, so a routed member is scored, feeds its alias, keeps a coverage row -- and never
+becomes a score column.
 
 **Scoring-panel tiers.** `resolve_group_scoring_probe_sets()` fills a missing `role = scoring`
 panel in order: the clock's own tensors -> the union of the **in-group** clocks it consumes
@@ -861,7 +908,7 @@ fixture lookups only, not a runtime tensor store.
 ## 11. Implementation sequence
 
 1. Accessor layer over `sysdata` (executable schema) + its structural test; catalog readers.
-2. `prepare_inputs`, result record, coverage, `summary()`.
+2. `prepare_inputs`, result record, coverage, `clocks_coverage()` / `samples_coverage()`.
 3. Linear engine + impute policies (partial/full split); fixture-drive `cpg_coefficient` batch.
 4. `sample_scale` / Zhang transform -> linear; localized full-panel warn.
 5. GrimAge orchestrator (alias + components + V1/V2 columns).
@@ -936,7 +983,7 @@ methylCIPHER-meta
     calc_clocks()
       prepare | linear engine | pack orchestrators | external/custom
            |
-    mc_result record  --summary()--> coverage data.frame
+    mc_result record  --clocks_coverage()/samples_coverage()--> coverage data.frame
            |
         augment() --> analysis join
 ```

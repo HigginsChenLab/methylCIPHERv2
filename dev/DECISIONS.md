@@ -12,6 +12,275 @@ second-guessed; do not restate rules already stated in the migration / detail pl
 
 ---
 
+## 2026-07-24 -- coverage_table(x, by) splits into clocks_coverage() + samples_coverage()
+
+**Decision.** The single `coverage_table(x, by = c("clock", "sample"))` planned in `detail-plan.md`
+sec 4 and named in CLAUDE.md is built instead as **two** plain functions: `clocks_coverage(x)` (the
+per-clock wide table) and `samples_coverage(x)` (a per-(sample, clock, panel) long table). Both are
+pure formatters over `$coverage` + `$provenance` in `R/coverage_report.R`; neither re-touches beta.
+This is the last piece of the coverage hoist (the three data-model commits landed earlier today).
+
+**Why two, not one `by`.** The two granularities do not share a shape. The clock table is wide and
+sample-invariant (one row per clock, panel set sizes). The sample table must be **long**, keyed
+`(id, clock_id, panel)`, because only long carries a per-row denominator -- a sex-routed alias needs
+`n_needed` = 172 for a woman and 190 for a man on the same column, taken from the member that scored
+that row. A `by` switch returning two unrelated frame shapes from one name buys nothing over two
+named functions, and two names document themselves.
+
+**Coverage is literally `row_coverage()`.** `samples_coverage()$coverage` on a clock's row-gate panel
+is the value `row_coverage()` returns (`R/resolve_inputs.R`), the same source `check_row_coverage()`
+warns from, so the table and the `min_row_coverage` warning cannot disagree. For an alias (NULL
+record) the ratio is stitched from each member's `row_coverage()` over its own masked rows; for the
+non-gate score panel of a normalizing clock (DunedinPACE) it is the same `(present - miss) / needed`
+formula on the score panel, which has no warning to disagree with.
+
+**`role`, two values.** `clocks_coverage()` tags each row `returned` (any score column, including a
+sex-routed alias whose panel fields are NA and dependency columns like `GrimAgeV1`) or
+`routing_target` (a member kept for coverage, never a column). A third `dependency` value was
+considered and dropped -- `provenance$dependencies` already records that fact, so duplicating it in
+the table adds no information. Per-clock imputation counts live here (per-clock constants, next to
+`policy`), not in `samples_coverage`.
+
+**Scores untouched.** Formatters read a finished record only; parity is unaffected by construction.
+
+---
+
+## 2026-07-24 -- per-panel per-sample counts; the norm/score panel is one declared fact
+
+**Decision.** Commit 3 of the coverage hoist. Per-sample miss is now counted **per panel role**, not
+over one implicitly-chosen panel: every clock has a score panel; a normalizing clock (only
+DunedinPACE today) also has a norm panel. `$coverage$sample_miss` changes from an `n x k` matrix to
+`list(score = <n x k>, norm = <n x k' over just the normalizing columns>)`, and the per-clock record
+splits `score_imputed_partial` (score panel) from a new `norm_imputed_partial` (norm panel). The
+score-panel per-sample count for DunedinPACE, which no code computed before, now exists. This is a
+**public output change** (chosen deliberately over the output-stable option), so the two
+`$coverage$sample_miss[, clock]` test references moved to `$score`.
+
+**Why now / what it enables.** A future normalization group (BMIQ) must report norm-panel
+missingness separately from score-panel missingness, and the old single implicit-panel vector could
+not express it. The data model now can. It also removes real duplicated work: counts ride
+`resolve_cpgs()`'s existing distinct-panel index (`panel_index`) and are computed once per distinct
+panel, then fanned out -- FitAge's 7 aliases + 14 members and GrimAge's shared component panels no
+longer recount identical panels.
+
+**One declared panel fact (sec 3.3 drift closed).** "Does this clock count over a norm panel" was
+derived three independent ways -- `score_Dunedin` (`clock_norm_scheme == "quantile"`),
+`clock_coverage` (`length(norm_needed) > 0`), `row_coverage` (`norm_needed > 0`). `resolve_cpgs()`
+now computes `normalizes` once into each per_clock entry; `coverage_record()` copies it onto the
+record; `score_Dunedin` (panel + fill ref) and `row_coverage` (row-gate denominator) both read it.
+No reader re-derives it. `count_sample_miss()` was also normalized to always return integer, so every
+miss vector and partial-fill sum is integer end to end.
+
+**Scores untouched.** Parity stays green (0 fail); the widening moves only which panel a count is
+attributed to, never a coefficient or a score.
+
+---
+
+## 2026-07-24 -- coverage is hoisted upstream; a branch returns only its score
+
+**Decision.** Reverses the "every branch returns the same record `list(score, coverage,
+sample_miss)`" invariant. Coverage/QC depends on no score, so it is now computed once, upstream of
+the scoring loop, by `compute_coverage()` (new `R/coverage.R`), keyed by clock id, and merged in
+`construct_mc_result()`. Every scoring branch returns just its `<n x 1>` score matrix; `results` is
+a list of score matrices, and composites read a dependency's score as `as.numeric(results[[dep]])`.
+This is commit 2 of the coverage hoist (gitignored `dev/coverage_hoist_plan.md`), and it depends on
+commit 1 having made the counts a pure function of policy.
+
+**Why it is now possible / what it buys.** After the 2026-07-24 `used` unification, every branch's
+coverage counts were the same function of `(policy, present, absent)`, computed inline in ten
+places. Hoisting collapses those ten copies to one: `clock_coverage()` counts `sample_miss` over the
+norm panel when the clock normalizes (only DunedinPACE) else the score panel, and derives
+used/imputed_full/dropped from `clock_impute(id)[["policy"]]` (`vendor_mean` fills, else drops). It
+does **not** move the throwing gate earlier -- `check_coverage()` already ran before scoring; the
+win is one source of truth and a data model that can later express per-panel counts (commit 3).
+
+**What stayed where.** Scores are untouched, so parity is unaffected by construction, and the 33
+output-level coverage/`sample_miss` assertions pass byte-identical. The sex-routed split is
+preserved exactly: an alias keeps a `NULL` per_clock record and a per-sample miss **stitched** from
+its members (each row's count is the count of the one member that scored it), and routed members
+are **masked** to their own samples (wrong-sex rows blanked, `score_imputed_partial` recomputed) --
+this logic moved from `mask_routed_members()`/`score_sex_routed()` into `compute_coverage()`; the
+now-inert score-masking of members (never a column, never read post-loop) was dropped.
+
+**sec 3.2 resolved package-side.** `pack_linear_coverage()`/`systemsage_composite_coverage()` (which
+hardcoded `policy = "vendor_mean"`) are gone; the one upstream computation reads the catalog policy,
+confirmed non-NULL for every record-building clock (see 2026-07-24 `used` entry). Dunedin's fill-ref
+selection stays in its scorer untouched -- its `vendor_mean` label names the QN-gold mechanism, not
+`clock_impute_ref()`, and that fold-in waits for commit 3.
+
+---
+
+## 2026-07-24 -- score_used counts vendor-filled CpGs everywhere (used = present + imputed_full)
+
+**Decision.** `score_used` in every coverage record now means "terms that entered the linear
+predictor" = `score_present + score_imputed_full`. A vendor-mean-filled absent CpG is counted as
+used, because it does enter the sum; an omitted/dropped CpG is not. This is commit 1 of the coverage
+hoist (see gitignored `dev/coverage_hoist_plan.md` sec 3.1 / 8); centralizing coverage in commit 2
+needs one definition, so the divergent ones are unified first, alone, as a visible behavior change.
+
+**Why / what actually changed.** The engine (`linear_score`) already defined `used = present +
+vendor_filled`. Auditing all ten branches against that, only **two** disagreed -- the plan's sec 3.1
+overstated it as "the composites": `score_DNAmFitAge` (the KDM composite,
+`DNAmFitAge_{Female,Male}`) and `systemsage_composite_coverage` (`Age_prediction`, `SystemsAge`)
+both reported `used = present` while also reporting `imputed_full = absent`, so `used != present +
+imputed_full` exactly when a fill happened. `score_PhysAge` already reported `used = score_needed`
+(correct); `score_GrimAge`/`EpiTOC2`/`MiAge`/`Zhang2019` omit (imputed_full = 0, so `used = present`
+is already `present + 0`); `pack_linear_coverage` and `Dunedin` were already `present + absent`.
+Fixed the two offenders; `score_used` is now asserted (it was asserted nowhere before) via an
+always-on FitAge composite golden and the SystemsAge external test. Scores are untouched, so the
+parity tier is unaffected by construction.
+
+---
+
+## 2026-07-23 -- routed members leave the output too; the alias is the family's only column
+
+**Decision.** Reverses the "still columns in the result" half of 2026-07-22. The 14 sex-resolved
+DNAmFitAge members are now internal end to end: scored, consumed by their alias, kept as coverage
+rows, and **dropped from `output_ids`**. A sex-routed family comes back as one column per alias,
+finite for every sample in `pheno`. `drop_routed_members()` sits next to `sex_routed_members()` so
+the callable pool and the output filter read the same table.
+
+**Why.** Asking for `DNAmFitAge` on a mixed cohort returned 30 columns, 14 of them half-`NA`:
+`DNAmFitAge_Female` populated for the women, `DNAmFitAge_Male` for the men, and the alias --
+the actual answer -- buried among them. Every one of those NAs is structural, not a data problem,
+but nothing in the object says so, so the shape reads as a failed run. It also forces every
+downstream consumer (`as.data.frame()`, a `cbind` into a phenotype table, a regression) to know
+which columns to ignore. The masking from 2026-07-22 fixed the *values* footgun -- no plausible
+wrong-sex numbers -- without fixing the *shape* one. Members were only ever columns because they
+were the place coverage lived, which is a reason for them to be coverage rows, not columns.
+
+**What crosses the routing split is per-sample, not per-panel.** This is the line, and it is not
+"scores are stitched, coverage is not" -- we tried that phrasing and it cuts in the wrong place.
+
+A routed sample was scored by **exactly one** member. So anything indexed *by sample* routes with
+the score and remains true of its row: `$scores`, and the tier-2 `sample_miss`, both stitched in
+`score_sex_routed()`. Anything indexed *by panel* does not, because the two panels differ (172 F /
+190 M) and such a count is only meaningful against the panel it was counted over -- "4 imputed" is
+4 of 172 for a woman and 4 of 190 for a man. Merge those numerators into one figure while the
+denominators stay on two separate member rows and you get a number nobody can divide. So
+`per_clock[[alias]]` stays `NULL`, the panel counts stay on the member rows -- which now outlive
+their columns, `construct_mc_result()` taking the full `results` for `per_clock` and only
+`results[output_ids]` for `$scores` / `$sample_miss` -- and the `NULL` is not a gap to fill in. It
+is the correct answer to "what is this family's panel coverage" when the honest reply is "it
+depends which model scored you, and here are both rows."
+
+The residual sharpness, worth stating so nobody trips on it: a stitched `sample_miss` column has a
+**per-row denominator**. Comparing 4 against 4 down that column is not comparing like with like if
+the two rows routed to different members. The column is a per-sample QC flag ("this score leaned
+on N imputed CpGs"), not a coverage rate; the rate needs the member's `per_clock` row.
+
+**`check_row_coverage()` therefore runs over every clock computed, not `results[output_ids]`.**
+The row floor *is* a per-panel division, so it can only be evaluated on the member records -- and
+those have no columns. Gating the returned columns alone would have silently switched the floor
+off for the whole family. A warning can name `DNAmGrip_wAge_Female`, which is not a column --
+deliberate: it names the model that was thin and the `per_clock` row holding its numbers, and
+`list_clocks()` still shows it with `callable = FALSE`. Masking (`mask_routed_members()`) is kept
+for the same reason -- it is no longer about output values, it is what keeps a member's coverage
+describing only its own sex.
+
+**`batch_set_id` moved to `clock_sequence`** for the same class of reason: batch dependence is a
+property of what was computed, not of what is returned. No behavior change today (the two sets
+coincided until now, and no FitAge clock is batch-dependent), but a batch-dependent routed member
+would otherwise have lost the stamp on the way out.
+
+**Not extended to ordinary dependencies.** `GrimAgeV1` and its 8 surrogates still come back as
+columns from a `DNAmFitAge` request. They are callable clocks with their own meaning and their own
+coverage, and a caller who wanted only the alias can subset. The rule is narrow: *routing targets*
+are not results.
+
+---
+
+## 2026-07-23 -- the record carries the aligned pheno; rbind is refused, not built
+
+**Decision.** Three parts of the `mc_result` S3 surface, settled together as Phase 1 of the
+verb build-out.
+
+**1. The record carries the aligned pheno at top-level `$pheno`**, narrowed by
+`resolve_pheno()` to `c(pheno_id, <covariate union>)` -- for the current catalog that is at most
+`ID`, `Age`, `Female`, since those are the only two covariates any clock requires. Columns the
+user supplied but no clock needed are dropped, so an arbitrary clinical table cannot ride along.
+
+We first designed this as a per-covariate `digest()` keyed by `sample_id`, to keep subject data
+out of the object. Values win on three counts. A digest **cannot be recomputed after a row
+subset**, so any future `[` would silently void the `cbind` shared-covariate gate (sec 7.1 gate 2)
+for subset records, which is exactly where a mistake is most likely. A digest can only report
+*that* `Age` disagrees, never which samples. And a saved record could not answer "what Age
+produced this score", which matters when a clock fed age in months looks merely implausible
+rather than wrong. Values are the strictly stronger representation -- a digest is derivable from
+them, never the reverse -- so a comparison can always reduce both sides to the weaker form, and a
+future scrubber that swaps values for digests stays compatible with the gates.
+
+**The privacy objection is real but weaker than it looks here.** `$provenance$sample_id` already
+keys the record to individuals, and the scores are themselves health data, so `Age` / `Female` is
+a marginal rather than categorical increase. More decisively, the export path out of this object
+(`as.data.frame()`) is **scores plus id only** -- pheno never rides it. Leaking pheno requires
+deliberately `saveRDS()`-ing the whole record, and `print.mc_result` shows a `<$pheno>` block so
+nobody can be unaware it is in there. Keep `as.data.frame()` scores-only; that is what makes the
+rest of this sound.
+
+**Scores-only is unchanged.** The invariant governs `$scores` and the `as.data.frame()` shape, not
+whether the record remembers its own inputs.
+
+**2. `rbind.mc_result` refuses.** It was a registered stub with an empty body, so `rbind(a, b)`
+returned `NULL` silently. Deleting the method is not the fix: `rbind` is an internal generic, so
+with no method the default fires and yields a 2 x N list-matrix -- still garbage, merely
+differently shaped. It is now a `cli_abort` naming the reason: binding samples orphans
+`batch_set_id` and leaves any cohort-dependent score (`cohort_zscore`, and residual acceleration
+later) computed against the wrong cohort. The supported path is one `calc_clocks()` per cohort,
+then bind the `as.data.frame()` outputs -- the same division of labour broom draws, where three
+`lm`s mean three `augment`s and the caller owns the bind.
+
+**3. `summary()` is dropped in favour of `coverage_table()`** (not yet built). `summary()` on an
+object wrapping an n x k numeric matrix sets up the expectation of score distributions, and
+handing back a CpG-coverage QC table instead spends the conventional name on the unexpected
+thing, leaving nothing for the expected one. `coverage_table(x, by = c("clock", "sample"))` also
+fits the record better: `$coverage` genuinely holds **two** shapes -- `per_clock` and the
+samples-x-clocks `sample_miss` -- and one function with an orientation argument covers both.
+This reverses the sec 1.3 method table, which listed `summary`.
+
+**Also corrected while here.** `check_DNAm()` ran *before* the positional-id stamp, and it asserts
+non-NULL rownames -- so rowname-less DNAm always errored there and `allow_positional_ids = TRUE`,
+plus everything downstream of `$provenance$positional_ids`, was unreachable. The stamp now runs
+first, guarded by `is.matrix()` so a non-matrix still gets `check_DNAm()`'s error rather than a
+confusing failure inside the rownames assignment. Detail-plan sec 5.1 already specified this
+order; the code had it backwards.
+
+`citation` / `codebook` are **not** methods: `utils::citation` is a plain function, not an S3
+generic, so `citation.mc_result` would never dispatch and defining our own generic would mask it.
+They become plain functions if built. Deferred, along with `augment` and `[`.
+
+---
+
+## 2026-07-23 -- cli pluralization is a hard rule, not a style preference
+
+**Decision.** CLAUDE.md now carries a "CLI messages" section requiring an explicit `cli::qty()`
+on any `{?}` marker whose quantity is not the interpolation immediately before it.
+
+**Why this is an entry.** Four shipped sites threw from inside cli instead of reporting the
+condition they were written to report -- `score_default.R` and `score_pack.R` ("Add {?it/them} to
+`pheno`"), `missingness.R` ("Remove or fix {?it/them}"), and `mc_data.R` ("Pack{?s} ... not found
+in {.path {dir}}", which had two forward candidates). A user hitting a missing-pheno-column or a
+missing-pack error saw `Cannot pluralize without a quantity` and no diagnostic at all. None of
+this was caught because the tier that covers these paths uses bare `expect_error(expr)` per the
+test-altitude rule, and a crash inside the error handler is still an error.
+
+**The silent variant is the one to watch.** `"{.val {id}} needs pheno column{?s} {.field {need}}"`
+binds the marker to `id`, not `need`, so it read "needs pheno column Age and Female" forever.
+Same shape in `resolve_inputs.R`'s "points at missing token{?s}". These do not fail any test and
+never will -- only reading the rendered string catches them.
+
+**Not fixed by a test.** Asserting message wording would violate the test-altitude rule and would
+not generalize to the next message anyway. The rule lives in CLAUDE.md instead, where it is read
+before the message is written.
+
+**Also recorded here: cli reflows whitespace.** `mc_manifest()` builds a column-aligned size table
+for the interactive `askYesNo()` prompt; interpolating it into a `cli_abort()` bullet collapsed it
+to a single run-on line. The non-interactive consent aborts now use `mc_manifest_bullets()` (one
+bullet per pack plus a total) and `mc_manifest()` stays for the plain-text prompt where the
+alignment survives. Two renderings of one manifest is deliberate, not duplication.
+
+---
+
 ## 2026-07-23 -- the norm-panel-warns-only decision is finally in the code (it never was)
 
 **Decision.** `check_coverage()` now does what the "scoring panel stops, normalization panel warns
