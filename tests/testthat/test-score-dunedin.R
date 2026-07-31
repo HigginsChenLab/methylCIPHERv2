@@ -93,9 +93,7 @@ test_that("DunedinPACE counts fully-absent norm CpGs as norm_imputed_full", {
   expect_false(anyNA(res$scores[, "DunedinPACE"]))
 })
 
-# degraded coverage against the reference implementation. parity owns the
-# full-coverage golden, so this covers only what it cannot: partial NA and
-# fully-absent CpGs on both panels at once
+# degraded coverage vs the reference package. parity owns the full-coverage golden
 test_that("DunedinPACE matches danbelsky/DunedinPACE through a holed panel", {
   skip_if_not_installed("betanorm")
   skip_if_not_installed("DunedinPACE")
@@ -109,9 +107,7 @@ test_that("DunedinPACE matches danbelsky/DunedinPACE through a holed panel", {
   absent <- c(score_panel[1:3], norm_only[1:1000])
   DNAm <- random_betas(setdiff(norm_panel, absent), n = 10L)
 
-  # partial miss, one sample per CpG on both panels. 1 of 10 keeps the
-  # reference on its cohort-mean branch, which is the one we implement -- it
-  # vendor-fills a probe observed in under 80% of samples and we never do
+  # partial miss on both panels. reference vendor-fills rare probes, we never do
   holed_score <- score_panel[4:8]
   holed_norm <- norm_only[1001:1005]
   for (j in seq_along(holed_score)) {

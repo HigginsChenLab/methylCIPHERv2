@@ -97,3 +97,47 @@ test_that("every shipped bib_key resolves in clocks.bib", {
   )
   expect_true(all(unique(mc_citations[["bib_key"]]) %in% trimws(keys)))
 })
+
+test_that("the citation frame carries the paper's own fields", {
+  df <- as.data.frame(cite_clocks("all"))
+
+  paper_cols <- c("title", "author", "year", "journal", "doi", "url")
+  expect_true(all(paper_cols %in% names(df)))
+  # every .bib entry declares these, so a NA here means the join lost a key
+  for (col in paper_cols) {
+    expect_false(anyNA(df[[col]]))
+  }
+
+  # one paper, one set of field values, however many clocks cite it
+  expect_true(all(
+    vapply(
+      split(df[["title"]], df[["bib_key"]]),
+      function(v) {
+        length(unique(v)) == 1L
+      },
+      logical(1L)
+    )
+  ))
+})
+
+test_that("the stored paper fields are the vendored clocks.bib text", {
+  bib <- system.file("bibliography", "clocks.bib", package = "methylCIPHERv2")
+  skip_if(!nzchar(bib) || !file.exists(bib))
+
+  # brace-stripped, so the {DNA}/{eLife} casing protection does not block a match
+  txt <- gsub(
+    "[{}]",
+    "",
+    paste(readLines(bib, warn = FALSE, encoding = "UTF-8"), collapse = "\n")
+  )
+  df <- unique(as.data.frame(cite_clocks("all"))[, c(
+    "title",
+    "doi",
+    "journal"
+  )])
+
+  for (col in names(df)) {
+    hit <- vapply(df[[col]], grepl, logical(1L), x = txt, fixed = TRUE)
+    expect_true(all(hit))
+  }
+})

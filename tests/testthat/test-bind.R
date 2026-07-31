@@ -1,8 +1,6 @@
 # rbind.mc_result: gates, batch labels, assembly, opt-in re-finalize.
 
-# one cohort cut into disjoint sample blocks, each scored on its own. the
-# blocks share a CpG set and differ only in which samples they hold, which is
-# what a user projecting with clock_cpgs() and blocking produces
+# disjoint sample blocks from one cohort, same CpG set
 bind_blocks <- function(clocks = "Hannum", n = 12L, blocks = 3L) {
   DNAm <- random_betas(clock_cpgs(clocks), n = n)
   idx <- split(seq_len(n), rep(seq_len(blocks), length.out = n))
@@ -31,9 +29,12 @@ test_that("disjoint records bind into one labelled union", {
   expect_equal(out$scores[rownames(first), , drop = FALSE], first)
 
   # one batch per record, per sample, and the two axes agree
-  expect_equal(length(unique(out$provenance$batch)), 3L)
-  expect_equal(length(out$provenance$batch), nrow(fx$DNAm))
-  expect_setequal(names(out$coverage$per_clock), unique(out$provenance$batch))
+  expect_equal(length(unique(out$provenance$mc_batch_id)), 3L)
+  expect_equal(length(out$provenance$mc_batch_id), nrow(fx$DNAm))
+  expect_setequal(
+    names(out$coverage$per_clock),
+    unique(out$provenance$mc_batch_id)
+  )
 
   # the label is derived from the ids, so each record kept the one it was born
   # with -- rbind mints nothing
@@ -48,19 +49,22 @@ test_that("a batch label is a function of the sample ids and nothing else", {
   a <- calc_clocks(DNAm, "Hannum")
   b <- calc_clocks(DNAm, "Hannum")
   # same ids scored twice -> same label, whatever the betas did in between
-  expect_equal(a$provenance$batch, b$provenance$batch)
+  expect_equal(a$provenance$mc_batch_id, b$provenance$mc_batch_id)
 
   # the id *set*, not its order: re-scoring a reordered block keeps the label
   shuffled <- calc_clocks(DNAm[rev(seq_len(6L)), , drop = FALSE], "Hannum")
-  expect_equal(unique(shuffled$provenance$batch), unique(a$provenance$batch))
+  expect_equal(
+    unique(shuffled$provenance$mc_batch_id),
+    unique(a$provenance$mc_batch_id)
+  )
 
   # different ids -> different label
   other <- DNAm
   rownames(other) <- paste0(rownames(other), "_T2")
   expect_false(
     identical(
-      calc_clocks(other, "Hannum")$provenance$batch,
-      a$provenance$batch
+      calc_clocks(other, "Hannum")$provenance$mc_batch_id,
+      a$provenance$mc_batch_id
     )
   )
 })
@@ -184,8 +188,8 @@ test_that("a named list binds -- split() names are not a labelling attempt", {
   out <- do.call(rbind, recs)
   expect_equal(nrow(out$scores), n)
   # the names are dropped, not adopted -- labels stay derived
-  expect_equal(length(unique(out$provenance$batch)), 3L)
-  expect_false(any(c("1", "2", "3") %in% out$provenance$batch))
+  expect_equal(length(unique(out$provenance$mc_batch_id)), 3L)
+  expect_false(any(c("1", "2", "3") %in% out$provenance$mc_batch_id))
 
   # naming by hand is the same: ignored, never a label
   fx <- bind_records(blocks = 2L)
@@ -227,15 +231,15 @@ test_that("re-association is exact: labels derive from ids, so nothing moves", {
   # the whole record agrees, not just the labels -- no renumbering to undo
   expect_equal(nested, flat)
   expect_equal(nrow(nested$scores), 16L)
-  expect_equal(length(unique(nested$provenance$batch)), 4L)
+  expect_equal(length(unique(nested$provenance$mc_batch_id)), 4L)
 
   # every record's samples still share one batch
   for (rec in fx$records) {
-    got <- nested$provenance$batch[
+    got <- nested$provenance$mc_batch_id[
       match(rownames(rec$scores), nested$provenance$sample_id)
     ]
     expect_equal(length(unique(got)), 1L)
-    expect_equal(unique(got), unique(rec$provenance$batch))
+    expect_equal(unique(got), unique(rec$provenance$mc_batch_id))
   }
 })
 
@@ -247,14 +251,14 @@ test_that("clocks_coverage is one row per (clock, batch)", {
   one <- clocks_coverage(fx$records[[1]])
   # the hash is the key this frame is on, but it reads as noise -- so it sits
   # at the end, not in front of the clock id
-  expect_equal(names(cc)[[length(cc)]], "batch")
+  expect_equal(names(cc)[[length(cc)]], "mc_batch_id")
   expect_equal(names(cc)[[1]], "clock_id")
   expect_equal(nrow(cc), nrow(one) * 3L)
-  expect_setequal(unique(cc$batch), unique(out$provenance$batch))
+  expect_setequal(unique(cc$mc_batch_id), unique(out$provenance$mc_batch_id))
 
-  b1 <- unique(fx$records[[1]]$provenance$batch)
+  b1 <- unique(fx$records[[1]]$provenance$mc_batch_id)
   expect_equal(
-    cc[cc$batch == b1 & cc$clock_id == "Hannum", "score_needed"],
+    cc[cc$mc_batch_id == b1 & cc$clock_id == "Hannum", "score_needed"],
     one[one$clock_id == "Hannum", "score_needed"]
   )
 })
@@ -266,9 +270,33 @@ test_that("samples_coverage carries every sample once, under its own batch", {
 
   expect_setequal(sc$id, rownames(fx$DNAm))
   expect_equal(
-    sc$batch[match(out$provenance$sample_id, sc$id)],
-    out$provenance$batch
+    sc$mc_batch_id[match(out$provenance$sample_id, sc$id)],
+    out$provenance$mc_batch_id
   )
+})
+
+test_that("the batch label reaches an exit frame only when there is more than one", {
+  fx <- bind_records()
+  one <- fx$records[[1]]
+  many <- do.call(rbind, fx$records)
+  # clocks_accel shares shape_scores with as.data.frame, so these are the exits
+  exits <- function(x) {
+    list(
+      as.data.frame(x),
+      as.data.frame(x, long = FALSE),
+      clocks_coverage(x),
+      samples_coverage(x)
+    )
+  }
+
+  # one batch means one repeated hash, which tells the reader nothing
+  for (df in exits(one)) {
+    expect_false("mc_batch_id" %in% names(df))
+  }
+  # and all of them carry it, last, once there is something to tell apart
+  for (df in exits(many)) {
+    expect_equal(names(df)[[length(df)]], "mc_batch_id")
+  }
 })
 
 test_that("a probe all-NA in one batch is recorded there, not merged away", {
@@ -281,8 +309,8 @@ test_that("a probe all-NA in one batch is recorded there, not merged away", {
   r1 <- calc_clocks(DNAm[1:6, , drop = FALSE], "Hannum")
   r2 <- calc_clocks(DNAm[7:12, , drop = FALSE], "Hannum")
   cov <- rbind(r1, r2)$coverage$per_clock
-  b1 <- unique(r1$provenance$batch)
-  b2 <- unique(r2$provenance$batch)
+  b1 <- unique(r1$provenance$mc_batch_id)
+  b2 <- unique(r2$provenance$mc_batch_id)
 
   expect_true(hole %in% cov[[b1]]$Hannum$missing_cpgs)
   expect_false(hole %in% cov[[b2]]$Hannum$missing_cpgs)

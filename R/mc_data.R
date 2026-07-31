@@ -1,5 +1,4 @@
 # external clock-data assets (content-addressed qs2 packs)
-MC_DEFAULT_RELEASE_REPO <- "hhp94/methylCIPHERv2"
 
 # content-addressed tail of a pack filename: <stem>-<sha256>.qs2
 MC_ASSET_SUFFIX <- "-[0-9a-f]{64}\\.qs2$"
@@ -38,7 +37,7 @@ mc_resolve_groups <- function(groups) {
 
 # public release-asset URL
 mc_asset_url <- function(row) {
-  repo <- getOption("mc.release_repo", MC_DEFAULT_RELEASE_REPO)
+  repo <- getOption("mc.release_repo", "hhp94/methylCIPHERv2")
   sprintf(
     "https://github.com/%s/releases/download/%s/%s",
     repo,

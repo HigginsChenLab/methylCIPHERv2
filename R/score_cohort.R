@@ -137,7 +137,8 @@ mc_spec <- function(
   covariates <- unique(unlist(lapply(
     clock_sequence,
     clock_covariates_required
-  ))) %||% character(0)
+  ))) %||%
+    character(0)
 
   packs <- load_mc_assets(pack_groups_needed(clock_sequence), ext_data, ask)
   panels <- clock_panels(clock_sequence, packs, normalize)

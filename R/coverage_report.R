@@ -76,8 +76,8 @@ batch_coverage <- function(per_clock, batch, returned) {
     per_clock,
     function(r) if (is.null(r)) character(0) else r[["missing_cpgs"]]
   ))
-  # batch last: a hash next to clock_id reads as noise, but it is still the join key
-  out[["batch"]] <- batch
+  # batch last: a hash next to clock_id reads as noise, but it is the join key
+  out[[MC_BATCH]] <- batch
   out
 }
 
@@ -94,7 +94,7 @@ clocks_coverage <- function(x) {
     })
   )
   rownames(out) <- NULL
-  out
+  drop_single_batch(out, x[["provenance"]][[MC_BATCH]])
 }
 
 # one panel's per-sample rows for a non-alias returned clock
@@ -106,8 +106,9 @@ panel_rows <- function(id, panel, batch, ratio, sample_id) {
     n_observed = as.integer(ratio[["n_observed"]]),
     n_needed = as.integer(ratio[["needed"]]),
     coverage = ratio[["cov"]],
-    # last, like clocks_coverage() -- the column the two frames join on
-    batch = batch,
+    # last, like clocks_coverage() -- the column the two frames join on.
+    # dropped for both frames at once when the record has a single batch
+    mc_batch_id = batch,
     stringsAsFactors = FALSE,
     row.names = NULL
   )
@@ -155,7 +156,7 @@ empty_sample_rows <- function() {
     n_observed = integer(0),
     n_needed = integer(0),
     coverage = numeric(0),
-    batch = character(0),
+    mc_batch_id = character(0),
     stringsAsFactors = FALSE
   )
 }
@@ -164,7 +165,7 @@ empty_sample_rows <- function() {
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)
-  batch <- x[["provenance"]][["batch"]]
+  batch <- x[["provenance"]][[MC_BATCH]]
 
   parts <- list()
   for (b in names(x[["coverage"]][["per_clock"]])) {
@@ -186,5 +187,5 @@ samples_coverage <- function(x) {
   # drop na coverage rows (routed member on a sex it did not score)
   out <- out[!is.na(out[["coverage"]]), , drop = FALSE]
   rownames(out) <- NULL
-  out
+  drop_single_batch(out, batch)
 }

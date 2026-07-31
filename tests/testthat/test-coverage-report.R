@@ -65,7 +65,14 @@ test_that("samples_coverage emits no rows for a clock that reads no CpGs", {
 
   expect_equal(
     names(sc),
-    c("id", "clock_id", "panel", "n_observed", "n_needed", "coverage", "batch")
+    c(
+      "id",
+      "clock_id",
+      "panel",
+      "n_observed",
+      "n_needed",
+      "coverage"
+    )
   )
   # the alias is a returned column but reads no CpGs, so it reports nothing
   expect_false("DNAmGrip_wAge" %in% sc$clock_id)

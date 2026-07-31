@@ -1,7 +1,5 @@
 # pre-score coverage gates over the resolved panels
 
-WARN_COVERAGE_MARGIN <- 1.1
-
 # requestable token for a compute-sequence id (alias, not routed member)
 gate_label <- function(id, routed = sex_routed_members()) {
   if (!id %in% names(routed[["alias"]])) {
@@ -12,7 +10,8 @@ gate_label <- function(id, routed = sex_routed_members()) {
 
 check_coverage <- function(cpg_list, threshold = 0.75) {
   checkmate::assert_number(threshold, lower = 0, upper = 1)
-  warn_below <- min(1, threshold * WARN_COVERAGE_MARGIN)
+  # warn within 10% of the floor, before the gate itself trips
+  warn_below <- min(1, threshold * 1.1)
   routed <- sex_routed_members()
 
   panel_line <- function(id, present, needed, label) {
