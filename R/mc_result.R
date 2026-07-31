@@ -10,6 +10,24 @@ batch_hash <- function(ids) {
   digest::digest(key, algo = "xxhash64", serialize = FALSE)
 }
 
+# the record's distinct batch labels. every multi-batch-only decision reads this
+# one definition -- print.mc_result and all four exit frames -- so they cannot
+# disagree about how many batches a record has
+batch_labels <- function(x) {
+  unique(x[["provenance"]][[MC_BATCH]])
+}
+
+# at one batch the label is a single repeated hash, so it says nothing and every
+# exit frame drops it. batch is provenance's per-sample vector at every call
+# site: the two coverage frames must never disagree about whether the key is there
+drop_single_batch <- function(df, batch) {
+  if (length(unique(batch)) > 1L) {
+    return(df)
+  }
+  df[[MC_BATCH]] <- NULL
+  df
+}
+
 # n x length(ids) per-sample miss matrix (NULL entry -> NA)
 miss_matrix <- function(miss_list, ids, sample_id) {
   m <- matrix(
@@ -77,7 +95,7 @@ construct_mc_result <- function(
       provenance = list(
         sample_id = sample_id,
         # per-sample, aligned to sample_id (never a key -- see rbind)
-        batch = rep(batch, length(sample_id)),
+        mc_batch_id = rep(batch, length(sample_id)),
         pheno_id = pheno_id,
         clocks = output_ids,
         requested = requested_ids,
@@ -123,8 +141,9 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
     cut_cols = FALSE
   )
 
-  # multi-batch only. a single-pass record has nothing new to say here
-  labels <- names(x[["coverage"]][["per_clock"]])
+  # multi-batch only, on the same test the exit frames use. a single-pass record
+  # has nothing new to say here
+  labels <- batch_labels(x)
   if (length(labels) > 1L) {
     cat(
       "\n",

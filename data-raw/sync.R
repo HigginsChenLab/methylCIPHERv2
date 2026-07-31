@@ -1,4 +1,4 @@
-# vendor methylCIPHER-meta into the package. source("data-raw/sync.R") then sync().
+# vendor methylCIPHER-meta into the package. source("data-raw/sync.R") then sync()
 
 # setup
 
@@ -21,9 +21,8 @@ for (pkg in c(
 SYNC_SCRIPT <- file.path("data-raw", "sync.R")
 ACCESSORS_FILE <- file.path("R", "accessors.R")
 
-# sync-time and score-time read one vocabulary, so the shared constants and the
-# stack-operand rules are sourced from R/, never re-typed here. accessors.R is
-# definitions only (no load-time side effects); its own env keeps sync's names free.
+# shared constants and stack-operand rules come from R/accessors.R so sync and
+# score share one vocabulary. sourced into its own env (definitions only).
 if (!file.exists(ACCESSORS_FILE)) {
   stop(
     "sync.R runs from the package root; ",
@@ -52,8 +51,7 @@ EXTERNAL_CLOCKS <- c("Zhang2019BLUP")
 # bump when pack layout changes (new payload_hash).
 EXTERNAL_ENCODING_VERSION <- 3L
 
-# Pack staleness keys on encoder code (sync.R + accessors.R) plus upstream bundle_hashes.
-# Parsed whole-file so comments never force a rebuild; re-source after editing.
+# pack staleness keys on encoder code plus upstream bundle_hashes. re-source after editing.
 sync_code_fingerprint <- function() {
   files <- c(SYNC_SCRIPT, ACCESSORS_FILE)
   if (!all(file.exists(files))) {
@@ -218,6 +216,20 @@ prune_group_meta <- function(gmeta) {
 CITATION_FIELDS <- c("clock_id", "pmid", "role", "bib_key")
 CITATION_ROLES <- c("primary", "cite_also")
 
+# paper fields lifted from clocks.bib onto the citation join. pmid stays on the
+# csv and is cross-checked
+BIB_FIELDS <- c(
+  "title",
+  "author",
+  "year",
+  "journal",
+  "volume",
+  "number",
+  "pages",
+  "doi",
+  "url"
+)
+
 # clock -> paper join (1:N). meta pmid is the primary only
 read_clock_citations <- function(repo_path) {
   path <- file.path(repo_path, "bibliography", "clock_citations.csv")
@@ -283,6 +295,179 @@ build_citations_table <- function(citations, clock_ids) {
   ]
   row.names(df) <- NULL
   df
+}
+
+# parse clocks.bib as upstream emits it (one field per line, fixed order). a
+# tolerant search would hide a moved field set
+BIB_INDENT <- "  "
+BIB_ASSIGN <- " = {"
+
+# present on every entry, whatever its type (lib_bib.py REQUIRED_FIELDS)
+BIB_REQUIRED <- c("title", "author", "year", "pmid")
+
+# brace-protected casing ({DNA}, {eLife}) is a BibTeX rendering hint, not data
+bib_unbrace <- function(x) {
+  gsub("}", "", gsub("{", "", x, fixed = TRUE), fixed = TRUE)
+}
+
+# "@article{Key_2022_35029144," -> "Key_2022_35029144". entry type is not checked
+bib_entry_key <- function(line, where) {
+  parts <- strsplit(line, "{", fixed = TRUE)[[1L]]
+  if (
+    length(parts) != 2L ||
+      !startsWith(parts[[1L]], "@") ||
+      !endsWith(parts[[2L]], ",")
+  ) {
+    stop(where, ": unreadable entry header: ", line, call. = FALSE)
+  }
+  key <- trimws(substr(parts[[2L]], 1L, nchar(parts[[2L]]) - 1L))
+  if (!nzchar(key)) {
+    stop(where, ": entry header declares no key: ", line, call. = FALSE)
+  }
+  key
+}
+
+# the field lines of one entry -> named character vector, unbraced
+bib_entry_fields <- function(body, where) {
+  out <- character()
+  for (line in body) {
+    if (!startsWith(line, BIB_INDENT)) {
+      stop(where, ": field line is not indented: ", line, call. = FALSE)
+    }
+    txt <- substring(line, nchar(BIB_INDENT) + 1L)
+    if (startsWith(txt, " ")) {
+      stop(where, ": field line is over-indented: ", line, call. = FALSE)
+    }
+    # trailing comma on every field but the last
+    if (endsWith(txt, "},")) {
+      txt <- substr(txt, 1L, nchar(txt) - 1L)
+    }
+    if (!endsWith(txt, "}")) {
+      stop(
+        where,
+        ": field line does not close its value: ",
+        line,
+        call. = FALSE
+      )
+    }
+    at <- regexpr(BIB_ASSIGN, txt, fixed = TRUE)
+    if (at < 1L) {
+      stop(where, ": field line has no ' = {': ", line, call. = FALSE)
+    }
+    name <- substr(txt, 1L, at - 1L)
+    value <- substr(txt, at + nchar(BIB_ASSIGN), nchar(txt) - 1L)
+    if (name %in% names(out)) {
+      stop(where, ": field '", name, "' is declared twice", call. = FALSE)
+    }
+    out[[name]] <- trimws(bib_unbrace(value))
+  }
+  missing <- setdiff(BIB_REQUIRED, names(out))
+  if (length(missing)) {
+    stop(
+      where,
+      ": entry is missing required field(s): ",
+      paste(missing, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  out
+}
+
+# clocks.bib -> one row per entry, columns BIB_FIELDS + pmid + bib_key
+read_bib_fields <- function(repo_path) {
+  path <- file.path(repo_path, "bibliography", "clocks.bib")
+  con <- file(path, encoding = "UTF-8")
+  on.exit(close(con), add = TRUE)
+  lines <- readLines(con, warn = FALSE)
+
+  starts <- which(startsWith(lines, "@"))
+  if (!length(starts)) {
+    stop("clocks.bib has no entries", call. = FALSE)
+  }
+  ends <- c(starts[-1L] - 1L, length(lines))
+
+  wanted <- c(BIB_FIELDS, "pmid")
+  cells <- matrix(
+    NA_character_,
+    nrow = length(starts),
+    ncol = length(wanted),
+    dimnames = list(NULL, wanted)
+  )
+  keys <- character(length(starts))
+  seen <- character()
+
+  for (i in seq_along(starts)) {
+    block <- lines[seq.int(starts[i], ends[i])]
+    # the blank separator line belongs to no entry
+    block <- block[seq_len(max(which(nzchar(trimws(block)))))]
+    where <- paste0("clocks.bib entry at line ", starts[i])
+    if (length(block) < 3L || !identical(block[[length(block)]], "}")) {
+      stop(where, ": entry does not close with a lone '}'", call. = FALSE)
+    }
+    keys[[i]] <- bib_entry_key(block[[1L]], where)
+    fields <- bib_entry_fields(block[-c(1L, length(block))], where)
+    seen <- c(seen, names(fields))
+    have <- intersect(wanted, names(fields))
+    cells[i, have] <- fields[have]
+  }
+
+  # every field we read must appear on some entry. a missing name means the
+  # emitter field set moved
+  never <- setdiff(wanted, unique(seen))
+  if (length(never)) {
+    stop(
+      "clocks.bib declares no ",
+      paste(never, collapse = ", "),
+      " field on any of its ",
+      length(starts),
+      " entries -- the emitter's field names moved",
+      call. = FALSE
+    )
+  }
+
+  dup <- unique(keys[duplicated(keys)])
+  if (length(dup)) {
+    stop(
+      "clocks.bib has duplicate entry key(s): ",
+      paste(dup, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  out <- as.data.frame(cells, stringsAsFactors = FALSE)
+  out[["bib_key"]] <- keys
+  row.names(out) <- NULL
+  out
+}
+
+# join paper fields onto citations. every key must resolve and both pmid copies
+# must agree
+attach_bib_fields <- function(citations, bib) {
+  absent <- setdiff(unique(citations[["bib_key"]]), bib[["bib_key"]])
+  if (length(absent)) {
+    stop(
+      "clock_citations.csv names bib_key(s) missing from clocks.bib: ",
+      paste(absent, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  idx <- match(citations[["bib_key"]], bib[["bib_key"]])
+
+  csv_pmid <- trimws(citations[["pmid"]])
+  bib_pmid <- trimws(bib[["pmid"]][idx])
+  clash <- nzchar(csv_pmid) & !is.na(bib_pmid) & csv_pmid != bib_pmid
+  if (any(clash)) {
+    stop(
+      "pmid disagrees between clock_citations.csv and clocks.bib for: ",
+      paste(unique(citations[["bib_key"]][clash]), collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  for (f in BIB_FIELDS) {
+    citations[[f]] <- bib[[f]][idx]
+  }
+  citations
 }
 
 vendor_bibliography <- function(repo_path) {
@@ -612,9 +797,12 @@ build_catalog <- function(repo_path, manifest) {
     )
   }
 
-  citations <- build_citations_table(
-    read_clock_citations(repo_path),
-    names(released)
+  citations <- attach_bib_fields(
+    build_citations_table(
+      read_clock_citations(repo_path),
+      names(released)
+    ),
+    read_bib_fields(repo_path)
   )
 
   clocks <- list()
@@ -660,7 +848,7 @@ build_catalog <- function(repo_path, manifest) {
     entry[["covariates_required"]] <- extract_covariates(meta)
     entry[["clock_inputs"]] <- extract_clock_inputs(meta)
     entry[["cross_sample_at"]] <- first_cross_sample_step(meta)
-    # the field is per-clock; a group may be partly bundled and partly external
+    # the field is per-clock. a group may be partly bundled and partly external
     entry[["external_group"]] <- cid %in%
       EXTERNAL_CLOCKS ||
       gid %in% EXTERNAL_GROUPS
@@ -1549,8 +1737,8 @@ encode_pcclocks <- function(bundle, catalog) {
   bundle
 }
 
-# stack operand -> column label. Operand order (inputs, internal, covariates) and
-# the label rule are the accessors' -- the pack must be labelled the way it is read.
+# stack operand -> column label. operand order and the label rule are the
+# accessors' -- the pack must be labelled the way it is read
 systemsage_stack_labels <- function(entry) {
   stack <- Filter(
     function(s) identical(s[["op"]], "stack"),
@@ -1687,8 +1875,8 @@ encode_pcbrainage <- function(bundle, catalog) {
   bundle
 }
 
-# zhang2019: the BLUP arm alone. One dense coefficient vector, so there is no
-# shared row order to canonicalize; policy is omit, so there is no vendored ref.
+# zhang2019 BLUP arm alone: one dense coef vector (no shared row order). omit
+# policy, no vendored ref
 encode_zhang2019 <- function(bundle, catalog) {
   gid <- "Zhang2019"
   ids <- as.character(bundle[["clocks"]] %||% character())
@@ -1834,8 +2022,8 @@ drop_external_probe_cpgs <- function(clocks) {
   clocks
 }
 
-# name items by a declared key; stop on collisions (or missing keys when total).
-# total=FALSE leaves unkeyed elements unnamed (recipe steps with no out).
+# name items by a declared key, stop on collisions (or missing keys when total).
+# total=FALSE leaves unkeyed elements unnamed (recipe steps with no out)
 key_declarations <- function(items, field, cid, what, total = TRUE) {
   if (!length(items)) {
     return(items)
@@ -2416,8 +2604,8 @@ external_bundle_hashes <- function(catalog) {
   hashes[order(names(hashes))]
 }
 
-# lockfile hit when the encoder code and every external bundle_hash are unchanged
-# and the packs are on disk. A lockfile written before the fingerprint existed misses.
+# lockfile hit when encoder code and every external bundle_hash are unchanged
+# and the packs are on disk
 lockfile_hit <- function(lock, hashes, fingerprint) {
   if (is.null(lock)) {
     return(FALSE)

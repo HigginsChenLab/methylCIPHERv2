@@ -145,7 +145,7 @@ warn_missing_covariates <- function(
         },
         character(1L)
       )),
-      "i" = "Clocks that need them will score NA for those samples."
+      "i" = "Those samples will score NA."
     ),
     call = NULL
   )

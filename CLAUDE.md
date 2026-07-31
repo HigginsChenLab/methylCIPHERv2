@@ -96,14 +96,34 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   remain the shared shape helpers (see DECISIONS 2026-07-24).
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double), `$pheno`,
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
-  `$provenance` also carries the per-sample `batch` (aligned to `sample_id`) and the retained
+  `$provenance` also carries the per-sample `mc_batch_id` (aligned to `sample_id`) and the retained
   `pending` intermediates that make an opt-in `refinalize_clocks()` exact.
   **Where a verb exists it is a method**, and the built surface today is exactly `print`,
-  `as.matrix`, `cite_clocks` and `rbind`. Coverage is
+  `as.matrix`, `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `clocks_accel()`.
+  Coverage is
   deliberately not a method: it is the plain `clocks_coverage()` / `samples_coverage()`, **not**
   `summary()`. `clocks_coverage()` is one row per **(clock, batch)**; `samples_coverage()` carries
-  each sample's batch alongside its id. In both, `batch` is the **last** column -- it is the key
-  the two frames join on, but it is a hash, so it does not sit in front of `clock_id`.
+  each sample's batch alongside its id. In both, `mc_batch_id` is the **last** column -- it is the
+  key the two frames join on, but it is a hash, so it does not sit in front of `clock_id`.
+  **And it reaches an exit frame only when the record spans more than one batch.** At one batch it
+  is a single repeated hash: it carries no information, `clock_id` alone is already unique so the
+  join still resolves, and prose docs are deferred so a user has nowhere to look up what it means.
+  All four exits (`as.data.frame`, `clocks_accel`, both coverage frames) share the **one** test in
+  `drop_single_batch()` (`R/mc_result.R`), keyed on `length(unique(provenance[[mc_batch_id]]))` --
+  the vector that fills the column, not `per_clock`'s names, so a frame can never be keyed on a
+  count other than its own contents. A conditional schema is a real cost and is accepted knowingly:
+  the four exits must appear and vanish **together** or the two coverage frames disagree about
+  whether the join key exists (DECISIONS 2026-07-31, "the batch label is multi-batch only").
+  Nothing internal is conditional -- `$provenance` always carries the per-sample vector, and
+  `clocks_accel()` always puts `mc_batch_id` in the formula namespace and always reserves it
+  against `data =`.
+  **The batch label is `mc_batch_id` everywhere the user can touch it** -- both coverage frames,
+  both finalizer frames, `$provenance`, and the `clocks_accel()` formula namespace. One string,
+  and `mc_`-prefixed on purpose: a user's `batch` is their slides or plates, which is biology and
+  is a covariate they may legitimately want in a model, while ours only says which samples shared
+  a cohort-mean fill. A bare `batch` would both shadow theirs in a formula and collide on a join
+  against their own metadata. `data =` supplying `mc_batch_id` is an error, not a precedence
+  question (DECISIONS 2026-07-31, "one name for the batch label").
   **`rbind` binds and labels; it never reconciles.** Nothing is re-imputed, no denominator is
   merged, and no cross-sample column is recomputed unless `refinalize_clocks()` is called by hand
   -- but a multi-batch bind carrying a non-empty `pending` **says so once** (`say_pending()`,
@@ -111,12 +131,22 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   declared `cross_sample` set. `refinalize_clocks()` **reads `pending` and never consumes it**, so
   it composes in any order and a second call is a no-op; never clear `pending` after re-finalizing
   (`dev/id-streaming-plan.md` sec 8.4).
+  **`rbind` is the only verb that leaves `pending` unresolved. Every finalizer resolves it.**
+  `as.data.frame()` and `clocks_accel()` both re-finalize on the way out and say so, under
+  `say_pending()`'s exact guard -- non-empty `pending` **and** more than one batch. `rbind` must
+  not, because `do.call(rbind, ...)` recurses and would re-finalize at every intermediate step; a
+  finalizer is a leaf and hands back a frame the record cannot be recovered from, so it must hand
+  back the right numbers. A single-batch record is skipped because its reduction already spans its
+  whole cohort -- re-finalizing is a numerical no-op there and the message would be pure noise
+  (DECISIONS 2026-07-31, "one name for the batch label"). Wanting the per-batch reductions is
+  still possible: finalize each record *before* binding.
   Its gates follow one line -- **record what batching forced, refuse what the caller chose
   differently** -- so a per-batch fill regime is recorded (that is what the batch axis is for)
   while overlapping ids, differing score columns, a differing `pheno_id` and a differing
   `normalize=` all throw. There is no `force =`. **Batch labels are derived, never assigned**:
-  `construct_mc_result()` sets one to `batch_hash(pheno[[pheno_id]])` -- 12 hex of `xxhash64` over
-  the pheno's **id column only** -- and there is no `batch =` argument anywhere. So `rbind` carries
+  `construct_mc_result()` sets one to `batch_hash(pheno[[pheno_id]])` -- the full 16 hex of
+  `xxhash64` over the pheno's **id column only**, never truncated -- and there is no `batch =`
+  argument anywhere. So `rbind` carries
   no label policy at all: it mints nothing, renames nothing, renumbers nothing, and **drops**
   argument names (`unname(list(...))`). Do not refuse them instead: `split()` names its result, so
   refusing kills `do.call(rbind, lapply(split(...), ...))`, which is the blocking idiom the feature
@@ -128,8 +158,10 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `is_auto_label()` (DECISIONS 2026-07-30, "The batch label is derived"). **Hash the canonical
   form** -- `sort(..., method = "radix")` + `unname`/`as.character` + `serialize = FALSE` -- or the
   label follows the id *sequence*, the locale and the R serialization version instead of the id
-  set. Two batches sharing a label then needs a 48-bit collision against id sets gate 1 just made
-  disjoint (1.8e-11 at 100 batches), so there is **no gate on labels** -- do not add one back.
+  set. Two batches sharing a label then needs a 64-bit collision against id sets gate 1 just made
+  disjoint (~2.7e-16 at 100 batches), so there is **no gate on labels** -- do not add one back.
+  (An older DECISIONS entry says 12 hex / 48 bits and 1.8e-11; that was always wrong about the
+  shipped width -- `batch_hash()` does not truncate -- and the conclusion only gets stronger.)
   `sim_DNAm(suffix =)` is **not** a batch
   argument -- it suffixes sample ids so two simulated blocks clear gate 1.
   Citations dispatch as `cite_clocks()` -- a **package-owned** generic, because both

@@ -103,20 +103,9 @@ clock_scoring_cpgs <- function(id, packs = NULL) {
   probe_sets_cpgs(entry, "scoring")
 }
 
-# probe_set roles carrying a background panel plus the target it calibrates onto
+# probe_set roles carrying a background panel plus the target it calibrates onto.
+# stays here, not in constants.R: sync.R sources this file to read it
 NORM_ROLES <- c("quantile_normalization_background", "bmiq_gold_standard")
-
-# schemes expressible as a declared panel + a vendored target
-NORM_SCHEMES <- c("quantile", "bmiq")
-
-# schemes score_normalized() implements (quantile routes via Dunedin)
-NORM_SCHEMES_ROUTED <- "bmiq"
-
-# schemes that are part of the clock's definition and cannot be declined
-NORM_CONSTITUTIVE <- "quantile"
-
-# schemes that fill an absent background cpg with the target value
-NORM_SCHEMES_FILL <- "quantile"
 
 # normalization panel for one clock, character(0) unless it normalizes
 clock_norm_cpgs <- function(id, normalize = FALSE) {
@@ -384,7 +373,8 @@ clock_components <- function(id) {
   optional_field(id, "components", list())
 }
 
-# a stack step's three operand namespaces, in column order
+# a stack step's three operand namespaces, in column order.
+# stays here, not in constants.R: sync.R sources this file to read it
 STACK_NAMESPACES <- c("inputs", "internal", "covariates")
 
 # operand -> declaring namespace (inputs / internal / covariates)

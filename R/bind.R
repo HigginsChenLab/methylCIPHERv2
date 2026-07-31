@@ -193,7 +193,7 @@ rbind.mc_result <- function(..., deparse.level = 1) {
       ),
       provenance = list(
         sample_id = rownames(scores),
-        batch = prov(args, "batch"),
+        mc_batch_id = prov(args, MC_BATCH),
         pheno_id = ref[["pheno_id"]],
         clocks = clocks,
         requested = requested,

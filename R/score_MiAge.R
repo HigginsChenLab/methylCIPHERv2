@@ -1,11 +1,10 @@
 # miAge: multi-start L-BFGS-B mitotic age over n in [10, 10000]
 
-MIAGE_LOWER <- 10
-MIAGE_UPPER <- 10000
+MIAGE_BOUNDS <- c(10, 10000)
 
 # four interior starts plus author default 500
 MIAGE_STARTS <- c(
-  MIAGE_LOWER + seq_len(4L) * (MIAGE_UPPER - MIAGE_LOWER) / 5,
+  MIAGE_BOUNDS[[1L]] + seq_len(4L) * diff(MIAGE_BOUNDS) / 5,
   500
 )
 
@@ -37,8 +36,8 @@ miage_fit <- function(betaj, b, cc, d) {
       fn = objective,
       gr = gradient,
       method = "L-BFGS-B",
-      lower = MIAGE_LOWER,
-      upper = MIAGE_UPPER,
+      lower = MIAGE_BOUNDS[[1L]],
+      upper = MIAGE_BOUNDS[[2L]],
       control = list(factr = 1)
     )
   })

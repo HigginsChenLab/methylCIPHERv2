@@ -97,18 +97,14 @@ score_matrix <- function(values, sample_id, id) {
   )
 }
 
-# horvath age back-transform (adult age 20)
-ADULT_AGE <- 20
-
+# horvath age back-transform, adult age 20
 anti_trafo <- function(x) {
-  ifelse(x < 0, (1 + ADULT_AGE) * exp(x) - 1, (1 + ADULT_AGE) * x + ADULT_AGE)
+  ifelse(x < 0, 21 * exp(x) - 1, 21 * x + 20)
 }
 
 # retroelement pan-mammalian back-transform: trained on log(age + 2)
-LOG_AGE_OFFSET <- 2
-
 log_offset_anti_trafo <- function(x) {
-  exp(x) - LOG_AGE_OFFSET
+  exp(x) - 2
 }
 
 resolve_output_transform <- function(name) {

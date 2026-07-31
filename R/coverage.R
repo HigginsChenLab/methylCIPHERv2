@@ -46,7 +46,7 @@ mask_routed_rows <- function(miss, sex_key, rows) {
   miss
 }
 
-# one clock coverage record. every count is a cpg count. per-sample axis is sample_miss
+# one clock coverage record. every count is a cpg count (sample axis is sample_miss)
 coverage_record <- function(cpgs, score_partial, norm_partial = 0L) {
   id <- cpgs[["clock_id"]]
   policy <- clock_impute(id)[["policy"]]
