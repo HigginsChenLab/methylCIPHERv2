@@ -1,4 +1,4 @@
-# EpiTOC2 branch. group request also scores HypoClock -- cover both panels.
+# epiTOC2 branch. group request also scores HypoClock -- cover both panels.
 
 group_panel <- function() {
   unique(unlist(lapply(c("EpiTOC2", "HypoClock"), clock_scoring_cpgs)))
@@ -40,7 +40,7 @@ test_that("absent EpiTOC2 CpGs drop out of the mean", {
     tolerance = 1e-10
   )
 
-  cov <- res$coverage$per_clock[["EpiTOC2"]]
-  expect_identical(cov$score_dropped, 10L)
-  expect_identical(cov$score_imputed_full, 0L)
+  cov <- res$coverage$per_clock[[1]][["EpiTOC2"]]
+  expect_equal(cov$score_dropped, 10L)
+  expect_equal(cov$score_imputed_full, 0L)
 })

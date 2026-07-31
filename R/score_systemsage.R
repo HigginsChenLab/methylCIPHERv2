@@ -1,27 +1,12 @@
-# SystemsAge: organ sub-clocks plus Age_prediction / SystemsAge composites
-
-# polynomial evaluation, lowest degree first
-sa_poly <- function(L, coef) {
-  out <- rep(0, length(L))
-  for (k in seq_along(coef)) {
-    out <- out + coef[[k]] * L^(k - 1L)
-  }
-  out
-}
+# systemsAge: organ sub-clocks plus Age_prediction / SystemsAge composites
 
 # batched scorer for the SystemsAge group
-score_systemsage_group <- function(
-  ids,
-  usable,
-  DNAm,
-  partial_cache,
-  pheno,
-  packs
-) {
+score_systemsage_group <- function(ids, cpgs, block) {
+  packs <- block[["packs"]]
   pack <- clock_pack(ids[[1]], packs)
-  design <- pack_design(pack, usable, DNAm, partial_cache)
-  sample_id <- rownames(DNAm)
-  n <- nrow(DNAm)
+  design <- pack_design(ids[[1]], cpgs, block)
+  sample_id <- block[["sample_id"]]
+  n <- length(sample_id)
 
   composites <- intersect(ids, c("Age_prediction", "SystemsAge"))
   organs_req <- setdiff(ids, composites)
@@ -54,17 +39,20 @@ score_systemsage_group <- function(
       L <- age_matmul + systemsage_age_intercept("Age_prediction")
       out[["Age_prediction"]] <- record(
         "Age_prediction",
-        sa_poly(L, systemsage_poly("Age_prediction", "score"))
+        poly_eval(L, systemsage_poly("Age_prediction", "score"))
       )
     }
 
     if ("SystemsAge" %in% composites) {
       id <- "SystemsAge"
       L <- age_matmul + systemsage_age_intercept(id)
-      ap_scaled <- sa_poly(L, systemsage_poly(id, "ap_scaled"))
+      ap_scaled <- poly_eval(L, systemsage_poly(id, "ap_scaled"))
 
-      order <- systemsage_stack_order(id)
-      organs_pca <- setdiff(order, "Age_prediction")
+      # stack step says which column the scaled age front lands in
+      map <- systemsage_stack_map(id)
+      order <- unname(map)
+      ap_col <- unname(map[["ap_scaled"]])
+      organs_pca <- setdiff(order, ap_col)
       Ms <- pack[["systems"]]
       rownames(Ms) <- pack[["cpgs"]]
       S <- sweep(
@@ -75,17 +63,110 @@ score_systemsage_group <- function(
       )
 
       sysscores <- matrix(0, n, length(order), dimnames = list(NULL, order))
-      sysscores[, "Age_prediction"] <- ap_scaled
+      sysscores[, ap_col] <- ap_scaled
       sysscores[, organs_pca] <- S[, organs_pca]
 
       pca <- systemsage_pca(id, packs, order)
-      cs <- sweep(sweep(sysscores, 2L, pca$center, "-"), 2L, pca$scale, "/")
-      pcs <- cs %*% pca$rotation
+      cs <- sweep(
+        sweep(sysscores, 2L, pca[["center"]], "-"),
+        2L,
+        pca[["scale"]],
+        "/"
+      )
+      pcs <- cs %*% pca[["rotation"]]
       out[[id]] <- record(
         id,
-        as.numeric(systemsage_final_intercept(id) + pcs %*% pca$model)
+        as.numeric(systemsage_final_intercept(id) + pcs %*% pca[["model"]])
       )
     }
   }
   out
+}
+
+# unique recipe step producing out, or error (>1 already stopped upstream)
+systemsage_step <- function(id, out) {
+  step <- recipe_step_out(id, out)
+  # absence is silent downstream: a NULL intercept scores a column of NAs
+  if (is.null(step)) {
+    catalog_bug("%s has no recipe step with out %s.", id, out)
+  }
+  step
+}
+
+# intercept of the age-linear front
+systemsage_age_intercept <- function(id) {
+  as.numeric(systemsage_step(id, "L")[["intercept"]])
+}
+
+# quadratic poly coef for the poly step producing out
+systemsage_poly <- function(id, out) {
+  as.numeric(unlist(systemsage_step(id, out)[["coef"]]))
+}
+
+# organ labels come from the stack step (not from stripping raw_)
+systemsage_stack_map <- function(id) {
+  stack_label_map(systemsage_step(id, "sysscores"), id)
+}
+
+# the linear steps producing one stack column each
+systemsage_raw_steps <- function(id) {
+  operands <- names(systemsage_stack_map(id))
+  Filter(
+    function(s) {
+      identical(s[["op"]], "linear") &&
+        !is.null(s[["out"]]) &&
+        as.character(s[["out"]]) %in% operands
+    },
+    clock_entry(id)[["recipe"]]
+  )
+}
+
+# system linear intercepts, named by stack column label
+systemsage_raw_intercepts <- function(id) {
+  map <- systemsage_stack_map(id)
+  steps <- systemsage_raw_steps(id)
+  stats::setNames(
+    vapply(steps, function(s) as.numeric(s[["intercept"]]), numeric(1)),
+    vapply(
+      steps,
+      function(s) unname(map[[as.character(s[["out"]])]]),
+      character(1)
+    )
+  )
+}
+
+# intercept of the final systems_model linear head
+systemsage_final_intercept <- function(id) {
+  as.numeric(systemsage_step(id, "score")[["intercept"]])
+}
+
+# systems_PCA tensors from the pack, ordered to stack rows/PC cols
+systemsage_pca <- function(id, packs, order) {
+  pack <- clock_pack(id, packs)
+  comps <- clock_components(id)
+  tensor_by_component <- function(name) {
+    pack[["tensors"]][[component_named(comps, name, id)[["file"]]]]
+  }
+
+  center <- tensor_by_component("systems_pca_center")
+  scale <- tensor_by_component("systems_pca_scale")
+  model <- tensor_by_component("systems_model")
+  rot_df <- tensor_by_component("systems_pca_rotation")
+
+  # rotation row key is declared -- no first-column fallback
+  sys_col <- component_row_key(component_named(
+    comps,
+    "systems_pca_rotation",
+    id
+  ))
+  pc_cols <- setdiff(names(rot_df), sys_col)
+  rot <- as.matrix(rot_df[, pc_cols, drop = FALSE])
+  rownames(rot) <- as.character(rot_df[[sys_col]])
+
+  list(
+    center = center[order],
+    scale = scale[order],
+    rotation = rot[order, pc_cols, drop = FALSE],
+    model = model[pc_cols]
+  )
 }

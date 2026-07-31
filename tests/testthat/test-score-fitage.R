@@ -15,7 +15,7 @@ fitage_pheno <- function(ids, female, age = NULL) {
 # hand-compute one member (intercept + betas %*% coef + Age).
 member_expected <- function(id, DNAm, rows, age) {
   coef <- clock_coefs(id)
-  cov <- clock_covariate_coefs(id)
+  cov <- clock_covariates_coefs(id)
   out <- clock_intercept(id) +
     as.numeric(DNAm[rows, names(coef), drop = FALSE] %*% coef)
   if (length(cov)) {
@@ -32,7 +32,7 @@ test_that("the alias routes each sample to its own sex's model", {
   age <- seq(45, 70, length.out = 6)
   pheno <- fitage_pheno(rownames(DNAm), female, age)
 
-  expect_identical(names(clock_covariate_coefs("DNAmGrip_wAge_Female")), "Age")
+  expect_equal(names(clock_covariates_coefs("DNAmGrip_wAge_Female")), "Age")
 
   got <- calc_clocks(DNAm, "DNAmGrip_wAge", pheno = pheno)$scores
   f <- which(female == 1)
@@ -59,12 +59,12 @@ test_that("panel coverage lands on the members, never on the alias", {
   pheno <- fitage_pheno(rownames(DNAm), c(1, 1, 0, 0), rep(50, 4))
 
   res <- calc_clocks(DNAm, "DNAmGrip_wAge", pheno = pheno)
-  cov <- res$coverage$per_clock
+  cov <- res$coverage$per_clock[[1]]
 
   # the two panels differ in size, so no one count is true of every sample.
   expect_null(cov[["DNAmGrip_wAge"]])
-  expect_identical(cov[["DNAmGrip_wAge_Female"]]$score_needed, length(fem))
-  expect_identical(cov[["DNAmGrip_wAge_Male"]]$score_needed, length(mal))
+  expect_equal(cov[["DNAmGrip_wAge_Female"]]$score_needed, length(fem))
+  expect_equal(cov[["DNAmGrip_wAge_Male"]]$score_needed, length(mal))
   expect_false(length(fem) == length(mal))
 
   # members are scored but never returned as columns.
@@ -72,13 +72,14 @@ test_that("panel coverage lands on the members, never on the alias", {
     c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male") %in%
       colnames(res$scores)
   ))
-  # sample_miss is per panel -- the score matrix spans every returned column
-  expect_identical(
+  # sample_miss spans clocks that read CpGs, not returned columns -- the two
+  # members here, never the alias
+  expect_setequal(
     colnames(res$coverage$sample_miss$score),
-    colnames(res$scores)
+    c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male")
   )
-  # no returned clock normalizes here, so the norm matrix has no columns
-  expect_identical(ncol(res$coverage$sample_miss$norm), 0L)
+  # nothing normalizes here, so the norm matrix has no columns
+  expect_equal(ncol(res$coverage$sample_miss$norm), 0L)
 })
 
 test_that("per-sample QC routes with the score; panel counts do not", {
@@ -88,20 +89,25 @@ test_that("per-sample QC routes with the score; panel counts do not", {
   female <- c(1, 1, 1, 0, 0, 0)
   pheno <- fitage_pheno(rownames(DNAm), female, rep(50, 6))
 
-  # A CpG only the female model uses, blanked for one female and one male.
+  # a CpG only the female model uses, blanked for one female and one male.
   fem_only <- setdiff(names(fem), names(mal))[1]
   DNAm[c(1, 4), fem_only] <- NA_real_
 
   res <- calc_clocks(DNAm, "DNAmGrip_wAge", pheno = pheno)
 
-  # only the female with a blanked value leans on a cohort mean
-  expect_identical(
-    unname(res$coverage$sample_miss$score[, "DNAmGrip_wAge"]),
-    c(1L, 0L, 0L, 0L, 0L, 0L)
+  # the alias reads no CpGs, so it counts nothing and gets no column
+  miss <- res$coverage$sample_miss$score
+  expect_false("DNAmGrip_wAge" %in% colnames(miss))
+
+  # only the female with a blanked value leans on a cohort mean. count sits on
+  # the member that owns the panel, masked where its sex did not score
+  expect_equal(
+    unname(miss[, "DNAmGrip_wAge_Female"]),
+    c(1L, 0L, 0L, NA, NA, NA)
   )
 
-  # the same fill, counted per panel, stays on the member that owns the panel.
-  cov <- res$coverage$per_clock
+  # the same fill, counted per panel, stays on that member too.
+  cov <- res$coverage$per_clock[[1]]
   expect_equal(cov[["DNAmGrip_wAge_Female"]]$score_imputed_partial, 1)
   expect_equal(cov[["DNAmGrip_wAge_Male"]]$score_imputed_partial, 0)
 })
@@ -136,9 +142,9 @@ test_that("absent member CpGs vendor-fill from that sex's medians", {
     tolerance = 1e-9
   )
 
-  cov <- res$coverage$per_clock[[id]]
-  expect_identical(cov$score_imputed_full, 5L)
-  expect_identical(cov$score_dropped, 0L)
+  cov <- res$coverage$per_clock[[1]][[id]]
+  expect_equal(cov$score_imputed_full, 5L)
+  expect_equal(cov$score_dropped, 0L)
 })
 
 
@@ -164,7 +170,7 @@ test_that("DNAmFitAge mixes same-sex members by KDM and carries no batch stamp",
   for (sx in c("female", "male")) {
     member <- clock_routing("DNAmFitAge")[[sx]]
     rows <- if (sx == "female") which(female == 1) else which(female == 0)
-    kdm <- fitage_kdm_params(member)
+    kdm <- component_tensor(member, "component")
     acc <- numeric(length(rows))
     for (i in seq_len(nrow(kdm))) {
       acc <- acc +
@@ -178,30 +184,48 @@ test_that("DNAmFitAge mixes same-sex members by KDM and carries no batch stamp",
 })
 
 test_that("the alias declares the routing covariate and its members do not", {
-  expect_identical(clock_covariates_required("DNAmFitAge"), "Female")
-  expect_identical(clock_covariates_required("DNAmFitAge_Female"), character(0))
+  expect_equal(clock_covariates_required("DNAmFitAge"), "Female")
+  expect_equal(clock_covariates_required("DNAmFitAge_Female"), character(0))
 })
 
-# composite vendor-fills over its own panel, not the family prep panel
-test_that("the composite vendor-fills over its own panel", {
+# a clock assembled from other clocks' scores counts nothing of its own
+test_that("composites report no coverage; the CpG readers under them do", {
   seq_ids <- resolve_clocks_sequence(resolve_clocks("DNAmFitAge"))
   full <- panels_union(clock_panels(seq_ids))
   DNAm <- random_betas(full, n = 6L)
   female <- c(1, 1, 1, 0, 0, 0)
   pheno <- fitage_pheno(rownames(DNAm), female, seq(40, 65, length.out = 6))
 
-  # drop 3 CpGs from the female composite panel so imputed_full > 0
-  drop <- intersect(clock_scoring_cpgs("DNAmFitAge_Female"), colnames(DNAm))[
+  # drop 3 CpGs the female fitness components use
+  drop <- intersect(
+    clock_scoring_cpgs("DNAmGait_noAge_Female"),
+    colnames(DNAm)
+  )[
     1:3
   ]
   DNAm2 <- DNAm[, setdiff(colnames(DNAm), drop), drop = FALSE]
 
   res <- calc_clocks(DNAm2, "DNAmFitAge", pheno = pheno)
+  cov <- res$coverage$per_clock[[1]]
 
-  for (id in c("DNAmFitAge_Female", "DNAmFitAge_Male")) {
-    cov <- res$coverage$per_clock[[id]]
-    expect_gt(cov$score_imputed_full, 0L)
-    expect_identical(cov$score_dropped, 0L)
-    expect_identical(cov$score_used, cov$score_needed)
+  # the composites read no betas: no record, and no samples_coverage rows
+  composites <- c(
+    "DNAmFitAge",
+    "DNAmFitAge_Female",
+    "DNAmFitAge_Male",
+    "GrimAgeV1"
+  )
+  for (id in composites) {
+    expect_null(cov[[id]])
   }
+  expect_false(any(composites %in% samples_coverage(res)$clock_id))
+
+  # the fill lands on the component that declared the panel
+  gait <- cov[["DNAmGait_noAge_Female"]]
+  expect_equal(gait$score_imputed_full, 3L)
+  expect_equal(gait$score_dropped, 0L)
+  expect_equal(gait$score_used, gait$score_needed)
+
+  # and the composite still scores, on every sample
+  expect_true(all(is.finite(res$scores[, "DNAmFitAge"])))
 })

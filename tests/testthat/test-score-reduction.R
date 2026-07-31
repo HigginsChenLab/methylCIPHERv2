@@ -32,13 +32,13 @@ test_that("every catalog clock maps to a known score_type tag", {
     "pack_linear",
     "pack_systemsage",
     "Dunedin",
+    "normalized",
     "EpiTOC2",
     "MiAge",
     "Zhang2019",
     "sex_routed"
   )
-  # score_type() itself stops on an unroutable clock, so this both asserts the
-  # tag set and proves the whole catalog routes.
+  # score_type() routes every catalog clock (or stops)
   tags <- vapply(mc_index$clock_id, score_type, character(1))
   expect_true(all(tags %in% known))
 })

@@ -18,6 +18,23 @@ for (pkg in c(
 
 `%||%` <- rlang::`%||%`
 
+SYNC_SCRIPT <- file.path("data-raw", "sync.R")
+ACCESSORS_FILE <- file.path("R", "accessors.R")
+
+# sync-time and score-time read one vocabulary, so the shared constants and the
+# stack-operand rules are sourced from R/, never re-typed here. accessors.R is
+# definitions only (no load-time side effects); its own env keeps sync's names free.
+if (!file.exists(ACCESSORS_FILE)) {
+  stop(
+    "sync.R runs from the package root; ",
+    ACCESSORS_FILE,
+    " not found",
+    call. = FALSE
+  )
+}
+mc_runtime <- new.env(parent = environment())
+source(ACCESSORS_FILE, local = mc_runtime)
+
 asset_dir <- file.path("data-raw", "assets")
 meta_dir <- file.path("data-raw", "methylCIPHER-meta")
 
@@ -29,8 +46,25 @@ META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
 # external families as release assets, rest in sysdata
 EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
 
+# single external clocks inside an otherwise-bundled group (group in both buckets)
+EXTERNAL_CLOCKS <- c("Zhang2019BLUP")
+
 # bump when pack layout changes (new payload_hash).
 EXTERNAL_ENCODING_VERSION <- 3L
+
+# Pack staleness keys on encoder code (sync.R + accessors.R) plus upstream bundle_hashes.
+# Parsed whole-file so comments never force a rebuild; re-source after editing.
+sync_code_fingerprint <- function() {
+  files <- c(SYNC_SCRIPT, ACCESSORS_FILE)
+  if (!all(file.exists(files))) {
+    # code we cannot read is never a cache hit
+    return(NA_character_)
+  }
+  digest::digest(c(
+    list(EXTERNAL_ENCODING_VERSION),
+    lapply(files, parse, keep.source = FALSE)
+  ))
+}
 
 # pin-only fields, excluded from the content-addressed pack
 EXTERNAL_PIN_FIELDS <- c("source_git_sha", "manifest_generated_at_sha")
@@ -181,17 +215,74 @@ prune_group_meta <- function(gmeta) {
 
 # bibliography
 
-read_papers_csv <- function(repo_path) {
-  path <- file.path(repo_path, "bibliography", "papers.csv")
+CITATION_FIELDS <- c("clock_id", "pmid", "role", "bib_key")
+CITATION_ROLES <- c("primary", "cite_also")
+
+# clock -> paper join (1:N). meta pmid is the primary only
+read_clock_citations <- function(repo_path) {
+  path <- file.path(repo_path, "bibliography", "clock_citations.csv")
   df <- utils::read.csv(
     path,
     stringsAsFactors = FALSE,
     colClasses = "character"
   )
-  list(
-    bib_key = stats::setNames(trimws(df[["bib_key"]]), trimws(df[["pmid"]])),
-    n = nrow(df)
+  for (col in CITATION_FIELDS) {
+    if (!col %in% names(df)) {
+      stop("clock_citations.csv is missing column '", col, "'", call. = FALSE)
+    }
+    df[[col]] <- trimws(df[[col]])
+  }
+  bad <- df[!nzchar(df[["bib_key"]]), , drop = FALSE]
+  if (nrow(bad)) {
+    stop(
+      "clock_citations.csv has ",
+      nrow(bad),
+      " row(s) with an empty bib_key (upstream gap): ",
+      paste(unique(bad[["clock_id"]]), collapse = ", "),
+      call. = FALSE
+    )
+  }
+  bad_role <- setdiff(unique(df[["role"]]), CITATION_ROLES)
+  if (length(bad_role)) {
+    stop(
+      "clock_citations.csv has unknown role(s): ",
+      paste(bad_role, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  df[, CITATION_FIELDS, drop = FALSE]
+}
+
+# citation rows for released clocks, primary first (both roles kept)
+build_citations_table <- function(citations, clock_ids) {
+  df <- citations[citations[["clock_id"]] %in% clock_ids, , drop = FALSE]
+  missing_cites <- setdiff(clock_ids, unique(df[["clock_id"]]))
+  if (length(missing_cites)) {
+    stop(
+      "clock(s) in manifest.json with no clock_citations.csv row: ",
+      paste(missing_cites, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  n_primary <- tapply(
+    df[["role"]] == "primary",
+    df[["clock_id"]],
+    sum
   )
+  if (any(n_primary != 1L)) {
+    stop(
+      "clock(s) without exactly one primary citation: ",
+      paste(names(n_primary)[n_primary != 1L], collapse = ", "),
+      call. = FALSE
+    )
+  }
+  df <- df[
+    order(df[["clock_id"]], df[["role"]] != "primary", df[["bib_key"]]),
+    ,
+    drop = FALSE
+  ]
+  row.names(df) <- NULL
+  df
 }
 
 vendor_bibliography <- function(repo_path) {
@@ -488,8 +579,6 @@ build_catalog <- function(repo_path, manifest) {
     groups[[gid]] <- entry
   }
 
-  papers <- read_papers_csv(repo_path)
-
   # clock_id -> meta path, selected by the manifest
   by_id <- list()
   for (mp in files$clock) {
@@ -522,6 +611,11 @@ build_catalog <- function(repo_path, manifest) {
       call. = FALSE
     )
   }
+
+  citations <- build_citations_table(
+    read_clock_citations(repo_path),
+    names(released)
+  )
 
   clocks <- list()
   for (cid in names(released)) {
@@ -557,8 +651,8 @@ build_catalog <- function(repo_path, manifest) {
     if (!is.null(entry[["computation_type"]])) {
       entry[["computation_type"]] <- as.character(entry[["computation_type"]])
     }
+    # provenance pointer to the primary paper, not the citation set (mc_citations)
     entry[["pmid"]] <- as.character(entry[["pmid"]] %||% NA_character_)
-    entry[["bib_key"]] <- unname(papers$bib_key[entry[["pmid"]]])
 
     entry[["imputation_policy"]] <- as.character(
       entry[["imputation"]][["policy"]] %||% NA_character_
@@ -566,7 +660,10 @@ build_catalog <- function(repo_path, manifest) {
     entry[["covariates_required"]] <- extract_covariates(meta)
     entry[["clock_inputs"]] <- extract_clock_inputs(meta)
     entry[["cross_sample_at"]] <- first_cross_sample_step(meta)
-    entry[["external_group"]] <- gid %in% EXTERNAL_GROUPS
+    # the field is per-clock; a group may be partly bundled and partly external
+    entry[["external_group"]] <- cid %in%
+      EXTERNAL_CLOCKS ||
+      gid %in% EXTERNAL_GROUPS
     entry[["fixtures"]] <- prune_fixtures(meta[["fixtures"]])
     entry[["meta_path"]] <- rel_from_repo(mp, repo_path)
     entry[["bundle_hash"]] <- released[[cid]][["bundle_hash"]]
@@ -584,6 +681,7 @@ build_catalog <- function(repo_path, manifest) {
   list(
     clocks = clocks,
     groups = groups,
+    citations = citations,
     source_git_sha = NA_character_,
     schema_version = manifest[["schema_version"]],
     n_clocks = length(clocks)
@@ -846,6 +944,19 @@ group_sex_routes <- function(gside) {
   stems
 }
 
+# earliest cross_sample_at over an alias's members (min, or NA)
+alias_cross_sample_at <- function(members) {
+  at <- vapply(
+    members,
+    function(m) {
+      v <- m[["cross_sample_at"]]
+      if (is.null(v) || !length(v)) NA_integer_ else as.integer(v)[[1L]]
+    },
+    integer(1L)
+  )
+  if (all(is.na(at))) NA_integer_ else min(at, na.rm = TRUE)
+}
+
 # mint one alias clock per routed stem (no panel of its own)
 attach_sex_routed_aliases <- function(catalog) {
   for (gid in names(catalog[["groups"]])) {
@@ -890,6 +1001,10 @@ attach_sex_routed_aliases <- function(catalog) {
         )
       }
       donor <- catalog[["clocks"]][[routes[[stem]]$female]]
+      members <- catalog[["clocks"]][c(
+        routes[[stem]]$female,
+        routes[[stem]]$male
+      )]
       catalog[["clocks"]][[stem]] <- list(
         clock_id = stem,
         group_id = gid,
@@ -904,9 +1019,11 @@ attach_sex_routed_aliases <- function(catalog) {
         covariates_required = "Female",
         imputation_policy = donor[["imputation_policy"]],
         pmid = donor[["pmid"]],
-        bib_key = donor[["bib_key"]],
+        # alias cites through its donor
+        donor_clock_id = donor[["clock_id"]],
         license = donor[["license"]],
-        cross_sample_at = NA_integer_,
+        # cross_sample_at derived from members (never assume NA)
+        cross_sample_at = alias_cross_sample_at(members),
         external_group = FALSE
       )
     }
@@ -917,14 +1034,39 @@ attach_sex_routed_aliases <- function(catalog) {
 
 # materialize
 
-# per-group tensor payload for the given group_ids.
-build_group_bundles <- function(repo_path, catalog, group_ids) {
+# group ids on one side of the bundled/external split (a group may be on both)
+split_group_ids <- function(catalog, external) {
+  gids <- vapply(
+    catalog[["clocks"]],
+    function(e) {
+      if (isTRUE(e[["external_group"]]) == external) {
+        as.character(e[["group_id"]])
+      } else {
+        NA_character_
+      }
+    },
+    character(1L)
+  )
+  sort(unique(gids[!is.na(gids)]))
+}
+
+# per-group tensor payload for the given group_ids, restricted to the members on
+# one side of the split -- so a mixed group ships some tensors and packs others.
+build_group_bundles <- function(
+  repo_path,
+  catalog,
+  group_ids,
+  external = FALSE
+) {
   bundles <- list()
   for (gid in group_ids) {
     member_ids <- names(catalog[["clocks"]])[
       vapply(
         catalog[["clocks"]],
-        function(c) identical(c[["group_id"]], gid),
+        function(c) {
+          identical(c[["group_id"]], gid) &&
+            isTRUE(c[["external_group"]]) == external
+        },
         logical(1L)
       )
     ]
@@ -949,8 +1091,7 @@ build_group_bundles <- function(repo_path, catalog, group_ids) {
     for (rel in names(specs)) {
       spec <- specs[[rel]]
       abs <- resolve_repo_rel(repo_path, rel)
-      # A declared path that is not there is an upstream/sync gap, and shipping
-      # it silently would mean intercept-only scores.
+      # missing declared path is a hard stop
       if (!file.exists(abs)) {
         stop(
           "Declared tensor missing from snapshot: ",
@@ -989,7 +1130,6 @@ build_group_bundles <- function(repo_path, catalog, group_ids) {
   bundles
 }
 
-# scoring CpG resolution
 # materialize each clock's scoring CpGs as probe_sets {name, role, cpgs}
 
 # row labels of one loaded tensor (column 1 is the key)
@@ -1027,8 +1167,7 @@ materialize_probe_set <- function(ps, tensors, cid = NA_character_) {
   if (anyDuplicated(cpgs)) {
     stop(where, " contains duplicate CpG id(s): ", rel, call. = FALSE)
   }
-  # `file` rides along so accessors can fetch the tensor's values, not just its
-  # row keys (Dunedin's QN target means).
+  # keep file so accessors can fetch values, not just row keys
   list(
     name = ps[["name"]],
     role = ps[["role"]],
@@ -1058,6 +1197,23 @@ add_scoring_probe_set <- function(entry, cpgs) {
     entry[["probe_sets"]] %||% list(),
     list(list(name = "scoring_derived", role = "scoring", cpgs = unique(cpgs)))
   )
+}
+
+# the resolved scoring panel of one clock (post resolve_group_scoring_probe_sets)
+resolved_scoring_cpgs <- function(entry, cid) {
+  hits <- Filter(
+    function(ps) identical(as.character(ps[["role"]]), "scoring"),
+    entry[["probe_sets"]] %||% list()
+  )
+  if (length(hits) != 1L) {
+    stop(
+      cid,
+      ": expected 1 scoring probe_set, found ",
+      length(hits),
+      call. = FALSE
+    )
+  }
+  as.character(hits[[1L]][["cpgs"]])
 }
 
 # the clock's own cpg-keyed tensors (coef file or row_key==cpg components)
@@ -1268,7 +1424,7 @@ pack_canonical_cpgs <- function(tensors, catalog, gid) {
     )
   }
 
-  # A declared bare probe list over exactly this order is redundant with `cpgs`.
+  # a declared bare probe list over exactly this order is redundant with `cpgs`.
   drop_lists <- names(tensors)[vapply(
     tensors,
     function(x) {
@@ -1305,6 +1461,15 @@ component_file <- function(entry, name, cid) {
     )
   }
   vendored_path(hits[[1L]][["file"]], "components[].file", cid)
+}
+
+# every member clock of a group, in catalog order
+group_member_ids <- function(catalog, gid) {
+  names(catalog[["clocks"]])[vapply(
+    catalog[["clocks"]],
+    function(e) identical(as.character(e[["group_id"]] %||% ""), gid),
+    logical(1L)
+  )]
 }
 
 # member clocks that own a coefficient file, clock_id -> coef_path
@@ -1384,22 +1549,40 @@ encode_pcclocks <- function(bundle, catalog) {
   bundle
 }
 
-# component a linear step multiplies to produce raw_{system}
+# stack operand -> column label. Operand order (inputs, internal, covariates) and
+# the label rule are the accessors' -- the pack must be labelled the way it is read.
+systemsage_stack_labels <- function(entry) {
+  stack <- Filter(
+    function(s) identical(s[["op"]], "stack"),
+    entry[["recipe"]] %||% list()
+  )
+  if (length(stack) != 1L) {
+    stop(
+      "SystemsAge: expected exactly 1 stack step, found ",
+      length(stack),
+      call. = FALSE
+    )
+  }
+  mc_runtime[["stack_label_map"]](stack[[1L]], "SystemsAge")
+}
+
+# component a linear step multiplies to produce each labelled stack column
 systemsage_system_components <- function(entry) {
+  map <- systemsage_stack_labels(entry)
   steps <- Filter(
     function(s) {
       identical(s[["op"]], "linear") &&
         !is.null(s[["out"]]) &&
-        startsWith(as.character(s[["out"]]), "raw_")
+        as.character(s[["out"]]) %in% names(map)
     },
     entry[["recipe"]] %||% list()
   )
   stats::setNames(
     vapply(steps, function(s) as.character(s[["coef"]]), character(1L)),
-    sub(
-      "^raw_",
-      "",
-      vapply(steps, function(s) as.character(s[["out"]]), character(1L))
+    vapply(
+      steps,
+      function(s) unname(map[[as.character(s[["out"]])]]),
+      character(1L)
     )
   )
 }
@@ -1415,7 +1598,22 @@ encode_systemsage <- function(bundle, catalog) {
   labels <- names(organs)
   composite <- catalog[["clocks"]][[gid]]
   sys_comp <- systemsage_system_components(composite)
-  # organs and systems must line up both ways
+
+  # every stack label must be a member clock id (catches Age_prediction)
+  declared <- setdiff(unname(systemsage_stack_labels(composite)), gid)
+  members <- setdiff(group_member_ids(catalog, gid), gid)
+  if (!setequal(declared, members)) {
+    stop(
+      gid,
+      ": stack column labels and group members disagree -- only in labels: ",
+      paste(setdiff(declared, members), collapse = ", "),
+      "; only in members: ",
+      paste(setdiff(members, declared), collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # the labels with a CpG front are exactly the coefficient-owning members
   if (!setequal(labels, names(sys_comp))) {
     stop(
       gid,
@@ -1489,6 +1687,31 @@ encode_pcbrainage <- function(bundle, catalog) {
   bundle
 }
 
+# zhang2019: the BLUP arm alone. One dense coefficient vector, so there is no
+# shared row order to canonicalize; policy is omit, so there is no vendored ref.
+encode_zhang2019 <- function(bundle, catalog) {
+  gid <- "Zhang2019"
+  ids <- as.character(bundle[["clocks"]] %||% character())
+  if (length(ids) != 1L) {
+    stop(
+      gid,
+      ": expected 1 external member, found ",
+      length(ids),
+      call. = FALSE
+    )
+  }
+  entry <- catalog[["clocks"]][[ids[[1L]]]]
+  rel <- entry[["coef_path"]]
+  if (is.null(rel) || is.null(bundle[["tensors"]][[rel]])) {
+    stop(gid, ": missing coefficient tensor for ", ids[[1L]], call. = FALSE)
+  }
+
+  bundle[["cpgs"]] <- resolved_scoring_cpgs(entry, ids[[1L]])
+  # the coefficients stay a raw tensor, keyed by the coef_path clock_coefs() reads
+  bundle[["encoding"]] <- "raw_tensors"
+  bundle
+}
+
 encode_external_asset <- function(bundle, catalog) {
   gid <- bundle[["group_id"]] %||% NA_character_
   if (identical(gid, "PCClocks")) {
@@ -1497,6 +1720,8 @@ encode_external_asset <- function(bundle, catalog) {
     encode_systemsage(bundle, catalog)
   } else if (identical(gid, "PCBrainAge")) {
     encode_pcbrainage(bundle, catalog)
+  } else if (identical(gid, "Zhang2019")) {
+    encode_zhang2019(bundle, catalog)
   } else {
     stop("No external encoding for group_id=", gid, call. = FALSE)
   }
@@ -1532,6 +1757,7 @@ external_asset_registry_row <- function(a) {
 build_index <- function(catalog) {
   clocks <- catalog[["clocks"]]
   ids <- names(clocks)
+  citations <- catalog[["citations"]]
 
   scal <- function(field, default = NA_character_) {
     unname(vapply(
@@ -1557,6 +1783,16 @@ build_index <- function(catalog) {
     integer(1L)
   ))
 
+  # citation count (alias resolves through donor)
+  n_citations <- unname(vapply(
+    clocks,
+    function(e) {
+      id <- as.character(e[["donor_clock_id"]] %||% e[["clock_id"]])
+      sum(citations[["clock_id"]] == id)
+    },
+    integer(1L)
+  ))
+
   idx <- data.frame(
     clock_id = ids,
     group_id = scal("group_id"),
@@ -1569,8 +1805,9 @@ build_index <- function(catalog) {
     cross_sample_at = cross_at,
     batch_dependent = !is.na(cross_at),
     external_group = lgl("external_group"),
-    bib_key = scal("bib_key"),
+    # `pmid` is the primary paper only -- a scalar cannot hold the citation set
     pmid = scal("pmid"),
+    n_citations = n_citations,
     stringsAsFactors = FALSE,
     row.names = NULL
   )
@@ -1597,6 +1834,154 @@ drop_external_probe_cpgs <- function(clocks) {
   clocks
 }
 
+# name items by a declared key; stop on collisions (or missing keys when total).
+# total=FALSE leaves unkeyed elements unnamed (recipe steps with no out).
+key_declarations <- function(items, field, cid, what, total = TRUE) {
+  if (!length(items)) {
+    return(items)
+  }
+  keys <- vapply(
+    items,
+    function(x) {
+      v <- if (is.list(x)) x[[field]] else NULL
+      if (is.null(v) || !length(v)) "" else as.character(v)[[1L]]
+    },
+    character(1L)
+  )
+  if (total && !all(nzchar(keys))) {
+    stop(
+      cid,
+      ": ",
+      sum(!nzchar(keys)),
+      " of ",
+      length(keys),
+      " ",
+      what,
+      " declare no '",
+      field,
+      "'",
+      call. = FALSE
+    )
+  }
+  dup <- unique(keys[nzchar(keys) & duplicated(keys)])
+  if (length(dup)) {
+    stop(
+      cid,
+      ": ",
+      what,
+      " share a '",
+      field,
+      "': ",
+      paste(dup, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  stats::setNames(items, keys)
+}
+
+# recipe ops declared at most once (linear / linear_mean may repeat per stack col).
+SINGLETON_OPS <- c("stack", "poly")
+
+# probe_set roles with a normalization background, and a stack step's operand
+# namespaces -- the accessors' own constants, not a copy of them.
+NORM_ROLES <- mc_runtime[["NORM_ROLES"]]
+STACK_NAMESPACES <- mc_runtime[["STACK_NAMESPACES"]]
+
+# shape invariants asserted once at sync (named by clock).
+assert_catalog_shape <- function(clocks) {
+  for (cid in names(clocks)) {
+    entry <- clocks[[cid]]
+    recipe <- entry[["recipe"]] %||% list()
+    ops <- vapply(
+      recipe,
+      function(s) as.character(s[["op"]] %||% "")[[1L]],
+      character(1L)
+    )
+
+    for (op in SINGLETON_OPS) {
+      n <- sum(ops == op)
+      if (n > 1L) {
+        stop(
+          cid,
+          " declares ",
+          n,
+          " '",
+          op,
+          "' ops; at most one is supported",
+          call. = FALSE
+        )
+      }
+    }
+
+    n_bg <- length(intersect(
+      NORM_ROLES,
+      names(entry[["probe_sets"]])
+    ))
+    if (n_bg > 1L) {
+      stop(
+        cid,
+        " declares ",
+        n_bg,
+        " normalization background probe_sets; at most one is supported",
+        call. = FALSE
+      )
+    }
+
+    # declared column labels must cover every operand, or the two zip wrong
+    for (step in recipe[ops == "stack"]) {
+      declared <- step[["columns"]]
+      if (is.null(declared)) {
+        next
+      }
+      n_op <- sum(lengths(lapply(
+        STACK_NAMESPACES,
+        function(k) as.character(unlist(step[[k]] %||% character()))
+      )))
+      n_lab <- length(as.character(unlist(declared)))
+      if (n_lab != n_op) {
+        stop(
+          cid,
+          ": stack declares ",
+          n_lab,
+          " column label(s) for ",
+          n_op,
+          " operand(s)",
+          call. = FALSE
+        )
+      }
+    }
+  }
+  clocks
+}
+
+# key the three per-clock declaration lists the accessors look up by name
+key_catalog_lists <- function(clocks) {
+  for (cid in names(clocks)) {
+    entry <- clocks[[cid]]
+    entry[["components"]] <- key_declarations(
+      entry[["components"]],
+      "name",
+      cid,
+      "components"
+    )
+    entry[["probe_sets"]] <- key_declarations(
+      entry[["probe_sets"]],
+      "role",
+      cid,
+      "probe_sets"
+    )
+    entry[["recipe"]] <- key_declarations(
+      entry[["recipe"]],
+      "out",
+      cid,
+      "recipe steps",
+      total = FALSE
+    )
+    clocks[[cid]] <- entry
+  }
+  clocks
+}
+
 build_sysdata <- function(
   repo_path,
   catalog,
@@ -1612,11 +1997,14 @@ build_sysdata <- function(
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
   catalog[["clocks"]] <- trim_build_only_fields(catalog[["clocks"]])
+  catalog[["clocks"]] <- key_catalog_lists(catalog[["clocks"]])
+  catalog[["clocks"]] <- assert_catalog_shape(catalog[["clocks"]])
 
   mc_catalog <- drop_external_probe_cpgs(catalog[["clocks"]])
   mc_groups <- catalog[["groups"]]
   mc_bundles <- bundles
   mc_index <- build_index(catalog)
+  mc_citations <- catalog[["citations"]]
   ext_reg <- NULL
   if (!is.null(external_assets) && length(external_assets)) {
     ext_reg <- lapply(external_assets, external_asset_registry_row)
@@ -1627,7 +2015,7 @@ build_sysdata <- function(
     n_clocks = catalog[["n_clocks"]],
     n_ship_groups = length(ship_groups),
     ship_groups = ship_groups,
-    external_groups = EXTERNAL_GROUPS,
+    external_groups = split_group_ids(catalog, TRUE),
     external_assets = ext_reg
   )
 
@@ -1636,10 +2024,11 @@ build_sysdata <- function(
     mc_groups,
     mc_bundles,
     mc_index,
+    mc_citations,
     mc_provenance,
     internal = TRUE,
     overwrite = TRUE,
-    compress = "gzip"
+    compress = "xz"
   )
 
   path <- file.path("R", "sysdata.rda")
@@ -1658,6 +2047,7 @@ build_sysdata <- function(
       "mc_groups",
       "mc_bundles",
       "mc_index",
+      "mc_citations",
       "mc_provenance"
     )
   ))
@@ -1714,7 +2104,7 @@ payload_hash_of <- function(payload) {
   )
 }
 
-# GitHub release target
+# gitHub release target
 
 # `owner/repo` from a plain slug, https URL, or scp-style remote
 parse_github_owner_repo <- function(url) {
@@ -1925,7 +2315,12 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
 
   for (gid in external_groups) {
     message("sync: building external asset for ", gid, "...")
-    raw_bundle <- build_group_bundles(repo_path, catalog, gid)[[gid]]
+    raw_bundle <- build_group_bundles(
+      repo_path,
+      catalog,
+      gid,
+      external = TRUE
+    )[[gid]]
     # resolve probe sets before encoding, adopt catalog so pack and sysdata match
     catalog <- resolve_group_scoring_probe_sets(
       catalog,
@@ -1999,15 +2394,20 @@ read_lockfile <- function() {
   tryCatch(readRDS(LOCKFILE), error = function(e) NULL)
 }
 
-# per-clock bundle_hash for the external groups, the pack staleness key.
-external_bundle_hashes <- function(catalog, external_groups) {
-  ids <- names(catalog[["clocks"]])[
+# clock ids whose weights live in a pack
+external_clock_ids <- function(catalog) {
+  names(catalog[["clocks"]])[
     vapply(
       catalog[["clocks"]],
-      function(e) as.character(e[["group_id"]] %||% "") %in% external_groups,
+      function(e) isTRUE(e[["external_group"]]),
       logical(1L)
     )
   ]
+}
+
+# per-clock bundle_hash for the external clocks, the pack staleness key.
+external_bundle_hashes <- function(catalog) {
+  ids <- external_clock_ids(catalog)
   hashes <- vapply(
     catalog[["clocks"]][ids],
     function(e) as.character(e[["bundle_hash"]] %||% NA_character_),
@@ -2016,9 +2416,13 @@ external_bundle_hashes <- function(catalog, external_groups) {
   hashes[order(names(hashes))]
 }
 
-# lockfile hit when every external bundle_hash is unchanged and packs are on disk
-lockfile_hit <- function(lock, hashes) {
+# lockfile hit when the encoder code and every external bundle_hash are unchanged
+# and the packs are on disk. A lockfile written before the fingerprint existed misses.
+lockfile_hit <- function(lock, hashes, fingerprint) {
   if (is.null(lock)) {
+    return(FALSE)
+  }
+  if (is.na(fingerprint) || !identical(lock$code_fingerprint, fingerprint)) {
     return(FALSE)
   }
   prev <- lock$bundle_hashes
@@ -2036,11 +2440,12 @@ lockfile_hit <- function(lock, hashes) {
 }
 
 # store pre-trim external catalog entries for lockfile reuse.
-write_lockfile <- function(sha, hashes, assets, ext_clocks) {
+write_lockfile <- function(sha, hashes, assets, ext_clocks, fingerprint) {
   saveRDS(
     list(
       source_git_sha = sha,
       bundle_hashes = hashes,
+      code_fingerprint = fingerprint,
       assets = assets,
       ext_clocks = ext_clocks
     ),
@@ -2059,13 +2464,9 @@ sync <- function(source_git_sha = NULL, upload = FALSE, force = FALSE) {
   catalog <- build_catalog(src$path, read_manifest(src$path))
   catalog[["source_git_sha"]] <- current_sha
 
-  gids <- unique(vapply(
-    catalog[["clocks"]],
-    function(c) c[["group_id"]],
-    character(1L)
-  ))
-  external <- sort(intersect(gids, EXTERNAL_GROUPS))
-  ship <- sort(setdiff(gids, EXTERNAL_GROUPS))
+  # a group with both bundled and external members is in both buckets
+  external <- split_group_ids(catalog, TRUE)
+  ship <- split_group_ids(catalog, FALSE)
   message(
     "sync: ",
     catalog[["n_clocks"]],
@@ -2075,9 +2476,22 @@ sync <- function(source_git_sha = NULL, upload = FALSE, force = FALSE) {
     paste(external, collapse = ", ")
   )
 
-  ext_hashes <- external_bundle_hashes(catalog, external)
+  ext_hashes <- external_bundle_hashes(catalog)
+  code_fp <- sync_code_fingerprint()
   lock <- if (isTRUE(force)) NULL else read_lockfile()
-  if (lockfile_hit(lock, ext_hashes)) {
+  # name the case the bundle_hashes cannot explain, or the rebuild looks arbitrary
+  if (
+    !is.null(lock) &&
+      identical(lock$bundle_hashes, ext_hashes) &&
+      !identical(lock$code_fingerprint, code_fp)
+  ) {
+    message(
+      "sync: upstream unchanged but ",
+      SYNC_SCRIPT,
+      " differs from the lockfile -- rebuilding external assets."
+    )
+  }
+  if (lockfile_hit(lock, ext_hashes, code_fp)) {
     message(
       "sync: external assets unchanged (bundle_hash match) -- reusing ",
       length(lock$assets),
@@ -2093,18 +2507,12 @@ sync <- function(source_git_sha = NULL, upload = FALSE, force = FALSE) {
     assets <- ext$assets
     # adopt catalog with resolved external probe sets.
     catalog <- ext$catalog
-    ext_ids <- names(catalog[["clocks"]])[
-      vapply(
-        catalog[["clocks"]],
-        function(e) as.character(e[["group_id"]] %||% "") %in% external,
-        logical(1L)
-      )
-    ]
     write_lockfile(
       current_sha,
       ext_hashes,
       assets,
-      catalog[["clocks"]][ext_ids]
+      catalog[["clocks"]][external_clock_ids(catalog)],
+      code_fp
     )
   }
 
