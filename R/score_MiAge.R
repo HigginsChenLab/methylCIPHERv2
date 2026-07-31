@@ -1,4 +1,4 @@
-# MiAge: multi-start L-BFGS-B mitotic age over n in [10, 10000]
+# miAge: multi-start L-BFGS-B mitotic age over n in [10, 10000]
 
 MIAGE_LOWER <- 10
 MIAGE_UPPER <- 10000
@@ -9,11 +9,26 @@ MIAGE_STARTS <- c(
   500
 )
 
-# best multi-start fit for one sample
-miage_fit <- function(betaj, b, c, d) {
-  objective <- function(n) sum((c + b^(n - 1) * d - betaj)^2)
+miage_fit <- function(betaj, b, cc, d) {
+  logb <- log(b)
+  st <- new.env(parent = emptyenv())
+  st[["at"]] <- NA_real_
+  bind <- function(n) {
+    if (!isTRUE(n == st[["at"]])) {
+      bn <- b^(n - 1)
+      st[["bn"]] <- bn
+      st[["res"]] <- cc + bn * d - betaj
+      st[["at"]] <- n
+    }
+    st
+  }
+
+  objective <- function(n) {
+    sum(bind(n)[["res"]]^2)
+  }
   gradient <- function(n) {
-    2 * sum((c + b^(n - 1) * d - betaj) * b^(n - 1) * log(b) * d)
+    s <- bind(n)
+    2 * sum(s[["res"]] * s[["bn"]] * logb * d)
   }
 
   fits <- lapply(MIAGE_STARTS, function(start) {
@@ -27,27 +42,35 @@ miage_fit <- function(betaj, b, c, d) {
       control = list(factr = 1)
     )
   })
-  fits[[which.min(vapply(fits, function(f) f$value, numeric(1)))]]$par
+  fits[[which.min(vapply(fits, function(f) f[["value"]], numeric(1)))]][["par"]]
 }
 
-score_MiAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
-  sample_id <- rownames(DNAm)
-  n <- nrow(DNAm)
-
+score_MiAge <- function(id, cpgs, block, results) {
+  sample_id <- block[["sample_id"]]
   params <- miage_params(id)
-  present <- cpgs$score_present
-  cached <- cached_cols(present, partial_cache)
-  betas <- DNAm[, present, drop = FALSE]
-  if (length(cached)) {
-    betas[, cached] <- partial_cache[, cached]
-  }
+  obs <- observed_panel(cpgs[["score_present"]], block)
+  betas <- obs[["values"]]
+  panel <- obs[["cols"]]
 
-  b <- params$b[present]
-  cc <- params$c[present]
-  d <- params$d[present]
+  b <- params[["b"]][panel]
+  cc <- params[["c"]][panel]
+  d <- params[["d"]][panel]
   score_matrix(
-    vapply(seq_len(n), function(i) miage_fit(betas[i, ], b, cc, d), numeric(1)),
+    vapply(
+      seq_along(sample_id),
+      function(i) miage_fit(betas[i, ], b, cc, d),
+      numeric(1)
+    ),
     sample_id,
     id
+  )
+}
+
+# miAge site-specific params: named b, c, d vectors in panel order
+miage_params <- function(id) {
+  tab <- component_tensor(id, "cpg")
+  lapply(
+    list(b = tab[["b"]], c = tab[["c"]], d = tab[["d"]]),
+    function(x) stats::setNames(as.numeric(x), tab[["cpg"]])
   )
 }

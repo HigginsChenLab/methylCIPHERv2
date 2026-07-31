@@ -1,62 +1,115 @@
-# coverage/QC, built once upstream of scoring and keyed by clock id
+# coverage/QC, once upstream of scoring, keyed by clock id
 
-# per-sample partial-fill count over one panel's present CpGs
-panel_sample_miss <- function(present, DNAm, partial_cache) {
-  count_sample_miss(DNAm, cached_cols(present, partial_cache))
+# per-sample observed count over column positions (callers are past the value gate)
+row_observed <- function(DNAm, idx) {
+  obs <- col_stats(DNAm, idx)[["row_obs"]]
+  # null means the kernel bailed on overflow past the value gate
+  if (is.null(obs)) {
+    stop(
+      "row_observed: col_stats bailed on a non-finite value past the value
+       gate. This is a package bug -- please report it.",
+      call. = FALSE
+    )
+  }
+  obs
 }
 
-# alias score-panel miss: stitch each row from the member that scored it
-stitch_routed_sample_miss <- function(alias, score_miss, female, sample_id) {
-  miss <- rep(NA_integer_, length(sample_id))
-  names(miss) <- sample_id
-  if (is.null(female)) {
+# per-sample count of cohort-mean fills over cached column positions (integer)
+count_sample_miss <- function(DNAm, cached_idx) {
+  out <- if (length(cached_idx)) {
+    length(cached_idx) - row_observed(DNAm, cached_idx)
+  } else {
+    integer(nrow(DNAm))
+  }
+  names(out) <- rownames(DNAm)
+  out
+}
+
+# one panel's per-sample coverage from present/needed scalars and miss counts
+panel_ratio <- function(present, miss, needed) {
+  n_observed <- present - miss
+  list(n_observed = n_observed, cov = n_observed / needed, needed = needed)
+}
+
+# per-sample partial-fill count over a panel's cached (partly filled) CpGs
+panel_sample_miss <- function(cached, block) {
+  # counted on the raw matrix -- the cache has the NAs already filled
+  count_sample_miss(block[["DNAm"]], block_cols(cached, block))
+}
+
+# a routed member's count on a row its sex did not score is not its count
+mask_routed_rows <- function(miss, sex_key, rows) {
+  if (is.null(miss) || is.na(sex_key)) {
     return(miss)
   }
-  route <- clock_routing(alias)
-  rows <- list(female = which(female == 1), male = which(female == 0))
-  for (key in names(rows)) {
-    i <- rows[[key]]
-    if (!length(i)) {
-      next
-    }
-    sm <- score_miss[[as.character(route[[key]])]]
-    if (!is.null(sm)) {
-      miss[i] <- as.integer(sm)[i]
-    }
-  }
+  miss[!rows[[sex_key]]] <- NA_integer_
   miss
 }
 
-# full coverage for the compute sequence (per_clock records + per-panel sample_miss)
-compute_coverage <- function(
-  clock_sequence,
-  cpg_list,
-  DNAm,
-  partial_cache,
-  pheno
-) {
-  sample_id <- rownames(DNAm)
-  routed <- sex_routed_members()
-  is_alias <- vapply(
-    clock_sequence,
-    function(p) identical(clock_kind(p), "sex_routed_alias"),
-    logical(1L)
+# one clock coverage record. every count is a cpg count. per-sample axis is sample_miss
+coverage_record <- function(cpgs, score_partial, norm_partial = 0L) {
+  id <- cpgs[["clock_id"]]
+  policy <- clock_impute(id)[["policy"]]
+  fill <- identical(policy, "vendor_mean")
+  n_absent <- length(cpgs[["score_absent"]])
+  # the norm panel fills by declared scheme, not by the imputation policy
+  norm_fill <- clock_norm_scheme(id) %in% NORM_SCHEMES_FILL
+  n_norm_absent <- length(cpgs[["norm_absent"]])
+  list(
+    clock_id = id,
+    policy = policy,
+    normalizes = cpgs[["normalizes"]],
+    score_needed = length(cpgs[["score_needed"]]),
+    score_present = length(cpgs[["score_present"]]),
+    score_used = length(cpgs[["score_present"]]) + if (fill) n_absent else 0L,
+    score_imputed_partial = score_partial,
+    score_imputed_full = if (fill) n_absent else 0L,
+    score_dropped = if (fill) 0L else n_absent,
+    norm_needed = length(cpgs[["norm_needed"]]),
+    norm_present = length(cpgs[["norm_present"]]),
+    norm_imputed_partial = norm_partial,
+    norm_imputed_full = if (norm_fill) n_norm_absent else 0L,
+    norm_dropped = if (norm_fill) 0L else n_norm_absent,
+    missing_cpgs = cpgs[["score_absent"]]
   )
-  seqi <- seq_along(clock_sequence)
-  pidx <- cpg_list$panel_index
+}
 
-  # count each distinct panel's per-sample miss once, then fan out via the index
-  score_part_miss <- lapply(
-    pidx$score$parts,
-    function(p) panel_sample_miss(p$present, DNAm, partial_cache)
+# the clocks a per_clock map holds a record for. a NULL entry read no cpgs,
+# so it spans neither sample_miss nor samples_coverage()
+covered_ids <- function(per_clock) {
+  names(per_clock)[!vapply(per_clock, is.null, logical(1L))]
+}
+
+# full coverage for the compute sequence (per_clock records + per-panel sample_miss)
+compute_coverage <- function(clock_sequence, cpg_list, block) {
+  sample_id <- block[["sample_id"]]
+  routed <- sex_routed_members()
+  # a clock that reads no betas gets neither a record nor a per-sample count
+  reads_cpgs <- vapply(clock_sequence, clock_reads_cpgs, logical(1L))
+  seqi <- seq_along(clock_sequence)
+  pidx <- cpg_list[["panel_index"]]
+
+  # one cached-column set per distinct panel, shared by both axes
+  score_cached <- lapply(
+    pidx[["score"]][["parts"]],
+    function(p) cached_cols(p[["present"]], block[["partial_cache"]])
   )
-  norm_part_miss <- lapply(pidx$norm$parts, function(p) {
-    if (!length(p$needed)) {
+  norm_cached <- lapply(pidx[["norm"]][["parts"]], function(p) {
+    if (!length(p[["needed"]])) {
       NULL
     } else {
-      panel_sample_miss(p$present, DNAm, partial_cache)
+      cached_cols(p[["present"]], block[["partial_cache"]])
     }
   })
+
+  # count each distinct panel once, then fan out via the index
+  score_part_miss <- lapply(score_cached, panel_sample_miss, block = block)
+  norm_part_miss <- lapply(norm_cached, function(cc) {
+    if (is.null(cc)) NULL else panel_sample_miss(cc, block)
+  })
+  # probe axis: a panel CpG that was filled for any sample (NULL panel -> 0)
+  score_part_cpgs <- lengths(score_cached)
+  norm_part_cpgs <- lengths(norm_cached)
 
   per_clock <- stats::setNames(
     vector("list", length(clock_sequence)),
@@ -65,48 +118,30 @@ compute_coverage <- function(
   score_miss <- per_clock
   norm_miss <- per_clock
 
-  # 1. raw per-panel miss for every non-alias clock
-  for (i in seqi[!is_alias]) {
-    id <- clock_sequence[[i]]
-    score_miss[[id]] <- score_part_miss[[pidx$score$idx[[i]]]]
-    norm_miss[[id]] <- norm_part_miss[[pidx$norm$idx[[i]]]]
-  }
-
+  pheno <- block[["pheno"]]
   female <- if (is.null(pheno)) NULL else as.numeric(pheno[["Female"]])
+  rows <- sex_rows(female, length(sample_id))
 
-  # 2. aliases: stitch score-panel miss from the raw member counts
-  for (i in seqi[is_alias]) {
+  # every beta-reading clock: per-sample miss (sex-masked) plus the probe-axis record
+  for (i in seqi[reads_cpgs]) {
     id <- clock_sequence[[i]]
-    score_miss[[id]] <- stitch_routed_sample_miss(
-      id,
-      score_miss,
-      female,
-      sample_id
+    # NA when the clock routes no sex -- masks nothing
+    sex_key <- routed[["sex"]][id]
+    score_miss[[id]] <- mask_routed_rows(
+      score_part_miss[[pidx[["score"]][["idx"]][[i]]]],
+      sex_key,
+      rows
     )
-  }
-
-  # 3. blank member rows that this sex did not score
-  if (!is.null(female)) {
-    for (id in intersect(clock_sequence, names(routed$sex))) {
-      applies <- if (identical(routed$sex[[id]], "female")) {
-        female == 1
-      } else {
-        female == 0
-      }
-      applies[is.na(applies)] <- FALSE
-      sm <- score_miss[[id]]
-      sm[!applies] <- NA_integer_
-      score_miss[[id]] <- sm
-    }
-  }
-
-  # 4. records last (aliases keep NULL -- panels differ by member)
-  for (i in seqi[!is_alias]) {
-    id <- clock_sequence[[i]]
+    # single bracket + list() keeps a null norm entry. `[[<-` would drop the name
+    norm_miss[id] <- list(mask_routed_rows(
+      norm_part_miss[[pidx[["norm"]][["idx"]][[i]]]],
+      sex_key,
+      rows
+    ))
     per_clock[[id]] <- coverage_record(
-      cpg_list$per_clock[[id]],
-      score_miss[[id]],
-      norm_miss[[id]]
+      cpg_list[["per_clock"]][[id]],
+      score_part_cpgs[[pidx[["score"]][["idx"]][[i]]]],
+      norm_part_cpgs[[pidx[["norm"]][["idx"]][[i]]]]
     )
   }
 

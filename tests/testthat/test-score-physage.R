@@ -1,4 +1,4 @@
-# PhysAge: vendor-mean fill + cohort_zscore composites (synthetic).
+# physAge: vendor-mean fill + cohort_zscore composites (synthetic).
 
 physage_union <- function() {
   members <- mc_groups[["PhysAge"]]$members
@@ -25,9 +25,9 @@ test_that("absent surrogate CpGs vendor-fill by offset under mean reduction", {
     tolerance = 1e-10
   )
 
-  cov <- res2$coverage$per_clock[["DNAmCRP"]]
-  expect_identical(cov$score_imputed_full, 5L)
-  expect_identical(cov$score_dropped, 0L)
+  cov <- res2$coverage$per_clock[[1]][["DNAmCRP"]]
+  expect_equal(cov$score_imputed_full, 5L)
+  expect_equal(cov$score_dropped, 0L)
 })
 
 test_that("PhysAge composites run and need >= 2 samples", {
@@ -42,4 +42,18 @@ test_that("PhysAge composites run and need >= 2 samples", {
 
   one <- random_betas(physage_union(), n = 1L)
   expect_error(calc_clocks(one, "DNAmPhysAge"))
+})
+
+test_that("a surrogate that goes constant stops instead of NaN-ing the cohort", {
+  # blank a small surrogate: scale() NaN must stop, not spread via rowSums
+  surr <- physage_surrogates("DNAmPhysAge")
+  flat <- names(surr[[which(vapply(
+    surr,
+    function(s) identical(s[["name"]], "raw_DNAmPulsePr"),
+    logical(1)
+  ))]][["coef"]])
+
+  panel <- setdiff(physage_union(), flat)
+  DNAm <- random_betas(panel, n = 6L)
+  expect_error(suppressWarnings(calc_clocks(DNAm, "DNAmPhysAge")))
 })

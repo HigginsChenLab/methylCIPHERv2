@@ -7,92 +7,81 @@ random_betas <- function(cpgs, n = 10L) {
   )
 }
 
+#' @export
 sim_DNAm <- function(
   clocks,
   n = 10,
   Age = FALSE,
   Female = FALSE,
   remove = 0,
-  assets = NULL,
-  ask = TRUE
+  normalize = NULL,
+  ext_data = NULL,
+  ask = TRUE,
+  suffix = NULL
 ) {
   checkmate::assert_flag(Age)
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
+  # opt-in sample-id suffix. a default would silently rename every existing call
+  if (!is.null(suffix)) {
+    checkmate::assert_string(suffix, min.chars = 1L)
+  }
 
-  clock_sequence <- resolve_clocks_sequence(resolve_clocks(clocks))
-  packs <- load_mc_assets(pack_groups_needed(clock_sequence), assets, ask)
-  cpgs <- clock_cpgs(clock_sequence, packs)
+  cpgs <- clock_cpgs(clocks, normalize, ext_data, ask)
   if (remove > 0) {
     n_drop <- min(remove, length(cpgs))
     cpgs <- cpgs[-sample.int(length(cpgs), n_drop)]
   }
+  # suffixed ids make two simulated blocks disjoint for rbind's first gate
   ID <- paste0("sample", seq_len(n))
+  if (!is.null(suffix)) {
+    ID <- paste0(ID, "_", suffix)
+  }
   DNAm <- random_betas(cpgs, n = n)
+  # one id source for both, rather than two expressions that happen to agree
+  rownames(DNAm) <- ID
   pheno <- data.frame(ID = ID)
   if (Age) {
-    pheno$Age <- stats::rnorm(n, mean = 45, sd = 5)
+    pheno[["Age"]] <- stats::rnorm(n, mean = 45, sd = 5)
   }
   if (Female) {
-    pheno$Female <- numeric(n)
-    pheno$Female[sample.int(n, floor(n / 2))] <- 1
+    pheno[["Female"]] <- numeric(n)
+    pheno[["Female"]][sample.int(n, floor(n / 2))] <- 1
   }
   out <- list(
     DNAm = DNAm,
-    pheno = pheno
+    pheno = pheno,
+    # NULL unless the ids were suffixed -- reported, never fed back in
+    suffix = suffix
   )
   class(out) <- c("mc_sim", "list")
   out
 }
 
-# print mc_sim (DNAm + pheno preview)
+# DNAm then pheno, in the shared printer grammar (R/print.R)
 #' @export
 print.mc_sim <- function(x, n = 6, p = 6, ...) {
-  DNAm <- x$DNAm
-  pheno <- x$pheno
-  nr <- nrow(DNAm)
-  nc <- ncol(DNAm)
-  ni <- min(n, nr)
-  pi <- min(p, nc)
+  DNAm <- x[["DNAm"]]
+  pheno <- x[["pheno"]]
 
-  cat(sprintf("<mc_sim> %d sample(s) x %d CpG(s)\n\n", nr, nc))
-  cat(sprintf("DNAm [showing %d x %d]:\n", ni, pi))
-  print(DNAm[seq_len(ni), seq_len(pi), drop = FALSE])
-  if (ni < nr || pi < nc) {
-    cat(sprintf("... %d more row(s), %d more col(s)\n", nr - ni, nc - pi))
-  }
-
-  cat(sprintf(
-    "\npheno [showing %d of %d row(s)]:\n",
+  cat(
+    fmt_header("mc_sim", nrow(DNAm), "sample", ncol(DNAm), "CpG"),
+    "\n",
+    sep = ""
+  )
+  print_block("DNAm", DNAm, min(n, nrow(DNAm)), min(p, ncol(DNAm)), "CpG")
+  print_block(
+    "pheno",
+    pheno,
     min(n, nrow(pheno)),
-    nrow(pheno)
-  ))
-  print(utils::head(pheno, n))
+    ncol(pheno),
+    "column",
+    cut_cols = FALSE
+  )
+  # an unsuffixed sim says nothing here, so the line only appears when asked for
+  if (!is.null(x[["suffix"]])) {
+    cat("\n", fmt_section("suffix", x[["suffix"]]), "\n", sep = "")
+  }
 
   invisible(x)
-}
-
-clock_cpgs <- function(clock_ids, packs = NULL) {
-  results <- lapply(clock_ids, function(cid) {
-    scoring <- clock_scoring_cpgs(cid, packs)
-    if (!length(scoring)) {
-      # sex-routed aliases own no panel
-      return(if (length(clock_depends_on(cid))) character(0) else NULL)
-    }
-    c(scoring, clock_norm_cpgs(cid))
-  })
-  unresolved <- clock_ids[vapply(results, is.null, logical(1))]
-
-  if (length(unresolved)) {
-    cli::cli_abort(
-      c(
-        "No scoring CpGs for {.val {unresolved}}.",
-        "i" = "External packs may need to be loaded first."
-      ),
-      call = NULL
-    )
-  }
-
-  cpgs <- unlist(results, use.names = FALSE)
-  unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
 }

@@ -1,49 +1,94 @@
-# DNAmPhysAge: surrogate means, reverse-code, cohort z-score, row sum
-score_PhysAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
-  sample_id <- rownames(DNAm)
-  n <- nrow(DNAm)
+# DNAmPhysAge: physage_raws (per-sample) then finalize_PhysAge (cohort reduce)
+
+# per-sample half: n x n_surrogate reverse-coded raws
+physage_raws <- function(id, cpgs, block, results) {
+  sample_id <- block[["sample_id"]]
+  n <- length(sample_id)
+  surrogates <- physage_surrogates(id)
+
+  cols <- lapply(surrogates, function(s) {
+    coef <- s[["coef"]]
+    label <- paste0(id, " surrogate ", s[["name"]])
+    # mean over present CpGs only
+    raw <- component_linpred(
+      id,
+      coef,
+      component_present(coef, cpgs, label),
+      block,
+      label = label,
+      reduction = "mean"
+    )
+    if (s[["negate"]]) -raw else raw
+  })
+
+  # hand-built matrix so a 1-row block keeps dim and rownames
+  matrix(
+    unlist(cols, use.names = FALSE),
+    nrow = n,
+    dimnames = list(
+      sample_id,
+      vapply(surrogates, function(s) s[["name"]], character(1))
+    )
+  )
+}
+
+# cohort z-score, stopping on scale()'s degeneracies (n < 2 or a flat column)
+zscore_raws <- function(id, raws) {
+  n <- nrow(raws)
   if (n < 2L) {
-    cli::cli_abort(
-      c(
-        "{.val {id}} needs at least 2 samples (cohort z-score), got {n}.",
-        "i" = "Score it with a larger DNAm matrix."
+    stop(
+      sprintf(
+        paste0(
+          "%s needs at least 2 samples (cohort z-score), got %d. ",
+          "Score it with a larger DNAm matrix."
+        ),
+        id,
+        n
       ),
-      call = NULL
+      call. = FALSE
     )
   }
 
-  surrogates <- physage_surrogates(id)
-  ref <- clock_impute_ref(id)
-
-  raws <- vapply(
-    surrogates,
-    function(s) {
-      coef <- s$coef
-      present <- intersect(names(coef), cpgs$score_present)
-      absent <- setdiff(names(coef), present)
-      absent_offset <- vendor_offset(
-        coef,
-        absent,
-        ref,
-        paste0(id, " surrogate ", s$name)
-      )
-      lp <- linear_predictor(
-        coef = coef,
-        intercept = 0,
-        cov_coefs = numeric(0),
-        score_present = present,
-        DNAm = DNAm,
-        partial_cache = partial_cache,
-        id = s$name
-      )
-      raw <- (as.numeric(lp$cpg_contrib) + absent_offset) / length(coef)
-      if (s$negate) -raw else raw
-    },
-    numeric(n)
-  )
-
   z <- scale(raws)
-  phys <- rowSums(z)
+  # the divisor scale() actually used. a nan column scales by 0 and hits the same branch
+  sds <- attr(z, "scaled:scale")
+  flat <- colnames(raws)[!is.finite(sds) | sds == 0]
+  if (!length(flat)) {
+    return(z)
+  }
+
+  # declared panel size per surrogate
+  surrogates <- physage_surrogates(id)
+  needed <- stats::setNames(
+    vapply(surrogates, function(s) length(s[["coef"]]), integer(1L)),
+    vapply(surrogates, function(s) s[["name"]], character(1L))
+  )
+  detail <- paste(
+    vapply(
+      flat,
+      function(nm) sprintf("%s: %d declared CpG(s)", nm, needed[[nm]]),
+      character(1L)
+    ),
+    collapse = "; "
+  )
+  stop(
+    sprintf(
+      paste0(
+        "%s cannot be scored: %d surrogate(s) constant across the cohort, ",
+        "so z-score is undefined (%s). A surrogate goes constant when none ",
+        "of its CpGs were observed. clocks_coverage() reports panel counts."
+      ),
+      id,
+      length(flat),
+      detail
+    ),
+    call. = FALSE
+  )
+}
+
+# cohort reduction (years branch reduces twice before the poly)
+finalize_PhysAge <- function(id, raws) {
+  phys <- rowSums(zscore_raws(id, raws))
 
   poly <- physage_poly_coef(id)
   score_vec <- if (is.null(poly)) {
@@ -52,11 +97,52 @@ score_PhysAge <- function(id, cpgs, DNAm, partial_cache = NULL) {
     poly_eval(as.numeric(scale(phys)), poly)
   }
 
-  score_matrix(score_vec, sample_id, id)
+  score_matrix(score_vec, rownames(raws), id)
 }
 
-# y = sum_k coef[k+1] * x^k (lowest degree first)
-poly_eval <- function(x, coef) {
-  powers <- vapply(seq_along(coef) - 1L, function(k) x^k, numeric(length(x)))
-  as.numeric(powers %*% coef)
+# ordered surrogates: each {name, coef, negate}
+physage_surrogates <- function(id) {
+  entry <- clock_entry(id)
+  recipe <- entry[["recipe"]]
+
+  order <- stack_operands(stack_step(id))
+
+  zs <- pick_one(
+    recipe,
+    function(s) {
+      identical(s[["op"]], "cohort_zscore") && identical(s[["in"]], "raws")
+    },
+    "cohort_zscore ops over 'raws'",
+    id
+  )
+  negate_set <- as.character(unlist(zs[["negate"]]))
+
+  lm_ops <- Filter(function(s) identical(s[["op"]], "linear_mean"), recipe)
+  by_out <- stats::setNames(
+    lm_ops,
+    vapply(lm_ops, function(s) s[["out"]], character(1))
+  )
+
+  lapply(order, function(raw_name) {
+    # a stack input with no linear_mean op leaves component_named() 0 hits
+    op <- by_out[[raw_name]]
+    comp <- component_named(entry[["components"]], op[["coef"]], id)
+    list(
+      name = raw_name,
+      coef = bundle_tensor(entry[["group_id"]], comp[["file"]]),
+      negate = raw_name %in% negate_set
+    )
+  })
+}
+
+# poly coef for DNAmPhysAge_years, or NULL
+physage_poly_coef <- function(id) {
+  step <- Filter(
+    function(s) identical(s[["op"]], "poly"),
+    clock_entry(id)[["recipe"]]
+  )
+  if (!length(step)) {
+    return(NULL)
+  }
+  as.numeric(unlist(step[[1]][["coef"]]))
 }

@@ -2,31 +2,36 @@
 
 check_mc_result <- function(x, arg = "x") {
   if (!inherits(x, "mc_result")) {
-    cli::cli_abort(
-      "{.arg {arg}} must be an {.cls mc_result} from {.fn calc_clocks}.",
-      call = NULL
+    stop(
+      sprintf("%s must be an mc_result from calc_clocks().", arg),
+      call. = FALSE
     )
   }
   invisible(x)
 }
 
-# a returned clock's per-sample miss vector from the (finished) matrix, or NULL
-# when it has no such panel column
-score_miss_vec <- function(x, id) {
-  m <- x[["coverage"]][["sample_miss"]][["score"]]
-  if (id %in% colnames(m)) m[, id] else NULL
-}
-norm_miss_vec <- function(x, id) {
-  m <- x[["coverage"]][["sample_miss"]][["norm"]]
-  if (!is.null(m) && id %in% colnames(m)) m[, id] else NULL
+# per-sample miss from the finished panel matrix. a missing column is a bug
+miss_vec <- function(x, id, panel = c("score", "norm")) {
+  panel <- match.arg(panel)
+  m <- x[["coverage"]][["sample_miss"]][[panel]]
+  if (is.null(m) || !(id %in% colnames(m))) {
+    stop(
+      sprintf(
+        paste0(
+          "%s has no %s-panel miss column. ",
+          "This is a package bug -- please report it."
+        ),
+        id,
+        panel
+      ),
+      call. = FALSE
+    )
+  }
+  m[, id]
 }
 
-# one row per clock computed (returned + routing targets). aliases have NA panels.
-#' @export
-clocks_coverage <- function(x) {
-  check_mc_result(x)
-  per_clock <- x[["coverage"]][["per_clock"]]
-  returned <- x[["provenance"]][["clocks"]]
+# one batch's rows (aliases have NA panels)
+batch_coverage <- function(per_clock, batch, returned) {
   ids <- names(per_clock)
 
   int_field <- function(nm) {
@@ -39,6 +44,8 @@ clocks_coverage <- function(x) {
 
   out <- data.frame(
     clock_id = ids,
+    # from the catalog, not the record -- a NULL record still has a group
+    group_id = unname(vapply(ids, clock_group_id, character(1L))),
     role = ifelse(ids %in% returned, "returned", "routing_target"),
     policy = unname(vapply(
       per_clock,
@@ -59,19 +66,39 @@ clocks_coverage <- function(x) {
     norm_needed = int_field("norm_needed"),
     norm_present = int_field("norm_present"),
     norm_imputed_partial = int_field("norm_imputed_partial"),
+    norm_imputed_full = int_field("norm_imputed_full"),
+    norm_dropped = int_field("norm_dropped"),
     stringsAsFactors = FALSE,
     row.names = NULL
   )
-  # absent-probe list stays a list-column so the full account survives
+  # absent-probe list stays a list-column
   out[["missing_cpgs"]] <- unname(lapply(
     per_clock,
     function(r) if (is.null(r)) character(0) else r[["missing_cpgs"]]
   ))
+  # batch last: a hash next to clock_id reads as noise, but it is still the join key
+  out[["batch"]] <- batch
+  out
+}
+
+# one row per (clock, batch). counts are only true of the batch that produced them
+#' @export
+clocks_coverage <- function(x) {
+  check_mc_result(x)
+  batches <- x[["coverage"]][["per_clock"]]
+  returned <- x[["provenance"]][["clocks"]]
+  out <- do.call(
+    rbind,
+    lapply(names(batches), function(b) {
+      batch_coverage(batches[[b]], b, returned)
+    })
+  )
+  rownames(out) <- NULL
   out
 }
 
 # one panel's per-sample rows for a non-alias returned clock
-panel_rows <- function(id, panel, ratio, sample_id) {
+panel_rows <- function(id, panel, batch, ratio, sample_id) {
   data.frame(
     id = sample_id,
     clock_id = id,
@@ -79,80 +106,57 @@ panel_rows <- function(id, panel, ratio, sample_id) {
     n_observed = as.integer(ratio[["n_observed"]]),
     n_needed = as.integer(ratio[["needed"]]),
     coverage = ratio[["cov"]],
+    # last, like clocks_coverage() -- the column the two frames join on
+    batch = batch,
     stringsAsFactors = FALSE,
     row.names = NULL
   )
 }
 
-# score-panel rows, plus a norm-panel row when the clock normalizes
-clock_sample_rows <- function(x, id, sample_id) {
-  rec <- x[["coverage"]][["per_clock"]][[id]]
-  sm <- score_miss_vec(x, id)
-  nm <- norm_miss_vec(x, id)
+# score-panel rows, plus a norm row when the clock normalizes
+clock_sample_rows <- function(x, id, rec, batch, rows) {
+  sample_id <- x[["provenance"]][["sample_id"]][rows]
 
-  rows <- list()
-  rows[["score"]] <- panel_rows(
+  out <- list()
+  out[["score"]] <- panel_rows(
     id,
     "score",
-    panel_ratio(rec[["score_present"]], sm, rec[["score_needed"]]),
+    batch,
+    panel_ratio(
+      rec[["score_present"]],
+      miss_vec(x, id, "score")[rows],
+      rec[["score_needed"]]
+    ),
     sample_id
   )
-  # norm panel (the gate) only when the clock normalizes
-  if (isTRUE(rec[["normalizes"]])) {
-    rows[["norm"]] <- panel_rows(
+  # norm panel only when the clock normalizes
+  if (rec[["normalizes"]]) {
+    out[["norm"]] <- panel_rows(
       id,
       "norm",
-      panel_ratio(rec[["norm_present"]], nm, rec[["norm_needed"]]),
+      batch,
+      panel_ratio(
+        rec[["norm_present"]],
+        miss_vec(x, id, "norm")[rows],
+        rec[["norm_needed"]]
+      ),
       sample_id
     )
   }
-  do.call(rbind, rows)
+  do.call(rbind, out)
 }
 
-# alias sample rows: denominators from the member that scored each row
-alias_sample_rows <- function(x, alias, sample_id) {
-  route <- clock_routing(alias)
-  pheno_id <- x[["provenance"]][["pheno_id"]]
-  female <- rep(NA_integer_, length(sample_id))
-  pheno <- x[["pheno"]]
-  if (!is.null(pheno) && "Female" %in% names(pheno)) {
-    idx <- match(sample_id, pheno[[pheno_id]])
-    female <- as.integer(pheno[["Female"]])[idx]
-  }
-  miss <- score_miss_vec(x, alias)
-
-  n_observed <- rep(NA_integer_, length(sample_id))
-  n_needed <- rep(NA_integer_, length(sample_id))
-  coverage <- rep(NA_real_, length(sample_id))
-
-  for (sx in c("female", "male")) {
-    member <- as.character(route[[sx]])
-    rec <- x[["coverage"]][["per_clock"]][[member]]
-    if (is.null(rec)) {
-      next
-    }
-    applies <- if (identical(sx, "female")) female == 1 else female == 0
-    applies[is.na(applies)] <- FALSE
-    if (!any(applies)) {
-      next
-    }
-    member_miss <- rep(NA_integer_, length(sample_id))
-    member_miss[applies] <- miss[applies]
-    rc <- row_coverage(rec, member_miss, NULL)
-    coverage[applies] <- rc[["cov"]][applies]
-    n_needed[applies] <- rc[["needed"]]
-    n_observed[applies] <- as.integer(rc[["n_observed"]][applies])
-  }
-
+# zero-row frame in samples_coverage() shape -- nothing to report is not an error
+empty_sample_rows <- function() {
   data.frame(
-    id = sample_id,
-    clock_id = alias,
-    panel = "score",
-    n_observed = n_observed,
-    n_needed = n_needed,
-    coverage = coverage,
-    stringsAsFactors = FALSE,
-    row.names = NULL
+    id = character(0),
+    clock_id = character(0),
+    panel = character(0),
+    n_observed = integer(0),
+    n_needed = integer(0),
+    coverage = numeric(0),
+    batch = character(0),
+    stringsAsFactors = FALSE
   )
 }
 
@@ -160,18 +164,27 @@ alias_sample_rows <- function(x, alias, sample_id) {
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)
-  sample_id <- x[["provenance"]][["sample_id"]]
-  returned <- x[["provenance"]][["clocks"]]
-  per_clock <- x[["coverage"]][["per_clock"]]
+  batch <- x[["provenance"]][["batch"]]
 
-  parts <- lapply(returned, function(id) {
-    if (is.null(per_clock[[id]])) {
-      alias_sample_rows(x, id, sample_id)
-    } else {
-      clock_sample_rows(x, id, sample_id)
-    }
-  })
-  out <- do.call(rbind, parts)
+  parts <- list()
+  for (b in names(x[["coverage"]][["per_clock"]])) {
+    per_clock <- x[["coverage"]][["per_clock"]][[b]]
+    rows <- batch == b
+    # no record means no cpgs of its own. read descendants for pure composites
+    ids <- covered_ids(per_clock)
+    parts <- c(
+      parts,
+      lapply(ids, function(id) {
+        clock_sample_rows(x, id, per_clock[[id]], b, rows)
+      })
+    )
+  }
+
+  # seed with the empty frame so a run of pure composites keeps the shape
+  out <- do.call(rbind, c(list(empty_sample_rows()), parts))
+
+  # drop na coverage rows (routed member on a sex it did not score)
+  out <- out[!is.na(out[["coverage"]]), , drop = FALSE]
   rownames(out) <- NULL
   out
 }

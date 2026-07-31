@@ -38,9 +38,9 @@ fake_pcclocks_pack <- function(cpgs, seed = 3L) {
   )
 }
 
-# SystemsAge full pack layout for the family orchestrator
+# systemsAge full pack layout for the family orchestrator
 fake_systemsage_pack <- function(cpgs, seed = 1L) {
-  order <- systemsage_stack_order("SystemsAge") # 12 labels, stack order
+  order <- unname(systemsage_stack_map("SystemsAge")) # 12 labels, stack order
   organs <- setdiff(order, "Age_prediction") # 11 organ labels
   ncpg <- length(cpgs)
   pcs <- paste0("PC", seq_len(12L))
@@ -112,12 +112,12 @@ sa_members <- mc_index$clock_id[mc_index$group_id == "SystemsAge"]
 
 test_that("calc_clocks() scores PCBrainAge end-to-end from an in-memory pack (closed set)", {
   DNAm <- random_betas(pcba_cpgs, n = 3L)
-  res <- calc_clocks(DNAm, "PCBrainAge", assets = pcba_pack)
+  res <- calc_clocks(DNAm, "PCBrainAge", ext_data = pcba_pack)
   expect_setequal(colnames(res$scores), "PCBrainAge")
   expect_equal(nrow(res$scores), 3L)
   expect_false(anyNA(res$scores))
 
-  expect_identical(res$coverage$per_clock$PCBrainAge$score_imputed_full, 0L)
+  expect_equal(res$coverage$per_clock[[1]]$PCBrainAge$score_imputed_full, 0L)
 })
 
 test_that("calc_clocks() vendor-fills absent external CpGs from the pack $impute vector", {
@@ -125,10 +125,10 @@ test_that("calc_clocks() vendor-fills absent external CpGs from the pack $impute
   present <- setdiff(pcba_cpgs, drop)
   DNAm <- random_betas(pcba_cpgs, n = 3L)[, present, drop = FALSE]
 
-  res <- calc_clocks(DNAm, "PCBrainAge", assets = pcba_pack)
+  res <- calc_clocks(DNAm, "PCBrainAge", ext_data = pcba_pack)
   expect_false(anyNA(res$scores))
 
-  expect_identical(res$coverage$per_clock$PCBrainAge$score_imputed_full, 5L)
+  expect_equal(res$coverage$per_clock[[1]]$PCBrainAge$score_imputed_full, 5L)
 })
 
 test_that("calc_clocks() on an external clock errors (closed set) when its pack is absent", {
@@ -140,7 +140,7 @@ test_that("calc_clocks() on an external clock errors (closed set) when its pack 
     coefficient_matrix = matrix(1, 1, dimnames = list(NULL, "PCADM")),
     impute = 0
   )
-  expect_error(calc_clocks(DNAm, "PCBrainAge", assets = wrong))
+  expect_error(calc_clocks(DNAm, "PCBrainAge", ext_data = wrong))
 })
 
 # PCClocks
@@ -152,7 +152,7 @@ test_that("calc_clocks('PCClocks') batches all members end-to-end (closed set)",
     Age = c(40, 55, 63, 71),
     Female = c(1L, 0L, 1L, 0L)
   )
-  res <- calc_clocks(DNAm, "PCClocks", pheno = pheno, assets = pcc_pack)
+  res <- calc_clocks(DNAm, "PCClocks", pheno = pheno, ext_data = pcc_pack)
   expect_setequal(colnames(res$scores), pcc_members)
   expect_equal(nrow(res$scores), 4L)
   expect_false(anyNA(res$scores))
@@ -170,9 +170,9 @@ test_that("requesting a subset of PCClocks returns only those columns (no expans
     DNAm,
     c("PCHorvath1", "PCADM"),
     pheno = pheno,
-    assets = pcc_pack
+    ext_data = pcc_pack
   )
-  full <- calc_clocks(DNAm, "PCClocks", pheno = pheno, assets = pcc_pack)
+  full <- calc_clocks(DNAm, "PCClocks", pheno = pheno, ext_data = pcc_pack)
 
   expect_setequal(colnames(sub$scores), c("PCHorvath1", "PCADM"))
 
@@ -182,11 +182,11 @@ test_that("requesting a subset of PCClocks returns only those columns (no expans
   )
 })
 
-# SystemsAge
+# systemsAge
 
 test_that("calc_clocks('SystemsAge') scores the whole group (13 cols) end-to-end (closed set)", {
   DNAm <- random_betas(sa_cpgs, n = 3L)
-  res <- calc_clocks(DNAm, "SystemsAge", assets = sa_pack)
+  res <- calc_clocks(DNAm, "SystemsAge", ext_data = sa_pack)
   expect_setequal(colnames(res$scores), sa_members)
   expect_equal(nrow(res$scores), 3L)
   expect_false(anyNA(res$scores))
@@ -197,42 +197,54 @@ test_that("calc_clocks() vendor-fills absent SystemsAge CpGs from the pack $impu
   present <- setdiff(sa_cpgs, drop)
   DNAm <- random_betas(sa_cpgs, n = 3L)[, present, drop = FALSE]
 
-  res <- calc_clocks(DNAm, "Age_prediction", assets = sa_pack)
+  res <- calc_clocks(DNAm, "Age_prediction", ext_data = sa_pack)
   expect_false(anyNA(res$scores))
-  cov <- res$coverage$per_clock$Age_prediction
-  expect_identical(cov$score_imputed_full, 4L)
+  cov <- res$coverage$per_clock[[1]]$Age_prediction
+  expect_equal(cov$score_imputed_full, 4L)
+})
+
+# stack labels are declared (default and columns override)
+
+test_that("a stack that declares no columns labels each column by its operand", {
+  for (id in c("GrimAgeV1", "GrimAgeV2", "DNAmPhysAge")) {
+    step <- stack_step(id)
+    expect_equal(stack_labels(step, id), stack_operands(step))
+  }
+})
+
+test_that("SystemsAge takes its stack labels from the declared columns", {
+  step <- stack_step("SystemsAge")
+  expect_equal(
+    stack_labels(step, "SystemsAge"),
+    as.character(unlist(step[["columns"]]))
+  )
+  # the labels are the group's member clocks, Age_prediction included
+  expect_setequal(
+    stack_labels(step, "SystemsAge"),
+    setdiff(sa_members, "SystemsAge")
+  )
+  # ...and each one pairs with the operand at its own position
+  map <- stack_label_map(step, "SystemsAge")
+  expect_equal(names(map), stack_operands(step))
+  expect_equal(unname(map[["ap_scaled"]]), "Age_prediction")
+})
+
+test_that("a columns list that does not cover every operand is a hard stop", {
+  step <- stack_step("SystemsAge")
+  step[["columns"]] <- step[["columns"]][1:3]
+  expect_error(stack_labels(step, "SystemsAge"))
 })
 
 # accessors over a pack (shares the pack builders above).
 
-test_that("external accessors read the named column and impute vector from the pack", {
-  packs <- list(PCClocks = pcc_pack)
-  expect_identical(
-    clock_coefs("PCADM", packs),
-    stats::setNames(pcc_pack$coefficient_matrix[, "PCADM"], pcc_cpgs)
-  )
-  expect_identical(
-    clock_impute_ref("PCADM", packs),
+test_that("external accessors read the impute vector from the pack", {
+  expect_equal(
+    clock_impute_ref("PCADM", list(PCClocks = pcc_pack)),
     stats::setNames(pcc_pack$impute, pcc_cpgs)
   )
 })
 
-test_that("external accessors error without the group's pack, or without its column", {
-  expect_error(clock_coefs("PCADM", NULL))
-  expect_error(clock_coefs("PCADM", list()))
+test_that("external accessors error without the group's pack", {
   expect_error(clock_impute_ref("PCADM", list()))
-
-  no_column <- pcc_pack
-  no_column$coefficient_matrix <- no_column$coefficient_matrix[,
-    setdiff(pcc_members, "PCADM"),
-    drop = FALSE
-  ]
-  expect_error(clock_coefs("PCADM", list(PCClocks = no_column)))
-})
-
-test_that("bundled clocks ignore `packs` and still resolve from mc_bundles", {
-  expect_identical(
-    clock_coefs("Hannum"),
-    clock_coefs("Hannum", list(PCClocks = pcc_pack))
-  )
+  expect_error(clock_impute_ref("PCADM", NULL))
 })

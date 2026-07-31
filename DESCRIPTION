@@ -16,10 +16,10 @@ Depends:
 Imports:
     checkmate,
     cli,
+    digest,
     fs,
-    matrixStats,
     qs2,
-    slideimp,
+    Rcpp,
     stats,
     tools,
     utils
@@ -27,12 +27,18 @@ Suggests:
     betanorm,
     DBI,
     duckdb,
+    DunedinPACE,
     testthat (>= 3.0.0),
     withr
 Remotes:
+    danbelsky/DunedinPACE,
     hhp94/betanorm
 biocViews:
 Config/testthat/edition: 3
 Encoding: UTF-8
 LazyData: true
 Config/roxygen2/version: 8.0.0
+Roxygen: list(markdown = TRUE)
+RoxygenNote: 8.0.0
+LinkingTo: 
+    Rcpp
