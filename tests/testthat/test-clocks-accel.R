@@ -1,4 +1,4 @@
-# finalizer output: as.data.frame(mc_result) and clocks_accel()
+# finalizer output: as.data.frame(mc_result) and calc_accel()
 
 # GrimAgeV1 requires Age + Female, so the record's pheno carries both.
 # Hannum requires neither, so the two exercise the same fit from either side
@@ -60,27 +60,36 @@ test_that("as.data.frame long and wide carry the same scores", {
 
 test_that("accel matches residuals(lm()) on the same samples", {
   fx <- accel_fixture()
-  acc <- clocks_accel(fx$res, long = FALSE)
+  acc <- calc_accel(fx$res, long = FALSE)
   scores <- as.matrix(fx$res)
 
   for (id in colnames(scores)) {
     d <- data.frame(y = scores[, id], Age = fx$pheno$Age)
-    expect_equal(acc[[id]], unname(residuals(lm(y ~ Age, data = d))))
+    expect_equal(
+      acc[[paste0(id, "_Age_accel")]],
+      unname(residuals(lm(y ~ Age, data = d)))
+    )
   }
 })
 
 test_that("formula sets the rhs and changes the answer", {
   fx <- accel_fixture()
-  one <- clocks_accel(fx$res, long = FALSE)
-  two <- clocks_accel(fx$res, ~ Age + Female, data = fx$pheno, long = FALSE)
+  one <- calc_accel(fx$res, long = FALSE)
+  two <- calc_accel(fx$res, ~ Age + Female, data = fx$pheno, long = FALSE)
 
   d <- data.frame(
     y = as.matrix(fx$res)[, "GrimAgeV1"],
     Age = fx$pheno$Age,
     Female = fx$pheno$Female
   )
-  expect_equal(two$GrimAgeV1, unname(residuals(lm(y ~ Age + Female, data = d))))
-  expect_false(isTRUE(all.equal(one$GrimAgeV1, two$GrimAgeV1)))
+  expect_equal(
+    two$GrimAgeV1_Age_Female_accel,
+    unname(residuals(lm(y ~ Age + Female, data = d)))
+  )
+  expect_false(isTRUE(all.equal(
+    one$GrimAgeV1_Age_accel,
+    two$GrimAgeV1_Age_Female_accel
+  )))
 })
 
 test_that("diff is the raw difference, and is stable under subsetting", {
@@ -91,19 +100,22 @@ test_that("diff is the raw difference, and is stable under subsetting", {
     pheno = fx$pheno[1:6, ]
   )
 
-  d_full <- clocks_accel(fx$res, type = "diff", long = FALSE)
-  d_half <- clocks_accel(half, type = "diff", long = FALSE)
+  d_full <- calc_accel(fx$res, type = "diff", long = FALSE)
+  d_half <- calc_accel(half, type = "diff", long = FALSE)
   expect_equal(
-    d_full$GrimAgeV1,
+    d_full$GrimAgeV1_diff,
     unname(as.matrix(fx$res)[, "GrimAgeV1"] - fx$pheno$Age)
   )
   # the per-sample property: dropping samples does not move a diff
-  expect_equal(d_half$GrimAgeV1, d_full$GrimAgeV1[1:6])
+  expect_equal(d_half$GrimAgeV1_diff, d_full$GrimAgeV1_diff[1:6])
 
   # accel is cohort-relative, so it does move
-  a_full <- clocks_accel(fx$res, long = FALSE)
-  a_half <- clocks_accel(half, long = FALSE)
-  expect_false(isTRUE(all.equal(a_half$GrimAgeV1, a_full$GrimAgeV1[1:6])))
+  a_full <- calc_accel(fx$res, long = FALSE)
+  a_half <- calc_accel(half, long = FALSE)
+  expect_false(isTRUE(all.equal(
+    a_half$GrimAgeV1_Age_accel,
+    a_full$GrimAgeV1_Age_accel[1:6]
+  )))
 })
 
 test_that("diff constrains the age slope where accel estimates it", {
@@ -112,19 +124,25 @@ test_that("diff constrains the age slope where accel estimates it", {
   # an rhs that spans Age absorbs the constraint: subtracting a column of the
   # design changes the coefficients, never the residuals
   expect_equal(
-    clocks_accel(fx$res, ~Age, type = "diff", long = FALSE)$GrimAgeV1,
-    clocks_accel(fx$res, ~Age, type = "accel", long = FALSE)$GrimAgeV1
+    calc_accel(fx$res, ~Age, type = "diff", long = FALSE)$GrimAgeV1_Age_diff,
+    calc_accel(fx$res, ~Age, type = "accel", long = FALSE)$GrimAgeV1_Age_accel
   )
 
   # an rhs that does not span Age keeps the two apart
-  a <- clocks_accel(fx$res, ~Female, type = "accel", long = FALSE)
-  b <- clocks_accel(fx$res, ~Female, type = "diff", long = FALSE)
-  expect_false(isTRUE(all.equal(a$GrimAgeV1, b$GrimAgeV1)))
+  a <- calc_accel(fx$res, ~Female, type = "accel", long = FALSE)
+  b <- calc_accel(fx$res, ~Female, type = "diff", long = FALSE)
+  expect_false(isTRUE(all.equal(
+    a$GrimAgeV1_Female_accel,
+    b$GrimAgeV1_Female_diff
+  )))
   d <- data.frame(
     y = as.matrix(fx$res)[, "GrimAgeV1"] - fx$pheno$Age,
     Female = fx$pheno$Female
   )
-  expect_equal(b$GrimAgeV1, unname(residuals(lm(y ~ Female, data = d))))
+  expect_equal(
+    b$GrimAgeV1_Female_diff,
+    unname(residuals(lm(y ~ Female, data = d)))
+  )
 })
 
 test_that("an NA covariate drops that sample from every clock's fit", {
@@ -134,14 +152,17 @@ test_that("an NA covariate drops that sample from every clock's fit", {
   expect_warning(res <- calc_clocks(fx$DNAm, ACCEL_CLOCKS, pheno = ph))
 
   # the pheno NA count is reported, not silent
-  expect_warning(acc <- clocks_accel(res, long = FALSE))
-  expect_true(all(is.na(acc$GrimAgeV1[c(2L, 5L)])))
-  expect_equal(sum(!is.na(acc$GrimAgeV1)), nrow(ph) - 2L)
+  expect_warning(acc <- calc_accel(res, long = FALSE))
+  expect_true(all(is.na(acc$GrimAgeV1_Age_accel[c(2L, 5L)])))
+  expect_equal(sum(!is.na(acc$GrimAgeV1_Age_accel)), nrow(ph) - 2L)
 
   # and the fit is over the surviving samples only
   keep <- !is.na(ph$Age)
   d <- data.frame(y = as.matrix(res)[, "GrimAgeV1"], Age = ph$Age)[keep, ]
-  expect_equal(acc$GrimAgeV1[keep], unname(residuals(lm(y ~ Age, data = d))))
+  expect_equal(
+    acc$GrimAgeV1_Age_accel[keep],
+    unname(residuals(lm(y ~ Age, data = d)))
+  )
 })
 
 test_that("the NA drop is scoped to the formula's variables", {
@@ -151,37 +172,40 @@ test_that("the NA drop is scoped to the formula's variables", {
   expect_warning(res <- calc_clocks(fx$DNAm, ACCEL_CLOCKS, pheno = ph))
 
   # Hannum needs no covariate, so every NA below comes from the pheno drop
-  expect_equal(sum(is.na(clocks_accel(res, ~Age, long = FALSE)$Hannum)), 0L)
-  expect_warning(both <- clocks_accel(res, ~ Age + Female, long = FALSE))
-  expect_equal(which(is.na(both$Hannum)), c(1L, 3L))
+  expect_equal(
+    sum(is.na(calc_accel(res, ~Age, long = FALSE)$Hannum_Age_accel)),
+    0L
+  )
+  expect_warning(both <- calc_accel(res, ~ Age + Female, long = FALSE))
+  expect_equal(which(is.na(both$Hannum_Age_Female_accel)), c(1L, 3L))
 })
 
 test_that("data adds a column but may never change one", {
   fx <- accel_fixture()
 
   # the modal workflow: the same Age back, plus the new column
-  expect_no_warning(clocks_accel(fx$res, ~ Age + Female, data = fx$pheno))
+  expect_no_warning(calc_accel(fx$res, ~ Age + Female, data = fx$pheno))
   # storage is not disagreement
   as_int <- fx$pheno
   as_int$Age <- round(as_int$Age)
   ok <- fx$pheno
   ok$Age <- as.integer(round(ok$Age))
   int_res <- calc_clocks(fx$DNAm, ACCEL_CLOCKS, pheno = as_int)
-  expect_no_warning(clocks_accel(int_res, ~ Age + Female, data = ok))
+  expect_no_warning(calc_accel(int_res, ~ Age + Female, data = ok))
 
   # a genuinely different Age is a different pheno, not a supplement
   bad <- fx$pheno
   bad$Age[[1L]] <- bad$Age[[1L]] + 5
-  expect_error(clocks_accel(fx$res, ~ Age + Female, data = bad))
+  expect_error(calc_accel(fx$res, ~ Age + Female, data = bad))
 
   # so is filling a gap the record was scored around
   gap <- fx$pheno
   gap$Age[[2L]] <- NA_real_
   expect_warning(res2 <- calc_clocks(fx$DNAm, ACCEL_CLOCKS, pheno = gap))
-  expect_error(clocks_accel(res2, ~Age, data = fx$pheno))
+  expect_error(calc_accel(res2, ~Age, data = fx$pheno))
 
-  expect_error(clocks_accel(fx$res, ~Age, data = rbind(fx$pheno, fx$pheno)))
-  expect_error(clocks_accel(
+  expect_error(calc_accel(fx$res, ~Age, data = rbind(fx$pheno, fx$pheno)))
+  expect_error(calc_accel(
     fx$res,
     ~Age,
     data = fx$pheno[, "Age", drop = FALSE]
@@ -195,21 +219,21 @@ test_that("a covariate the record does not carry errors, and data fixes it", {
   # Hannum requires no covariates, so the record kept the id column alone
   expect_equal(names(res$pheno), "ID")
 
-  expect_error(clocks_accel(res))
+  expect_error(calc_accel(res))
   # diff needs Age too, whatever the rhs says
-  expect_error(clocks_accel(res, type = "diff"))
+  expect_error(calc_accel(res, type = "diff"))
 
   ph <- data.frame(ID = rownames(DNAm), Age = stats::rnorm(n, 45, 8))
-  expect_no_error(clocks_accel(res, data = ph))
-  expect_error(clocks_accel(res, ~ Age + Smoking, data = ph))
+  expect_no_error(calc_accel(res, data = ph))
+  expect_error(calc_accel(res, ~ Age + Smoking, data = ph))
   # a two-sided formula is not an rhs
-  expect_error(clocks_accel(res, score ~ Age, data = ph))
+  expect_error(calc_accel(res, score ~ Age, data = ph))
 })
 
 test_that("too few samples to fit gives NA and one warning, not an error", {
   fx <- accel_fixture(n = 2L)
-  clocks <- colnames(as.matrix(fx$res))
-  expect_warning(acc <- clocks_accel(fx$res, long = FALSE))
+  clocks <- paste0(colnames(as.matrix(fx$res)), "_Age_accel")
+  expect_warning(acc <- calc_accel(fx$res, long = FALSE))
 
   # every column is present and every one of them is NA
   expect_equal(names(acc), c("ID", clocks))
@@ -236,15 +260,18 @@ test_that("clocks with different missingness patterns each fit their own rows", 
   expect_true(all(is.na(scores[c(2L, 7L), "DNAmFitAge"])))
   expect_false(anyNA(scores[, "Hannum"]))
 
-  acc <- clocks_accel(res, ~Age, long = FALSE)
+  acc <- calc_accel(res, ~Age, long = FALSE)
   d <- data.frame(y = scores[, "Hannum"], Age = ph$Age)
-  expect_equal(acc$Hannum, unname(residuals(lm(y ~ Age, data = d))))
+  expect_equal(acc$Hannum_Age_accel, unname(residuals(lm(y ~ Age, data = d))))
 
   # the short group fits over the 10 rows it scored, and stays NA elsewhere
   fit <- !is.na(scores[, "DNAmFitAge"])
   d2 <- data.frame(y = scores[, "DNAmFitAge"], Age = ph$Age)[fit, ]
-  expect_equal(acc$DNAmFitAge[fit], unname(residuals(lm(y ~ Age, data = d2))))
-  expect_true(all(is.na(acc$DNAmFitAge[!fit])))
+  expect_equal(
+    acc$DNAmFitAge_Age_accel[fit],
+    unname(residuals(lm(y ~ Age, data = d2)))
+  )
+  expect_true(all(is.na(acc$DNAmFitAge_Age_accel[!fit])))
 })
 
 test_that("data may differ in storage but not in type", {
@@ -253,15 +280,15 @@ test_that("data may differ in storage but not in type", {
   # integer against double is storage
   as_int <- fx$pheno
   as_int$Female <- as.integer(as_int$Female)
-  expect_no_error(clocks_accel(fx$res, ~ Age + Female, data = as_int))
+  expect_no_error(calc_accel(fx$res, ~ Age + Female, data = as_int))
 
   # character against double is not, and neither is factor against double
   chr <- fx$pheno
   chr$Age <- as.character(chr$Age)
-  expect_error(clocks_accel(fx$res, ~Age, data = chr))
+  expect_error(calc_accel(fx$res, ~Age, data = chr))
   fct <- fx$pheno
   fct$Female <- factor(fct$Female)
-  expect_error(clocks_accel(fx$res, ~ Age + Female, data = fct))
+  expect_error(calc_accel(fx$res, ~ Age + Female, data = fct))
 })
 
 test_that("a sample data has no row for is reported, not silently NA-filled", {
@@ -276,10 +303,10 @@ test_that("a sample data has no row for is reported, not silently NA-filled", {
     Age = stats::rnorm(n, 45, 8),
     stringsAsFactors = FALSE
   )
-  got <- warnings_of(clocks_accel(res, data = wrong, long = FALSE))
+  got <- warnings_of(calc_accel(res, data = wrong, long = FALSE))
   # pinned because three warnings fire here and only one is this behaviour
   expect_true(any(grepl("no row for", got$msgs)))
-  expect_true(all(is.na(got$value$Hannum)))
+  expect_true(all(is.na(got$value$Hannum_Age_accel)))
 
   # a complete data says nothing
   right <- data.frame(
@@ -287,7 +314,7 @@ test_that("a sample data has no row for is reported, not silently NA-filled", {
     Age = stats::rnorm(n, 45, 8),
     stringsAsFactors = FALSE
   )
-  expect_no_warning(clocks_accel(res, data = right))
+  expect_no_warning(calc_accel(res, data = right))
 })
 
 test_that("mc_batch_id is a formula variable and is reserved against data", {
@@ -307,22 +334,28 @@ test_that("mc_batch_id is a formula variable and is reserved against data", {
   )
 
   # the record's own label, without the caller rebuilding it from provenance
-  acc <- clocks_accel(both, ~ Age + mc_batch_id, data = ph, long = FALSE)
+  acc <- calc_accel(both, ~ Age + mc_batch_id, data = ph, long = FALSE)
   d <- data.frame(
     y = as.matrix(both)[, "Hannum"],
     Age = ph$Age,
     b = both$provenance$mc_batch_id
   )
-  expect_equal(acc$Hannum, unname(residuals(lm(y ~ Age + b, data = d))))
+  expect_equal(
+    acc$Hannum_Age_mc_batch_id_accel,
+    unname(residuals(lm(y ~ Age + b, data = d)))
+  )
 
   # and it is a real model term, not decoration
-  pooled <- clocks_accel(both, ~Age, data = ph, long = FALSE)
-  expect_false(isTRUE(all.equal(acc$Hannum, pooled$Hannum)))
+  pooled <- calc_accel(both, ~Age, data = ph, long = FALSE)
+  expect_false(isTRUE(all.equal(
+    acc$Hannum_Age_mc_batch_id_accel,
+    pooled$Hannum_Age_accel
+  )))
 
   # the name belongs to the record
   clash <- ph
   clash$mc_batch_id <- "mine"
-  expect_error(clocks_accel(both, ~Age, data = clash))
+  expect_error(calc_accel(both, ~Age, data = clash))
 })
 
 test_that("a cohort-mean fill across batches is reported, never injected", {
@@ -348,10 +381,10 @@ test_that("a cohort-mean fill across batches is reported, never injected", {
     calc_clocks(mk("A", 0.05), "Hannum"),
     calc_clocks(mk("B", 0.05), "Hannum")
   )
-  expect_message(clocks_accel(dirty, ~Age, data = ph(dirty)))
+  expect_message(calc_accel(dirty, ~Age, data = ph(dirty)))
   # naming it in the rhs is the fix, so the note stops
   expect_no_message(
-    clocks_accel(dirty, ~ Age + mc_batch_id, data = ph(dirty))
+    calc_accel(dirty, ~ Age + mc_batch_id, data = ph(dirty))
   )
 
   # nothing was filled -> the batches are numerically irrelevant, so stay quiet
@@ -359,11 +392,11 @@ test_that("a cohort-mean fill across batches is reported, never injected", {
     calc_clocks(mk("C", 0), "Hannum"),
     calc_clocks(mk("D", 0), "Hannum")
   )
-  expect_no_message(clocks_accel(clean, ~Age, data = ph(clean)))
+  expect_no_message(calc_accel(clean, ~Age, data = ph(clean)))
 
   # and a single-batch record never has anything to say
   one <- calc_clocks(mk("E", 0.05), "Hannum")
-  expect_no_message(clocks_accel(one, ~Age, data = ph(one)))
+  expect_no_message(calc_accel(one, ~Age, data = ph(one)))
 })
 
 test_that("both finalizers re-finalize a bound cross-sample clock", {
@@ -394,9 +427,12 @@ test_that("both finalizers re-finalize a bound cross-sample clock", {
     Age = stats::rnorm(2L * n, 45, 8),
     stringsAsFactors = FALSE
   )
-  expect_message(acc <- clocks_accel(both, ~Age, data = ph, long = FALSE))
+  expect_message(acc <- calc_accel(both, ~Age, data = ph, long = FALSE))
   d <- data.frame(y = done$scores[, "DNAmPhysAge"], Age = ph$Age)
-  expect_equal(acc$DNAmPhysAge, unname(residuals(lm(y ~ Age, data = d))))
+  expect_equal(
+    acc$DNAmPhysAge_Age_accel,
+    unname(residuals(lm(y ~ Age, data = d)))
+  )
 
   # a record with nothing pending says nothing
   expect_no_message(as.data.frame(r1))
@@ -404,13 +440,37 @@ test_that("both finalizers re-finalize a bound cross-sample clock", {
 
 test_that("accel long and wide agree, and long spans the full grid", {
   fx <- accel_fixture()
-  wide <- clocks_accel(fx$res, long = FALSE)
-  long <- clocks_accel(fx$res)
+  wide <- calc_accel(fx$res, long = FALSE)
+  long <- calc_accel(fx$res)
   clocks <- colnames(as.matrix(fx$res))
 
-  expect_equal(names(long), c("ID", "clock_id", "accel"))
+  # accel_id sits beside clock_id: the two together are what a pivot keys on
+  expect_equal(names(long), c("ID", "clock_id", "accel_id", "accel"))
   expect_equal(nrow(long), nrow(wide) * length(clocks))
-  expect_equal(long$accel, as.vector(as.matrix(wide[, clocks, drop = FALSE])))
+  # wide is that pivot -- one column per (clock_id, accel_id) pair
+  expect_equal(names(wide), c("ID", paste0(clocks, "_Age_accel")))
+  expect_equal(long$accel, as.vector(as.matrix(wide[, -1L, drop = FALSE])))
   # the value column is named accel for both types
-  expect_true("accel" %in% names(clocks_accel(fx$res, type = "diff")))
+  expect_true("accel" %in% names(calc_accel(fx$res, type = "diff")))
+})
+
+test_that("accel_id names the spec, so two calls stack without ambiguity", {
+  fx <- accel_fixture()
+
+  # one label per (type, formula), derived from the call and never assigned.
+  # term labels go in verbatim -- Age is the caller's column, not age
+  labels_of <- function(...) unique(calc_accel(fx$res, ...)$accel_id)
+  expect_equal(labels_of(), "Age_accel")
+  expect_equal(labels_of(~ Age + Female), "Age_Female_accel")
+  expect_equal(labels_of(~Female, type = "diff"), "Female_diff")
+  # no rhs at all, so the label is the type alone
+  expect_equal(labels_of(type = "diff"), "diff")
+
+  # which is what makes the long frames bind: one row per (sample, clock, spec)
+  both <- rbind(
+    calc_accel(fx$res, ~Age),
+    calc_accel(fx$res, type = "diff")
+  )
+  expect_equal(nrow(both), 2L * nrow(calc_accel(fx$res)))
+  expect_equal(anyDuplicated(both[, c("ID", "clock_id", "accel_id")]), 0L)
 })

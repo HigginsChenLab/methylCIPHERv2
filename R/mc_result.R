@@ -17,13 +17,21 @@ batch_labels <- function(x) {
   unique(x[["provenance"]][[MC_BATCH]])
 }
 
+# does the batch label carry anything? the one multi-batch test. a frame may
+# read it to decline building the column (shape_scores) or to drop it after the
+# fact (drop_single_batch) -- either way there is one statement of the rule
+is_multi_batch <- function(batch) {
+  length(unique(batch)) > 1L
+}
+
 # at one batch the label is a single repeated hash, so it says nothing and every
 # exit frame drops it. batch is provenance's per-sample vector at every call
 # site: the two coverage frames must never disagree about whether the key is there
 drop_single_batch <- function(df, batch) {
-  if (length(unique(batch)) > 1L) {
+  if (is_multi_batch(batch)) {
     return(df)
   }
+  # a no-op where the column was never built -- still the gate every exit runs
   df[[MC_BATCH]] <- NULL
   df
 }

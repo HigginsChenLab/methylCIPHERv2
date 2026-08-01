@@ -99,7 +99,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `$provenance` also carries the per-sample `mc_batch_id` (aligned to `sample_id`) and the retained
   `pending` intermediates that make an opt-in `refinalize_clocks()` exact.
   **Where a verb exists it is a method**, and the built surface today is exactly `print`,
-  `as.matrix`, `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `clocks_accel()`.
+  `as.matrix`, `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()`.
   Coverage is
   deliberately not a method: it is the plain `clocks_coverage()` / `samples_coverage()`, **not**
   `summary()`. `clocks_coverage()` is one row per **(clock, batch)**; `samples_coverage()` carries
@@ -108,17 +108,21 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   **And it reaches an exit frame only when the record spans more than one batch.** At one batch it
   is a single repeated hash: it carries no information, `clock_id` alone is already unique so the
   join still resolves, and prose docs are deferred so a user has nowhere to look up what it means.
-  All four exits (`as.data.frame`, `clocks_accel`, both coverage frames) share the **one** test in
-  `drop_single_batch()` (`R/mc_result.R`), keyed on `length(unique(provenance[[mc_batch_id]]))` --
+  All four exits (`as.data.frame`, `calc_accel`, both coverage frames) share the **one** test in
+  `is_multi_batch()` (`R/mc_result.R`), keyed on `length(unique(provenance[[mc_batch_id]]))` --
   the vector that fills the column, not `per_clock`'s names, so a frame can never be keyed on a
-  count other than its own contents. A conditional schema is a real cost and is accepted knowingly:
-  the four exits must appear and vanish **together** or the two coverage frames disagree about
-  whether the join key exists (DECISIONS 2026-07-31, "the batch label is multi-batch only").
+  count other than its own contents. **Every exit reads that test to decline building the column**
+  rather than building one it will lose; `drop_single_batch()` still runs at all four and is the
+  gate, now a no-op. The two forms produce `identical()` frames. The coverage frames thread the
+  decision down to `panel_rows()` / `batch_coverage()` because they assemble by `rbind` and cannot
+  add the column after the fact (DECISIONS 2026-08-01). A conditional schema is a real cost and is accepted
+  knowingly: the four exits must appear and vanish **together** or the two coverage frames disagree
+  about whether the join key exists (DECISIONS 2026-07-31, "the batch label is multi-batch only").
   Nothing internal is conditional -- `$provenance` always carries the per-sample vector, and
-  `clocks_accel()` always puts `mc_batch_id` in the formula namespace and always reserves it
+  `calc_accel()` always puts `mc_batch_id` in the formula namespace and always reserves it
   against `data =`.
   **The batch label is `mc_batch_id` everywhere the user can touch it** -- both coverage frames,
-  both finalizer frames, `$provenance`, and the `clocks_accel()` formula namespace. One string,
+  both finalizer frames, `$provenance`, and the `calc_accel()` formula namespace. One string,
   and `mc_`-prefixed on purpose: a user's `batch` is their slides or plates, which is biology and
   is a covariate they may legitimately want in a model, while ours only says which samples shared
   a cohort-mean fill. A bare `batch` would both shadow theirs in a formula and collide on a join
@@ -132,7 +136,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   it composes in any order and a second call is a no-op; never clear `pending` after re-finalizing
   (`dev/id-streaming-plan.md` sec 8.4).
   **`rbind` is the only verb that leaves `pending` unresolved. Every finalizer resolves it.**
-  `as.data.frame()` and `clocks_accel()` both re-finalize on the way out and say so, under
+  `as.data.frame()` and `calc_accel()` both re-finalize on the way out and say so, under
   `say_pending()`'s exact guard -- non-empty `pending` **and** more than one batch. `rbind` must
   not, because `do.call(rbind, ...)` recurses and would re-finalize at every intermediate step; a
   finalizer is a leaf and hands back a frame the record cannot be recovered from, so it must hand
@@ -595,11 +599,13 @@ Rules that still apply on the keep set:
 
 ## Source-of-truth docs (`dev/`)
 
-The `dev/` folder is local-only **except** these two, which are tracked:
+The `dev/` folder is local-only **except** these three, which are tracked:
 
-- `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals. Add an
-  entry when a decision reverses a prior approach or is likely second-guessed; do not restate rules
-  already stated here.
+- `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals
+  (2026-07-30 and later). Add an entry when a decision reverses a prior approach or is likely
+  second-guessed; do not restate rules already stated here.
+- `dev/DECISIONS.old.md` -- full pre-2026-07-30 decision history. Dated citations earlier than
+  that cut resolve here; do not restate that archive in the live log.
 - `dev/id-streaming-plan.md` -- the one live design doc: chunking, binding, `prep()`. It covers
   work that is **not built yet**; everything already shipped is specified by this file's invariants
   and by the code.
@@ -613,8 +619,9 @@ operand namespaces, the panel rule) is **not** restated in a `dev/` doc -- `data
 self-documenting and is the only source for it. Read `sync.R` itself before touching `sync.R`.
 
 The plan states **current truth only** -- superseded design is not annotated inline; its history
-lives solely in `dev/DECISIONS.md`. When code and the plan disagree, the code is truth: fix the plan
-and record the reconciliation in `dev/DECISIONS.md`.
+lives in `dev/DECISIONS.md` (and `dev/DECISIONS.old.md` for the pre-cut archive). When code and
+the plan disagree, the code is truth: fix the plan and record the reconciliation in
+`dev/DECISIONS.md`.
 
 Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratch.R`,
 `dev/clock_tracker.csv`, and the `dev/*.py` build scripts.

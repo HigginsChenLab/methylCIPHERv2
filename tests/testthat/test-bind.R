@@ -279,7 +279,7 @@ test_that("the batch label reaches an exit frame only when there is more than on
   fx <- bind_records()
   one <- fx$records[[1]]
   many <- do.call(rbind, fx$records)
-  # clocks_accel shares shape_scores with as.data.frame, so these are the exits
+  # calc_accel shares shape_scores with as.data.frame, so these are the exits
   exits <- function(x) {
     list(
       as.data.frame(x),
