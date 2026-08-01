@@ -30,7 +30,8 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
   m[, id]
 }
 
-# one batch's rows (aliases have NA panels)
+# one batch's rows (aliases have NA panels). batch is NULL where the label would
+# not survive the exit, so the column is never built
 batch_coverage <- function(per_clock, batch, returned) {
   ids <- names(per_clock)
 
@@ -77,7 +78,9 @@ batch_coverage <- function(per_clock, batch, returned) {
     function(r) if (is.null(r)) character(0) else r[["missing_cpgs"]]
   ))
   # batch last: a hash next to clock_id reads as noise, but it is the join key
-  out[[MC_BATCH]] <- batch
+  if (!is.null(batch)) {
+    out[[MC_BATCH]] <- batch
+  }
   out
 }
 
@@ -87,31 +90,39 @@ clocks_coverage <- function(x) {
   check_mc_result(x)
   batches <- x[["coverage"]][["per_clock"]]
   returned <- x[["provenance"]][["clocks"]]
+  batch <- x[["provenance"]][[MC_BATCH]]
+  # keyed on provenance's per-sample vector, never on per_clock's names, so the
+  # frame cannot be keyed on a count other than its own contents
+  keep <- is_multi_batch(batch)
   out <- do.call(
     rbind,
     lapply(names(batches), function(b) {
-      batch_coverage(batches[[b]], b, returned)
+      batch_coverage(batches[[b]], if (keep) b else NULL, returned)
     })
   )
   rownames(out) <- NULL
-  drop_single_batch(out, x[["provenance"]][[MC_BATCH]])
+  drop_single_batch(out, batch)
 }
 
 # one panel's per-sample rows for a non-alias returned clock
 panel_rows <- function(id, panel, batch, ratio, sample_id) {
-  data.frame(
+  out <- data.frame(
     id = sample_id,
     clock_id = id,
     panel = panel,
     n_observed = as.integer(ratio[["n_observed"]]),
     n_needed = as.integer(ratio[["needed"]]),
     coverage = ratio[["cov"]],
-    # last, like clocks_coverage() -- the column the two frames join on.
-    # dropped for both frames at once when the record has a single batch
-    mc_batch_id = batch,
     stringsAsFactors = FALSE,
     row.names = NULL
   )
+  # last, like clocks_coverage() -- the column the two frames join on.
+  # dropped for both frames at once when the record has a single batch, so a
+  # NULL batch here is that record and the column is never built
+  if (!is.null(batch)) {
+    out[[MC_BATCH]] <- batch
+  }
+  out
 }
 
 # score-panel rows, plus a norm row when the clock normalizes
@@ -147,18 +158,23 @@ clock_sample_rows <- function(x, id, rec, batch, rows) {
   do.call(rbind, out)
 }
 
-# zero-row frame in samples_coverage() shape -- nothing to report is not an error
-empty_sample_rows <- function() {
-  data.frame(
+# zero-row frame in samples_coverage() shape -- nothing to report is not an error.
+# it seeds the rbind, so it carries the batch column on the same test the parts
+# do. a flag, not a label: at zero rows there is no value to carry
+empty_sample_rows <- function(keep_batch) {
+  out <- data.frame(
     id = character(0),
     clock_id = character(0),
     panel = character(0),
     n_observed = integer(0),
     n_needed = integer(0),
     coverage = numeric(0),
-    mc_batch_id = character(0),
     stringsAsFactors = FALSE
   )
+  if (keep_batch) {
+    out[[MC_BATCH]] <- character(0)
+  }
+  out
 }
 
 # one row per (sample, returned clock, panel)
@@ -166,6 +182,9 @@ empty_sample_rows <- function() {
 samples_coverage <- function(x) {
   check_mc_result(x)
   batch <- x[["provenance"]][[MC_BATCH]]
+  # this frame is one row per (sample, clock, panel), so a doomed batch column
+  # costs a full height. b still masks the rows -- only the label is withheld
+  keep <- is_multi_batch(batch)
 
   parts <- list()
   for (b in names(x[["coverage"]][["per_clock"]])) {
@@ -176,13 +195,13 @@ samples_coverage <- function(x) {
     parts <- c(
       parts,
       lapply(ids, function(id) {
-        clock_sample_rows(x, id, per_clock[[id]], b, rows)
+        clock_sample_rows(x, id, per_clock[[id]], if (keep) b else NULL, rows)
       })
     )
   }
 
   # seed with the empty frame so a run of pure composites keeps the shape
-  out <- do.call(rbind, c(list(empty_sample_rows()), parts))
+  out <- do.call(rbind, c(list(empty_sample_rows(keep)), parts))
 
   # drop na coverage rows (routed member on a sex it did not score)
   out <- out[!is.na(out[["coverage"]]), , drop = FALSE]
