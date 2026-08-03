@@ -207,16 +207,14 @@ resolve_normalize <- function(normalize, clock_sequence) {
 
     if (is.null(nm)) {
       if (length(normalize) != 1L) {
-        stop(
-          sprintf(
-            paste0(
-              "normalize must be one TRUE/FALSE or a named logical vector, ",
-              "got %d unnamed values. Name them by clock id, e.g. ",
-              "normalize = c(Horvath1 = TRUE)."
-            ),
-            length(normalize)
+        cli::cli_abort(
+          c(
+            "{.arg normalize} must be one {.code TRUE} or {.code FALSE}, or a
+             named logical vector. It has {length(normalize)} unnamed values.",
+            "i" = "Name them by clock id, for example
+                   {.code normalize = c(Horvath1 = TRUE)}."
           ),
-          call. = FALSE
+          call = NULL
         )
       }
       # bare policy applies where the clock can honor it
@@ -226,49 +224,41 @@ resolve_normalize <- function(normalize, clock_sequence) {
     } else {
       unknown <- setdiff(nm, clock_sequence)
       if (length(unknown)) {
-        stop(
-          sprintf(
-            paste0(
-              "normalize names clock(s) %s that are not being scored. ",
-              "Name only clocks reached by clocks."
-            ),
-            paste(unknown, collapse = ", ")
+        cli::cli_abort(
+          c(
+            "{.arg normalize} names {length(unknown)} clock{?s} that {?is/are}
+             not being scored: {.val {capped_vals(unknown)}}.",
+            "i" = "Name only a clock that {.arg clocks} reaches."
           ),
-          call. = FALSE
+          call = NULL
         )
       }
       # unknown scheme is an error, declining an undeclared one is redundant
       unusable <- nm[normalize & !(schemes[nm] %in% NORM_SCHEMES)]
       if (length(unusable)) {
         declared <- unique(unname(schemes[unusable]))
-        stop(
-          sprintf(
-            paste0(
-              "Cannot normalize %s: declare(s) %s. ",
-              "Only %s are expressible as a declared panel plus a ",
-              "vendored target."
-            ),
-            paste(unusable, collapse = ", "),
-            paste(declared, collapse = ", "),
-            paste(NORM_SCHEMES, collapse = ", ")
+        cli::cli_abort(
+          c(
+            "Cannot normalize {.val {capped_vals(unusable)}}.",
+            "i" = "{cli::qty(declared)}The declared scheme{?s} {?is/are}
+                   {.val {declared}}. Only {.val {NORM_SCHEMES}} are
+                   expressible as a declared panel plus a vendored target."
           ),
-          call. = FALSE
+          call = NULL
         )
       }
       fixed <- nm[!normalize & schemes[nm] %in% NORM_CONSTITUTIVE]
       if (length(fixed)) {
         declared <- unique(unname(schemes[fixed]))
-        stop(
-          sprintf(
-            paste0(
-              "Cannot decline normalization for %s. ",
-              "Its/their %s normalization is part of the clock definition, ",
-              "not preprocessing."
-            ),
-            paste(fixed, collapse = ", "),
-            paste(declared, collapse = ", ")
+        cli::cli_abort(
+          c(
+            "Cannot decline normalization for
+             {.val {capped_vals(fixed)}}.",
+            "i" = "{cli::qty(fixed)}{?Its/Their} {.val {declared}}
+                   normalization is part of the clock definition, not
+                   preprocessing."
           ),
-          call. = FALSE
+          call = NULL
         )
       }
       out[nm] <- normalize

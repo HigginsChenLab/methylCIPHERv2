@@ -79,11 +79,10 @@ new_mc_citation <- function(ids) {
     stop(
       sprintf(
         paste0(
-          "%d bib key(s) missing from the vendored bibliography: %s. ",
+          "Bib key(s) missing from the vendored bibliography: %s. ",
           "The catalog and clocks.bib are out of step -- please report it."
         ),
-        length(absent),
-        paste(absent, collapse = ", ")
+        capped(absent)
       ),
       call. = FALSE
     )
@@ -109,7 +108,7 @@ citation_links <- function(ids) {
       stop(
         sprintf(
           paste0(
-            "%s has no citation on record. ",
+            "No citation on record for %s. ",
             "The catalog is out of step with its bibliography -- please ",
             "report it."
           ),
