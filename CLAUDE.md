@@ -133,8 +133,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   -- but a multi-batch bind carrying a non-empty `pending` **says so once** (`say_pending()`,
   an `inform` not a `warn`), naming the columns from `names(pending)`, which is the catalog's
   declared `cross_sample` set. `refinalize_clocks()` **reads `pending` and never consumes it**, so
-  it composes in any order and a second call is a no-op; never clear `pending` after re-finalizing
-  (`dev/id-streaming-plan.md` sec 8.4).
+  it composes in any order and a second call is a no-op; never clear `pending` after re-finalizing.
   **`rbind` is the only verb that leaves `pending` unresolved. Every finalizer resolves it.**
   `as.data.frame()` and `calc_accel()` both re-finalize on the way out and say so, under
   `say_pending()`'s exact guard -- non-empty `pending` **and** more than one batch. `rbind` must
@@ -603,29 +602,26 @@ Rules that still apply on the keep set:
 
 ## Source-of-truth docs (`dev/`)
 
-The `dev/` folder is local-only **except** these three, which are tracked:
+The `dev/` folder is local-only **except** these two, which are tracked:
 
 - `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals
   (2026-07-30 and later). Add an entry when a decision reverses a prior approach or is likely
   second-guessed; do not restate rules already stated here.
 - `dev/DECISIONS.old.md` -- full pre-2026-07-30 decision history. Dated citations earlier than
   that cut resolve here; do not restate that archive in the live log.
-- `dev/id-streaming-plan.md` -- the one live design doc: chunking, binding, `prep()`. It covers
-  work that is **not built yet**; everything already shipped is specified by this file's invariants
-  and by the code.
 
-`migration-plan.md` and `detail-plan.md` were retired on 2026-07-28 (DECISIONS). **Do not
-reconstitute them.** Built behavior is specified by the invariants above plus the code; a separate
-long-form spec of shipped behavior is a copy that rots. `sec N` citations in older DECISIONS
-entries point at those retired files -- read them out of git history, not as live references.
-What upstream declares (coef-path rule, declared-path set, tensor `row_key`/`col_key`, recipe
-operand namespaces, the panel rule) is **not** restated in a `dev/` doc -- `data-raw/sync.R` is
-self-documenting and is the only source for it. Read `sync.R` itself before touching `sync.R`.
+**There is no live design doc, and that is deliberate.** `migration-plan.md` and `detail-plan.md`
+were retired on 2026-07-28, and `id-streaming-plan.md` -- which held the chunking / binding /
+`prep()` design -- was deleted on 2026-08-02 once its shipped half was covered by the invariants
+above. **Do not reconstitute any of them.** Built behavior is specified by the invariants plus the
+code; a separate long-form spec of shipped behavior is a copy that rots. `sec N` citations in older
+DECISIONS entries point at those retired files -- read them out of git history, not as live
+references. What upstream declares (coef-path rule, declared-path set, tensor `row_key`/`col_key`,
+recipe operand namespaces, the panel rule) is **not** restated in a `dev/` doc -- `data-raw/sync.R`
+is self-documenting and is the only source for it. Read `sync.R` itself before touching `sync.R`.
 
-The plan states **current truth only** -- superseded design is not annotated inline; its history
-lives in `dev/DECISIONS.md` (and `dev/DECISIONS.old.md` for the pre-cut archive). When code and
-the plan disagree, the code is truth: fix the plan and record the reconciliation in
-`dev/DECISIONS.md`.
+So **the code is truth**, with no plan to reconcile it against. Unbuilt design lives in a
+`dev/DECISIONS.md` entry stating the decision, or it is not written down yet.
 
 Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratch.R`,
 `dev/clock_tracker.csv`, and the `dev/*.py` build scripts.
