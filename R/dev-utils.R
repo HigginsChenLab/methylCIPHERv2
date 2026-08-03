@@ -10,7 +10,7 @@ test_parity <- function(filter = "fixtures-parity", ...) {
 WRITE_SIM_EXTS <- c(".csv.gz", ".h5")
 
 # write an n x p u(0,1) cohort for chunked-front-end benchmarks (format from path).
-# not an s3 method (this file is build-ignored)
+# not an s3 method (this file is build-ignored).
 write_sim_DNAm <- function(
   n,
   p,
@@ -41,7 +41,7 @@ write_sim_DNAm <- function(
   cpg_id <- sprintf("cg%08d", seq_len(n))
   sample_id <- paste0("sample", seq_len(p))
 
-  # canonical cpgs x samples. the doubles keep `n * p` off integer overflow
+  # canonical cpgs x samples. doubles keep `n * p` off integer overflow.
   mat <- matrix(
     stats::runif(as.numeric(n) * as.numeric(p)),
     nrow = n,
@@ -65,7 +65,7 @@ write_sim_DNAm <- function(
     ext,
     ".csv.gz" = {
       require_dev_ns("data.table")
-      # as.data.table(keep.rownames=) is one copy. cbind(as.data.frame()) is two
+      # as.data.table(keep.rownames=) is one copy.
       data.table::fwrite(
         data.table::as.data.table(mat, keep.rownames = id_col),
         path
@@ -86,7 +86,7 @@ write_sim_DNAm <- function(
   c(DNAm = path, pheno = pheno_path)
 }
 
-# hdf5r overloads `[[`, and `$` is banned in r/. take the r6 binding off the environment
+# hdf5r overloads `[[`. take the r6 binding off the environment.
 h5_member <- function(obj, name) {
   get(name, envir = obj)
 }

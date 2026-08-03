@@ -68,7 +68,7 @@ expected_scores <- function(id, cohort) {
 # both max_abs and max_rel must clear. only abs tol varies by block (units).
 PARITY_REL_TOL <- 1e-10
 
-# packs: abs tol 1e-6 (scale ~3e6). see DECISIONS 2026-07-25
+# packs: abs tol 1e-6 (scale ~3e6).
 PARITY_ABS_TOL <- c(core = 1e-10, fitage = 1e-10, packs = 1e-6, horvath = 1e-10)
 
 # horvath-online oracle clocks (declared, not listed)
@@ -190,10 +190,20 @@ skip_if_no_cohort <- function(cohort) {
   )
 }
 
-# known gaps (clock- or clock@cohort-keyed). empty today.
-KNOWN_PARITY_GAPS <- character(0)
+# wang@cohort_450K: no sex-chromosome probes, empty panel would score as Female.
+# skip. epicv1 passes.
+WANG_450K_GAP <- paste0(
+  "cohort_450K has no sex-chromosome probes, so the panel is 0% present. ",
+  "The fixture expects the oracle's empty-panel 0; we decline to score."
+)
 
-# horvath block skipped: oracle filled absent probes server-side (DECISIONS 2026-07-25)
+# known gaps (clock- or clock@cohort-keyed).
+KNOWN_PARITY_GAPS <- c(
+  "DNAmSex_Wang_ChrX@cohort_450K" = WANG_450K_GAP,
+  "DNAmSex_Wang_ChrY@cohort_450K" = WANG_450K_GAP
+)
+
+# horvath block skipped: oracle filled absent probes server-side.
 HORVATH_ONLINE_GAP <- paste0(
   "horvath_online oracle -- server-side fill of absent probes is unpublished. ",
   "Pairs with no absent probes already match to ~1e-8"
@@ -258,8 +268,8 @@ run_parity_target <- function(clock_id, cohort) {
   DNAm <- if (any(vapply(seq_ids, needs_full_panel, logical(1)))) {
     cohort_betas_full(cohort_cons[[cohort]])
   } else {
-    cpgs <- panels_union(clock_panels(seq_ids, packs))
-    cohort_betas(cohort_cons[[cohort]], cpgs)
+    # same union as clock_cpgs() (panels alone would drop moment refs).
+    cohort_betas(cohort_cons[[cohort]], sequence_cpgs(seq_ids, packs))
   }
   # parity gates numbers, not coverage policy
   res <- calc_clocks(

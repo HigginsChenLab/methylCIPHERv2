@@ -1,5 +1,4 @@
-# value gates: overflow stops, Inf and out-of-[0,1] warn (via calc_clocks
-# where possible)
+# value gates: overflow stops, Inf and out-of-[0,1] warn.
 
 gate_betas <- function(n = 8L) {
   spec <- mc_spec("Hannum")
@@ -53,8 +52,7 @@ test_that("an Inf and an NA in the same cell score identically", {
 })
 
 test_that("an off-panel Inf is missing to the moments, like any other Inf", {
-  # Zhang2019EN z-scores over the whole matrix, so an off-panel column moves
-  # the score without the column half of the sweep indexing it
+  # zhang2019EN z-scores over the whole matrix.
   DNAm <- cbind(
     sim_DNAm("Zhang2019EN", n = 4L)$DNAm,
     random_betas("cg_offpanel_1", n = 4L)
@@ -158,7 +156,7 @@ test_that("ordinary betas pass both gates in silence", {
   b <- gate_betas()
   expect_no_warning(calc_clocks(b$DNAm, "Hannum"))
 
-  # NAs are missing, not bad: they fill and say nothing about range
+  # nas are missing, not bad: they fill and say nothing about range
   with_na <- b$DNAm
   with_na[1:3, b$panel[1]] <- NA
   expect_no_warning(filled <- calc_clocks(with_na, "Hannum"))
@@ -371,8 +369,75 @@ test_that("an empty cols scans nothing and observes nothing", {
   expect_null(scan$overflow_col)
 })
 
-# row_moments: complement pass has its own accumulator, so row_obs means the
-# same thing under the flag as without it
+# moment_sets is validated in R before the kernel.
+
+test_that("check_moment_sets passes NULL and normalizes what it keeps", {
+  expect_null(check_moment_sets(NULL, 40L))
+  expect_equal(check_moment_sets(list(a = c(1, 2, 3)), 40L)[["a"]], 1:3)
+  expect_equal(names(check_moment_sets(list(a = 1L, b = 2L), 40L)), c("a", "b"))
+  # a ref meeting no measured column is a data fact, not a usage error
+  expect_equal(check_moment_sets(list(a = integer(0)), 40L)[["a"]], integer(0))
+})
+
+test_that("check_moment_sets rejects what would be fatal in the kernel", {
+  expect_error(check_moment_sets(list(a = NULL), 40L))
+  expect_error(check_moment_sets(list(a = "x"), 40L))
+  expect_error(check_moment_sets(list(), 40L))
+  expect_error(
+    check_moment_sets(
+      lapply(seq_len(MAX_MOMENT_SETS + 1L), function(i) 1L),
+      40L
+    )
+  )
+  expect_error(check_moment_sets(list(a = 0L), 40L))
+  expect_error(check_moment_sets(list(a = 41L), 40L))
+  expect_error(check_moment_sets(list(a = NA_integer_), 40L))
+})
+
+test_that("validated sets are what the kernel accepts", {
+  b <- gate_betas(n = 5L)
+  sets <- check_moment_sets(list(a = c(1, 2, 3)), ncol(b$DNAm))
+  expect_no_error(col_stats(b$DNAm, NULL, sets))
+})
+
+test_that("R and the kernel agree on the mask width", {
+  b <- gate_betas(n = 3L)
+  one <- lapply(seq_len(MAX_MOMENT_SETS), function(i) i)
+  expect_no_error(col_stats(b$DNAm, NULL, one))
+  # one past the width is a stop, not a silently truncated mask
+  expect_error(col_stats(b$DNAm, NULL, c(one, list(1L))))
+})
+
+# mask width is a ceiling on domains. catalog must fit inside it.
+test_that("every catalog clock's domains fit one sweep", {
+  ids <- names(mc_catalog)
+  # census keys only (resolving every ref tensor is unnecessary).
+  keys <- vapply(ids, function(id) clock_moment_key(id) %||% NA_character_, "")
+  expect_lte(length(unique(stats::na.omit(keys))), MAX_MOMENT_SETS)
+})
+
+# moment domains: each set carries its own counter.
+
+# per-row golden over a column subset, finite entries only
+domain_golden <- function(DNAm, cols, f) {
+  sub <- DNAm[, cols, drop = FALSE]
+  unname(apply(sub, 1, function(v) f(v[is.finite(v)])))
+}
+
+# obs/mean/sd triple one set's kernel outputs must match.
+expect_domain_moments <- function(got, DNAm, cols, nm) {
+  expect_equal(
+    got$row_moment_obs[, nm],
+    as.integer(rowSums(is.finite(DNAm[, cols, drop = FALSE]))),
+    info = nm
+  )
+  expect_equal(got$row_mean[, nm], domain_golden(DNAm, cols, mean), info = nm)
+  expect_equal(
+    sqrt(got$row_m2[, nm] / (got$row_moment_obs[, nm] - 1)),
+    domain_golden(DNAm, cols, stats::sd),
+    info = nm
+  )
+}
 
 test_that("row_obs stays the subset's count when moments widen the sweep", {
   b <- gate_betas(n = 6L)
@@ -381,61 +446,202 @@ test_that("row_obs stays the subset's count when moments widen the sweep", {
   off <- setdiff(colnames(DNAm), sel)
   DNAm[2, sel] <- NA
   DNAm[3:4, off[1]] <- NA
+  sidx <- match(sel, colnames(DNAm))
 
-  mom <- col_stats(DNAm, match(sel, colnames(DNAm)), row_moments = TRUE)
-  flat <- col_stats(DNAm, match(sel, colnames(DNAm)))
+  mom <- col_stats(DNAm, sidx, list(all = seq_len(ncol(DNAm))))
+  flat <- col_stats(DNAm, sidx)
 
-  # the flag no longer changes what row_obs counts
+  # moments no longer change what row_obs counts
   expect_equal(mom$row_obs, flat$row_obs)
   expect_equal(mom$row_obs, c(4L, 0L, 4L, 4L, 4L, 4L))
-  # ... and the off-panel observations land in their own counter
+  # the moment counter spans the domain, here the whole matrix
   expect_equal(
-    mom$row_obs_complement,
-    as.integer(rowSums(is.finite(DNAm[, off, drop = FALSE])))
-  )
-  # the two together are the full width, which is what the moments span
-  expect_equal(
-    mom$row_obs + mom$row_obs_complement,
+    mom$row_moment_obs[, "all"],
     as.integer(rowSums(is.finite(DNAm)))
   )
   # the column half is still the subset's alone
   expect_equal(mom$stats, flat$stats)
 })
 
-test_that("the complement counter follows the other moment outputs", {
+test_that("the moment outputs are nr x K, named by their sets", {
   b <- gate_betas(n = 5L)
   sel <- match(b$panel[1:3], colnames(b$DNAm))
+  sets <- list(a = 1:4, b = 5:9)
 
-  # absent without moments, like row_mean and row_m2
-  expect_null(col_stats(b$DNAm, sel)$row_obs_complement)
-  # present but zero when subset is the whole matrix -- no complement to sweep,
-  # so zero is the count, not a missing value
-  expect_equal(
-    col_stats(b$DNAm, NULL, row_moments = TRUE)$row_obs_complement,
-    integer(5)
-  )
-  # and the overflow bail nulls it out with the rest
+  # absent without sets, like row_mean and row_m2
+  expect_null(col_stats(b$DNAm, sel)$row_moment_obs)
+
+  got <- col_stats(b$DNAm, sel, sets)
+  for (nm in c("row_moment_obs", "row_mean", "row_m2")) {
+    expect_equal(dim(got[[nm]]), c(5L, 2L), info = nm)
+    expect_equal(colnames(got[[nm]]), c("a", "b"), info = nm)
+  }
+
+  # and the overflow bail nulls them out with the rest
   DNAm <- b$DNAm
   DNAm[, b$panel[2]] <- 1e308
-  scan <- col_stats(DNAm, sel, row_moments = TRUE)
+  scan <- col_stats(DNAm, sel, sets)
   expect_equal(scan$overflow_col, 2L)
-  expect_null(scan$row_obs_complement)
+  expect_null(scan$row_moment_obs)
 })
 
-test_that("per-sample moments are taken over every column, NAs excluded", {
+test_that("a set confines the moments to its own columns", {
+  b <- gate_betas(n = 6L)
+  DNAm <- b$DNAm
+  ref <- b$panel[1:10]
+  sel <- b$panel[5:14]
+  DNAm[1, ref[1]] <- NA
+  DNAm[2, setdiff(colnames(DNAm), ref)[1]] <- NA
+  sidx <- match(sel, colnames(DNAm))
+
+  got <- col_stats(DNAm, sidx, list(ref = match(ref, colnames(DNAm))))
+
+  expect_domain_moments(got, DNAm, ref, "ref")
+  # the stats half does not move with the moment domain
+  flat <- col_stats(DNAm, sidx)
+  expect_equal(got$stats, flat$stats)
+  expect_equal(got$row_obs, flat$row_obs)
+})
+
+test_that("a moment column is counted once however the passes split it", {
+  b <- gate_betas(n = 5L)
+  DNAm <- b$DNAm
+  ridx <- match(b$panel[1:8], colnames(DNAm))
+
+  # every overlap regime between the stats subset and the moment domain
+  subsets <- list(
+    disjoint = match(b$panel[20:25], colnames(DNAm)),
+    overlapping = match(b$panel[5:12], colnames(DNAm)),
+    identical = ridx,
+    # nothing to sum: a moments-only sweep
+    empty = integer(0),
+    whole = NULL
+  )
+  got <- lapply(subsets, function(cs) col_stats(DNAm, cs, list(r = ridx)))
+
+  ref_obs <- as.integer(rowSums(is.finite(DNAm[, ridx, drop = FALSE])))
+  for (nm in names(got)) {
+    expect_equal(got[[nm]]$row_moment_obs[, "r"], ref_obs, info = nm)
+    expect_equal(got[[nm]]$row_mean, got[["disjoint"]]$row_mean, info = nm)
+    expect_equal(got[[nm]]$row_m2, got[["disjoint"]]$row_m2, info = nm)
+  }
+})
+
+test_that("overlapping domains are each counted in full in one sweep", {
+  b <- gate_betas(n = 6L)
+  DNAm <- b$DNAm
+  DNAm[1, b$panel[1]] <- NA
+  DNAm[2, b$panel[12]] <- NA
+
+  # a partial overlap, a nesting and the whole matrix, all in one call
+  cols <- list(
+    a = b$panel[1:10],
+    b = b$panel[6:15],
+    nested = b$panel[7:9],
+    all = colnames(DNAm)
+  )
+  got <- col_stats(
+    DNAm,
+    match(b$panel[1:3], colnames(DNAm)),
+    lapply(cols, function(cc) match(cc, colnames(DNAm)))
+  )
+
+  for (nm in names(cols)) {
+    expect_domain_moments(got, DNAm, cols[[nm]], nm)
+  }
+})
+
+test_that("scan_missing_cpgs banks one moment entry per declared domain", {
   b <- gate_betas(n = 7L)
   DNAm <- b$DNAm
   sel <- b$panel[1:5]
+  ref <- b$panel[20:30]
   DNAm[1, sel[1]] <- NA
   DNAm[2, setdiff(colnames(DNAm), sel)[1]] <- Inf
 
-  mna <- suppressWarnings(
-    scan_missing_cpgs(DNAm, sel, sel, row_moments = TRUE)
+  mna <- suppressWarnings(scan_missing_cpgs(
+    DNAm,
+    sel,
+    sel,
+    moment_domains = list(full = NULL, ref = ref)
+  ))
+  expect_equal(names(mna$sample_moments), c("full", "ref"))
+  # a NULL domain is every column. a declared one is only its own
+  expect_equal(
+    mna$sample_moments$full$mean,
+    domain_golden(DNAm, colnames(DNAm), mean)
   )
-  # golden from the same matrix: full width, finite entries only
-  finite_only <- function(f) {
-    apply(DNAm, 1, function(v) f(v[is.finite(v)]))
-  }
-  expect_equal(mna$sample_moments$mean, unname(finite_only(mean)))
-  expect_equal(mna$sample_moments$sd, unname(finite_only(stats::sd)))
+  expect_equal(
+    mna$sample_moments$full$sd,
+    domain_golden(DNAm, colnames(DNAm), stats::sd)
+  )
+  expect_equal(mna$sample_moments$ref$mean, domain_golden(DNAm, ref, mean))
+  expect_equal(mna$sample_moments$ref$sd, domain_golden(DNAm, ref, stats::sd))
+})
+
+test_that("no declared domain banks no moments at all", {
+  b <- gate_betas(n = 4L)
+  sel <- b$panel[1:5]
+  expect_null(scan_missing_cpgs(b$DNAm, sel, sel)$sample_moments)
+  expect_null(
+    scan_missing_cpgs(b$DNAm, sel, sel, moment_domains = list())$sample_moments
+  )
+})
+
+test_that("a domain resolves against what was measured, not what it declares", {
+  b <- gate_betas(n = 4L)
+  ref <- c(b$panel[1:3], "cg_not_measured_at_all")
+  mna <- scan_missing_cpgs(
+    b$DNAm,
+    b$panel[1:5],
+    b$panel[1:5],
+    moment_domains = list(ref = ref)
+  )
+  # the unmeasured CpG drops out rather than erroring or widening the panel
+  expect_equal(
+    mna$sample_moments$ref$mean,
+    domain_golden(b$DNAm, ref[1:3], mean)
+  )
+})
+
+test_that("a domain too thin to describe a sample reports NA, not zero spread", {
+  b <- gate_betas(n = 5L)
+  DNAm <- b$DNAm
+  thin <- b$panel[1:3]
+  # sample 2 observes nothing in the domain, sample 3 observes exactly one
+  DNAm[2, thin] <- NA
+  DNAm[3, thin[2:3]] <- NA
+  score <- b$panel[10:20]
+
+  mna <- scan_missing_cpgs(
+    DNAm,
+    score,
+    score,
+    moment_domains = list(thin = thin, one = thin[1])
+  )
+  got <- mna$sample_moments$thin
+  # n = 0 gives neither. n = 1 gives a mean but no spread
+  expect_true(is.na(got$mean[2]))
+  expect_true(is.na(got$sd[2]))
+  expect_equal(got$mean[3], DNAm[3, thin[1]])
+  expect_true(is.na(got$sd[3]))
+  # the rest of the column is untouched by the guard
+  expect_false(anyNA(got$sd[c(1, 4, 5)]))
+
+  # a one-column domain can never carry a spread, and never reads as 0
+  expect_true(all(is.na(mna$sample_moments$one$sd)))
+  expect_equal(mna$sample_moments$one$mean[1], DNAm[1, thin[1]])
+})
+
+test_that("an empty domain is a data fact, reported as NA", {
+  b <- gate_betas(n = 4L)
+  sel <- b$panel[1:5]
+  mna <- scan_missing_cpgs(
+    b$DNAm,
+    sel,
+    sel,
+    moment_domains = list(none = character(0))
+  )
+  expect_true(all(is.na(mna$sample_moments$none$mean)))
+  expect_true(all(is.na(mna$sample_moments$none$sd)))
 })

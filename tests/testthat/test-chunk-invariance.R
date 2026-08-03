@@ -67,7 +67,7 @@ test_that("scoring a row subset equals scoring the whole cohort", {
 
   # both chunk-sensitive shapes: a cross-sample reduce, and banked row moments
   expect_true(length(cohort$spec$cross_sample) > 0)
-  expect_true(cohort$spec$needs_moments)
+  expect_true(length(cohort$spec$moment_domains) > 0)
 
   # every clock: block-scored cohort finalizes to the single-pass answer
   for (id in cohort$spec$sequence) {

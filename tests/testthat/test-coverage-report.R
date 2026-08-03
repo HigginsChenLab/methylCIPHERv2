@@ -77,8 +77,7 @@ test_that("samples_coverage emits no rows for a clock that reads no CpGs", {
   # the alias is a returned column but reads no CpGs, so it reports nothing
   expect_false("DNAmGrip_wAge" %in% sc$clock_id)
 
-  # rows are the members' (the clocks that read betas). masked sex rows drop,
-  # so each sample appears once under the model that scored it
+  # rows are the members that read betas. masked sex rows drop.
   expect_setequal(
     unique(sc$clock_id),
     c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male")

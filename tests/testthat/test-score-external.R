@@ -108,7 +108,7 @@ sa_cpgs <- fake_panel(200L)
 sa_pack <- fake_systemsage_pack(sa_cpgs)
 sa_members <- mc_index$clock_id[mc_index$group_id == "SystemsAge"]
 
-# PCBrainAge
+# pcBrainAge
 
 test_that("calc_clocks() scores PCBrainAge end-to-end from an in-memory pack (closed set)", {
   DNAm <- random_betas(pcba_cpgs, n = 3L)
@@ -143,7 +143,7 @@ test_that("calc_clocks() on an external clock errors (closed set) when its pack 
   expect_error(calc_clocks(DNAm, "PCBrainAge", ext_data = wrong))
 })
 
-# PCClocks
+# pcClocks
 
 test_that("calc_clocks('PCClocks') batches all members end-to-end (closed set)", {
   DNAm <- random_betas(pcc_cpgs, n = 4L)

@@ -107,7 +107,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   )
   thin <- thin[!is.na(thin)]
   if (length(thin)) {
-    # QN fills absent background CpGs from the target, BMIQ does not
+    # qn fills absent background CpGs from the target, BMIQ does not
     thin_schemes <- unique(vapply(names(thin), clock_norm_scheme, character(1)))
     fate <- if (all(thin_schemes == "bmiq")) {
       "Absent background CpGs are dropped from the calibration fit."

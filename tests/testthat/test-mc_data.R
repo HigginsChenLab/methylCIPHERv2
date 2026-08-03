@@ -135,8 +135,7 @@ test_that("list_mc_assets() answers what exists, what is staged, what is reclaim
 })
 
 test_that("the shipped registry covers exactly the groups holding external clocks", {
-  # derived, not listed -- group is external because a clock of it is. the two
-  # sysdata objects are built separately, so a half-applied split shows here
+  # group is external when any clock of it is.
   declared <- unique(unlist(lapply(mc_catalog, function(e) {
     if (isTRUE(e[["external_group"]])) e[["group_id"]] else NULL
   })))

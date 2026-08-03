@@ -22,7 +22,7 @@ sim_DNAm <- function(
   checkmate::assert_flag(Age)
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
-  # opt-in sample-id suffix. a default would silently rename every existing call
+  # opt-in sample-id suffix.
   if (!is.null(suffix)) {
     checkmate::assert_string(suffix, min.chars = 1L)
   }
@@ -38,7 +38,7 @@ sim_DNAm <- function(
     ID <- paste0(ID, "_", suffix)
   }
   DNAm <- random_betas(cpgs, n = n)
-  # one id source for both, rather than two expressions that happen to agree
+  # one id source for both.
   rownames(DNAm) <- ID
   pheno <- data.frame(ID = ID)
   if (Age) {
@@ -51,14 +51,14 @@ sim_DNAm <- function(
   out <- list(
     DNAm = DNAm,
     pheno = pheno,
-    # NULL unless the ids were suffixed -- reported, never fed back in
+    # null unless the ids were suffixed -- reported, never fed back in
     suffix = suffix
   )
   class(out) <- c("mc_sim", "list")
   out
 }
 
-# DNAm then pheno, in the shared printer grammar (R/print.R)
+# dnam then pheno, in the shared printer grammar (R/print.R)
 #' @export
 print.mc_sim <- function(x, n = 6, p = 6, ...) {
   DNAm <- x[["DNAm"]]

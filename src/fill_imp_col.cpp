@@ -3,7 +3,7 @@
 using namespace Rcpp;
 
 // fill every non-finite entry (NA, NaN, +/-Inf) with the column mean.
-// same predicate as col_stats(), which computed that mean over the same set
+// same predicate as col_stats().
 // [[Rcpp::export]]
 void fill_imp_col(NumericMatrix obj, NumericVector mean_vec)
 {

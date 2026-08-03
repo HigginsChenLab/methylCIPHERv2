@@ -1,4 +1,4 @@
-# every CpG a clocks= request needs, over the same panels the scorer resolves
+# every CpG a clocks= request needs measured -- panels plus declared moment refs
 
 #' @export
 clock_cpgs <- function(
@@ -11,7 +11,16 @@ clock_cpgs <- function(
   clock_sequence <- resolve_clocks_sequence(resolve_clocks(clocks))
   normalize <- resolve_normalize(normalize, clock_sequence)
   packs <- load_mc_assets(pack_groups_needed(clock_sequence), ext_data, ask)
-  clock_panels_union(clock_sequence, packs, normalize)
+  sequence_cpgs(clock_sequence, packs, normalize)
+}
+
+# panels plus declared moment refs for a resolved sequence (one union).
+sequence_cpgs <- function(clock_sequence, packs = NULL, normalize = NULL) {
+  cpgs <- union(
+    clock_panels_union(clock_sequence, packs, normalize),
+    unlist(resolve_moment_domains(clock_sequence), use.names = FALSE)
+  )
+  cpgs[nzchar(cpgs) & !is.na(cpgs)]
 }
 
 # scoring panels plus, where a clock normalizes, its background panel
@@ -39,6 +48,6 @@ clock_panels_union <- function(clock_ids, packs, normalize) {
     )
   }
 
-  cpgs <- panels_union(panels)
-  cpgs[nzchar(cpgs) & !is.na(cpgs)]
+  # the caller filters: one blank/NA screen over the whole answer, not two
+  panels_union(panels)
 }

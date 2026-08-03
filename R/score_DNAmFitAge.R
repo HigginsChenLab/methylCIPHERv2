@@ -1,9 +1,9 @@
-# DNAmFitAge_{Sex}: klemera-doubal mix of upstream member scores
+# dnamFitAge_{Sex}: klemera-doubal mix of upstream member scores
 score_DNAmFitAge <- function(id, cpgs, block, results) {
   sample_id <- block[["sample_id"]]
   n <- length(sample_id)
 
-  # KDM mixing table (component, weight, center, scale) -- sync asserts the header
+  # kdm mixing table (component, weight, center, scale) -- sync asserts the header
   kdm <- component_tensor(id, "component")
 
   # components are scored first (sequence order)

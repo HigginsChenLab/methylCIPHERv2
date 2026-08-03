@@ -4,7 +4,7 @@ score_Zhang2019 <- function(id, cpgs, block, results) {
   present <- cpgs[["score_present"]]
 
   # sample_scale over the full input matrix, banked by mc_cohort()
-  mom <- block[["sample_moments"]]
+  mom <- block_domain_moments(block, id)
   m <- mom[["mean"]]
   s <- mom[["sd"]]
 

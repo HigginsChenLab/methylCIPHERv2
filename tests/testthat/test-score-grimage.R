@@ -43,8 +43,7 @@ for (id in c("GrimAgeV1", "GrimAgeV2")) {
   })
 }
 
-# surrogate path resolves CpGs from the declared panel (as PhysAge does), so a
-# component can never score a CpG coverage did not count
+# surrogate path resolves cpgs from the declared panel.
 test_that("a component coefficient outside the declared panel is a hard stop", {
   cpgs <- list(
     clock_id = "fake",
