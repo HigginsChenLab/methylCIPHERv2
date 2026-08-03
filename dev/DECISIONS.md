@@ -14,6 +14,55 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- `check_DNAm()` diagnoses shape and replicate probes; it never dedups
+
+Three changes to `check_DNAm()`, and one standing refusal.
+
+**Orientation moved ahead of the matrix refusal, and now runs on a data.frame too.** `dim()`,
+`colnames()` and `rownames()` all work on a data.frame, so the orientation and replicate checks are
+computed before `is.data.frame()` throws. A data.frame caller therefore gets the actual problem --
+and the throw itself adapts, offering `t(as.matrix(DNAm))` rather than `as.matrix(DNAm)` when the
+probe ids are in the rows. Previously they got only "must be a matrix" and had to discover the
+orientation trap on the next call.
+
+**`nrow > ncol` is evidence, not a verdict.** The obvious cheap orientation test false-positives on
+a real run: 1000 samples x 353 CpGs, one clock over a large cohort, is correctly oriented and
+taller than it is wide. So probe ids in the rows is the decisive signal, and the dimension ratio
+only warns when the columns *also* fail to look like probe ids. Pinned by a test.
+
+**EPICv2/MSA replicate suffixes are now named.** Both arrays suffix every probe with its address
+(`cg00002033_TC11`) and ship several rows per CpG -- 8523 duplicated stems on MSA (up to 8 copies),
+5225 on EPICv2 (up to 10). Panels are declared on the unsuffixed id, so every such column matches
+nothing and is silently vendor-filled or dropped as absent. `clocks_coverage()` already surfaced
+this as elevated `score_absent`; what was missing was the diagnosis.
+
+`PROBE_REPLICATE_SUFFIX` is `_[BT][CO][0-9]+$`. Measured against the manifests rather than guessed:
+it matches **all** 937055 EPICv2 and **all** 281806 MSA ids, and **zero** EPICv1 (865918) or 450K
+(485577) ids, which carry no underscore at all. `[0-9]+` and not `{2}` because EPICv2 has exactly
+one five-character suffix, `cg06373096_TC110`. The package's own panels are unaffected: 3 of 452499
+panel ids contain an underscore (`ch.13.39564907R_II_R_O_37491` and two siblings, from the
+Retroelement clocks) and none match.
+
+**The scans are a bounded stride sample, which replaces the old `ncol < 2e5` guard.** That guard
+was sound for orientation -- 2e5 columns cannot be samples -- but it points the wrong way for this
+check, because EPICv2 is 937k columns wide, so any width threshold disables the replicate warning
+on exactly the array that needs it. Lowering the threshold makes it strictly worse. Sampling 2000
+ids is decisive rather than probabilistic here, because the suffix is a whole-array property: every
+EPICv2/MSA id carries one, no EPICv1/450K id does. Cost is then constant in the matrix width. (For
+the record the full scan was affordable anyway -- 0.17s of `grepl` at 937k -- so this is about
+keeping a per-call check free, not about rescuing an expensive one.)
+
+**Standing refusal: `calc_clocks()` will not collapse replicate probes.** Do not re-propose it. (a)
+It needs an external array manifest, which brings manifest versioning fragility and a tail of edge
+cases (chr0 probes among them) into a package that otherwise ships a closed, self-contained
+contract and reaches no network. (b) Doing it means allocating a second full copy of a very large
+matrix inside the scoring call -- the same objection that sank `coerce_dnam()`'s
+`as.matrix(data.frame)` in PR #3 sec 3.4. The collapse is the user's, done outside `calc_clocks()`,
+where they can choose the manifest version and the aggregation rule. The package's job here is to
+tell them it is needed, which is what the warning now does.
+
+---
+
 ## 2026-08-03 -- One beta entry point, and no pre-flight surface
 
 Written down because it was already true and nobody had said it: **`calc_clocks()` is the only
