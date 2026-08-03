@@ -7,12 +7,65 @@ maintainers will ask this" history that should not bloat an operational doc.
 metadata contract decisions live in `data-raw/methylCIPHER-meta/control/DECISIONS.md`.
 
 Newest first. Add an entry when a decision reverses a prior approach or is likely to be
-second-guessed; do not restate rules already stated in `CLAUDE.md` or `dev/id-streaming-plan.md`.
+second-guessed; do not restate rules already stated in `CLAUDE.md`.
 
 **Archive:** entries before 2026-07-30 live in `dev/DECISIONS.old.md` (unchanged full log).
 Older dated citations in `CLAUDE.md` resolve there. Do not restate that history here.
 
 ---
+
+## 2026-08-02 -- `score_associations()` ships as a disposable advisory, and it is the one sanctioned `cor()`
+
+**This is a deliberate, scoped carve-out of "Correlation is never a numeric gate."** The invariant
+stands, and its subject is unchanged: an **agreement gate** -- a test that asks "do we match the
+oracle" -- may never be a correlation, because `cor()` is offset- and scale-invariant and cannot
+tell "correct" from "uniformly wrong". Nothing about parity, unit tests or any numeric bound moves.
+
+`score_associations()` is a different use. The correlation is not an agreement statistic against a
+reference implementation; it **is the estimand** -- the cohort's score-age association, which is the
+quantity the reference table reports. It gates nothing: it returns a frame, stops no scoring, filters
+no clock, and emits no verdict. Read the invariant as binding on gates, not on reported statistics.
+
+**The reference intervals are wide, and that is measured, not suspected.** 31 of the 69 `age_r`
+prediction intervals include zero, median width 0.71 on a 2.0 scale, so for ~45% of clocks "no age
+association" falls inside the expected range. This was quantified before the function was written.
+Shipping a v1 on that basis is a deliberate call: the flags are a starting point for a user who wants
+one, not a measurement anyone should rely on.
+
+**The function reports and says nothing else.** It emits no message and returns only the frame. A
+caveat on every call is noise in programmatic use, and the appropriate place for a limitation of this
+kind is documentation. The cost is accepted: a caller who reads neither this entry nor
+`dev/PR3-respond.md` gets two booleans without context. There is still no PASS/WARN/FAIL and there
+must not be one -- that was the specific thing declined in PR #3 (see `dev/PR3-respond.md` sec 3.6).
+
+**The reference table is taken as given, and we differ from the author on its construction.**
+`inst/extdata/clock_reference.csv` and `data-raw/build_clock_reference.R` are shipped unmodified,
+authored by `dsborrus`, whose meta-analytic work is the only artifact in PR #3 that could not be
+sourced elsewhere -- the prediction intervals use the Higgins-Thompson-Spiegelhalter form, pooling
+is DerSimonian-Laird, correlations are pooled on the Fisher-z scale, and `MIN_N = 20` is a
+reasonable floor. The disagreement is about what the two-stage design can support downstream, not
+about the execution. Stage one fits a separate `lm` per (dataset, clock) pair; stage two pools those
+estimates. A pool of that shape summarizes datasets rather than samples, so the individual level is
+not recoverable from it, and the only comparison available at runtime is a user-cohort statistic
+against a reference-cohort statistic -- which inherits the user's study design, and is why the
+intervals have to be as wide as they are to stay honest.
+
+Our position is that this wants a one-stage hierarchical model instead (`score ~ age + sex + tissue +
+(1 | dataset)` fit on pooled individual-level rows), shipping fixed effects + covariance + tau^2 +
+residual sigma so a `predict` step gives a closed-form per-sample interval and covariates can be
+marginalized when absent. That version has a known null -- 5% of samples outside a 95% interval --
+so no threshold has to be chosen anywhere. It needs the per-sample tables behind
+`HigginsChenLab/TranslAGE-workflows` and is a separate project, which is why the v1 here ships on
+the aggregate table rather than waiting.
+
+**Disposability is the design constraint, so it is written down as a contract.** The whole feature is
+`R/score_associations.R`, `inst/extdata/clock_reference.csv`, `data-raw/build_clock_reference.R`, and
+one `export(score_associations)`. Delete those four things and nothing else in the package changes.
+It reaches the record through exactly one internal, `finalized()` -- the same re-finalize hook
+`as.data.frame()` and `calc_accel()` use, so a multi-batch record with pending cross-sample columns
+is not correlated stale -- plus the documented `$scores` / `$pheno` fields. It adds no dependency,
+no S3 method, no catalog field, and no coupling to routing, coverage or the pack machinery. Keep it
+that way: when the hierarchical version lands, this should be removable in one commit.
 
 ## 2026-08-02 -- Wang scores as a matmul plus two scalars, and the scalars stay runtime
 
