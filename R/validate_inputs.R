@@ -202,9 +202,83 @@ check_pheno <- function(
       null.ok = FALSE,
       any.missing = TRUE
     )
+    # gated on extra_columns, so the units check fires exactly when the age is
+    # consumed -- by a clock here, by type = "diff" or a formula in calc_accel()
+    warn_age_units(pheno, ID, sample_id)
   }
   warn_missing_covariates(pheno, ID, extra_columns, sample_id)
   invisible(NULL)
+}
+
+# a units error is an order-of-magnitude error, so both bounds sit at the edge
+# of biological possibility rather than the edge of typical: a 50-year-old is
+# 600 in months and 18000 in days, so a generous bound still catches every real
+# one and never doubts a real centenarian.
+AGE_MAX_YEARS <- 122
+# pre-birth coded as a fraction of a year (-0.5, -1) is a legitimate convention;
+# gestational age in weeks (-40 to 0) is not.
+AGE_MIN_YEARS <- -2
+
+# rows of pheno that survive the id-join, in sample order. shared by the
+# per-row warners so neither re-derives the join.
+joined_rows <- function(pheno, ID, sample_id) {
+  if (is.null(sample_id)) {
+    return(seq_len(nrow(pheno)))
+  }
+  idx <- match(sample_id, pheno[[ID]])
+  idx[!is.na(idx)]
+}
+
+# per-row age units gate. per row and not per cohort: a cohort statistic can
+# only fire once most of the cohort is wrong, so it misses the row-wise case --
+# a degenerate ifelse, or a merge of two unit conventions -- which is the one
+# that leaves everything else looking fine. the per-row test also covers every
+# case the cohort test would have caught.
+warn_age_units <- function(pheno, ID, sample_id) {
+  rows <- joined_rows(pheno, ID, sample_id)
+  age <- pheno[["Age"]][rows]
+  ids <- as.character(pheno[[ID]][rows])
+  # NA is an unrecorded age, not a units error. Inf cannot reach here.
+  ok <- !is.na(age)
+
+  high <- ok & age > AGE_MAX_YEARS
+  if (any(high)) {
+    at <- which.max(replace(age, !high, -Inf))
+    cli::cli_warn(
+      c(
+        "{sum(high)} of {length(age)} {.field Age} {cli::qty(sum(high))}value{?s}
+         {?is/are} above {.val {AGE_MAX_YEARS}}; the largest is
+         {.val {signif(age[[at]], 6)}}, for sample {.val {ids[[at]]}}.",
+        "i" = "{.field Age} is read in years, and {AGE_MAX_YEARS} is the
+               verified human maximum -- so this is usually a units mistake.
+               Convert with {.code Age / 12} (months), {.code Age / 52} (weeks)
+               or {.code Age / 365.25} (days).",
+        "i" = "Nothing is stopped and the scores are unaffected, but an age
+               acceleration taken against this column will not be meaningful."
+      ),
+      call = NULL
+    )
+  }
+
+  low <- ok & age < AGE_MIN_YEARS
+  if (any(low)) {
+    at <- which.min(replace(age, !low, Inf))
+    cli::cli_warn(
+      c(
+        "{sum(low)} of {length(age)} {.field Age} {cli::qty(sum(low))}value{?s}
+         {?is/are} below {.val {AGE_MIN_YEARS}}; the smallest is
+         {.val {signif(age[[at]], 6)}}, for sample {.val {ids[[at]]}}.",
+        "i" = "A small negative age is fine -- pre-birth as a fraction of a year
+               is a normal convention. This is past that, and is where
+               gestational age in weeks lives ({.val {-40}} to {.val {0}}).",
+        "i" = "If that is what these are, convert with {.code Age / 52}."
+      ),
+      call = NULL
+    )
+  }
+
+  # the flagged ids, on the same axis as sample_id
+  invisible(ids[high | low])
 }
 
 # warn on NA in required covariates
@@ -219,12 +293,7 @@ warn_missing_covariates <- function(
     return(invisible(NULL))
   }
   # only rows that survive the id-join
-  rows <- if (is.null(sample_id)) {
-    seq_len(nrow(pheno))
-  } else {
-    idx <- match(sample_id, pheno[[ID]])
-    idx[!is.na(idx)]
-  }
+  rows <- joined_rows(pheno, ID, sample_id)
 
   n_na <- vapply(cols, function(cl) sum(is.na(pheno[[cl]][rows])), integer(1L))
   n_na <- n_na[n_na > 0L]
