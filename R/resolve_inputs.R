@@ -15,9 +15,10 @@ did_you_mean <- function(tok, pool, n = 5L) {
   utils::head(unique(unname(pool[order(d, nchar(names(pool)))])), n)
 }
 
-# nearest-match bullets for unmatched tokens
+# nearest-match bullets for unmatched tokens. the cap is on the token count,
+# because adist() runs per token and is the cost, not the render.
 suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
-  unlist(lapply(toks, function(tok) {
+  cli_escape(unlist(lapply(capped_vals(toks), function(tok) {
     hits <- lapply(pools, function(pool) did_you_mean(tok, pool, n))
     if (length(hits) == 1L) {
       h <- hits[[1L]]
@@ -40,7 +41,7 @@ suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
       "*" = cli::format_inline("{.val {tok}}"),
       stats::setNames(lines, rep(" ", length(lines)))
     )
-  }))
+  })))
 }
 
 # user tokens -> catalog clock_ids (all > tag > group_id > clock_id)
@@ -122,7 +123,7 @@ resolve_clocks <- function(clocks) {
     cli::cli_abort(
       c(
         "Don't recognize {length(bad)} name{?s} in {.arg clocks}:
-         {.val {bad}}.",
+         {.val {capped_vals(bad)}}.",
         "i" = "Closest matches:",
         suggestion_bullets(bad),
         "i" = "See {.fn list_clocks} or {.fn list_clock_tags}

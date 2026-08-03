@@ -139,7 +139,8 @@ mc_pack_paths <- function(dir, rows) {
   as.character(fs::path(dir, files))
 }
 
-# aligned label/size lines (cli_verbatim only)
+# aligned label/size lines (cli_verbatim only, so sprintf is never a template).
+# the consent prompt shows a capped head plus a count of the rest.
 mc_manifest_lines <- function(labels, sizes) {
   if (!length(labels)) {
     return(character(0))
@@ -147,24 +148,35 @@ mc_manifest_lines <- function(labels, sizes) {
   sizes <- as.numeric(sizes)
   cells <- format(fs::fs_bytes(c(sizes, sum(sizes))))
   w <- max(nchar(labels), nchar("total"))
-  out <- sprintf("  %-*s  %s", w, labels, cells[seq_along(labels)])
+  keep <- seq_len(min(length(labels), MC_MSG_CAP))
+  out <- sprintf("  %-*s  %s", w, labels[keep], cells[keep])
+  n_more <- length(labels) - length(keep)
+  if (n_more) {
+    out <- c(out, cli::format_inline("  and {n_more} more pack{?s}"))
+  }
   if (length(labels) > 1L) {
     out <- c(out, sprintf("  %-*s  %s", w, "total", cells[[length(cells)]]))
   }
   out
 }
 
-# one bullet per pack (no alignment)
+# one bullet per pack (no alignment). the label is an interpolated value, so a
+# brace in a file name can never become a cli template.
 mc_manifest_bullets <- function(labels, sizes) {
   sizes <- as.numeric(sizes)
-  items <- sprintf("%s (%s)", labels, trimws(format(fs::fs_bytes(sizes))))
-  if (length(labels) > 1L) {
-    items <- c(
-      items,
-      sprintf("total (%s)", trimws(format(fs::fs_bytes(sum(sizes)))))
+  human <- trimws(format(fs::fs_bytes(sizes)))
+  items <- capped_bullets(seq_along(labels), function(i) {
+    vapply(
+      i,
+      function(k) cli::format_inline("{.val {labels[[k]]}} ({human[[k]]})"),
+      character(1L)
     )
+  })
+  if (length(labels) > 1L) {
+    total <- trimws(format(fs::fs_bytes(sum(sizes))))
+    items <- c(items, "*" = cli::format_inline("total ({total})"))
   }
-  bullets(items)
+  items
 }
 
 # cli renders the context, askYesNo asks one short line
@@ -449,7 +461,8 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
     extra <- setdiff(names(canon), groups)
     if (length(extra)) {
       cli::cli_warn(
-        "Skipping unused pack{?s} in {.arg ext_data}: {.val {extra}}.",
+        "Skipping {cli::qty(extra)}unused pack{?s} in {.arg ext_data}:
+         {.val {capped_vals(extra)}}.",
         call = NULL
       )
     }

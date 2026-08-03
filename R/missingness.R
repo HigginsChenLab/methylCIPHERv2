@@ -90,12 +90,17 @@ check_score_values <- function(scores) {
     return(invisible(NULL))
   }
 
-  lines <- sprintf(
-    "%s: %d of %d sample(s)",
-    names(bad),
-    bad,
-    lengths(scores[names(bad)])
-  )
+  bad_lines <- function(ids) {
+    vapply(
+      ids,
+      function(id) {
+        cli::format_inline(
+          "{.val {id}}: {bad[[id]]} of {length(scores[[id]])} sample{?s}"
+        )
+      },
+      character(1L)
+    )
+  }
   # sample_scale clocks divide by per-sample sd (may be 0 or undefined).
   scaled <- names(bad)[vapply(
     names(bad),
@@ -126,7 +131,7 @@ check_score_values <- function(scores) {
     c(
       "{length(bad)} clock{?s} produced {cli::qty(sum(bad))}non-finite
        score{?s}:",
-      capped_bullets(lines),
+      capped_bullets(names(bad), bad_lines),
       hint,
       "i" = "{.code NaN} or {.code Inf} usually means a non-finite value
              reached the arithmetic. Please check {.arg DNAm} rather than
@@ -264,7 +269,7 @@ scan_missing_cpgs <- function(
       cli::cli_abort(
         c(
           "{length(dead)} sample{?s} {?has/have} no observed CpGs on any
-           scoring panel: {.val {utils::head(dead, 10L)}}.",
+           scoring panel: {.val {capped_vals(dead)}}.",
           "i" = "Please remove or repair {cli::qty(dead)}{?it/them} before
                  scoring."
         ),

@@ -61,13 +61,6 @@ as.data.frame.mc_result <- function(
   )
 }
 
-capped <- function(x, n = 10L) {
-  paste0(
-    paste(utils::head(x, n), collapse = ", "),
-    if (length(x) > n) sprintf(" ... and %d more", length(x) - n)
-  )
-}
-
 type_family <- function(v) {
   if (is.numeric(v) || is.logical(v)) {
     "number"

@@ -160,7 +160,7 @@ check_pheno <- function(
       c(
         "The sample id column {.val {ID}} is not in {.arg pheno}.",
         "i" = "{.arg pheno_id} names the column that holds the sample ids.",
-        "i" = "{.arg pheno} has {.field {utils::head(names(pheno), 10L)}}."
+        "i" = "{.arg pheno} has {.field {capped_vals(names(pheno))}}."
       ),
       call = NULL
     )
@@ -332,7 +332,7 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, keep) {
         c(
           "{.arg pheno} is missing {length(missing)} sample id{?s} that appear
            in DNAm:",
-          "x" = "{.val {utils::head(missing, 10L)}}",
+          "x" = "{.val {capped_vals(missing)}}",
           "i" = "Every DNAm row needs a matching id in the pheno id column."
         ),
         call = NULL
