@@ -173,6 +173,32 @@ empty_sample_rows <- function(keep_batch) {
   out
 }
 
+# the exit's one gate: the most restrictive floor any bound batch was scored
+# under. rbind keeps them per batch, so a filter on the frame needs one number.
+finalize_samples_gate <- function(x) {
+  max(x[["provenance"]][["min_samples_coverage"]])
+}
+
+# re-warn on the assembled frame, so a bound record says it once under one floor
+say_low_samples <- function(out, threshold) {
+  low <- out[["coverage"]] < threshold
+  if (!any(low)) {
+    return(invisible(NULL))
+  }
+  n_samp <- length(unique(out[["id"]][low]))
+  cli::cli_warn(
+    c(
+      "{sum(low)} of {nrow(out)} row{?s} {cli::qty(sum(low))}{?is/are} under
+       {.arg min_samples_coverage} = {format(threshold)}, across
+       {n_samp} sample{?s}.",
+      "i" = "The {.field coverage} column carries the fraction each row was
+             scored on -- filter on it to see them."
+    ),
+    call = NULL
+  )
+  invisible(NULL)
+}
+
 # one row per (sample, returned clock, panel)
 #' @export
 samples_coverage <- function(x) {
@@ -201,5 +227,6 @@ samples_coverage <- function(x) {
   # drop na coverage rows (routed member on a sex it did not score)
   out <- out[!is.na(out[["coverage"]]), , drop = FALSE]
   rownames(out) <- NULL
+  say_low_samples(out, finalize_samples_gate(x))
   drop_single_batch(out, batch)
 }

@@ -50,6 +50,8 @@ calc_clocks <- function(
     pheno_id = spec[["pheno_id"]],
     covariates_used = spec[["covariates"]],
     normalized = names(spec[["normalize"]])[spec[["normalize"]]],
+    min_clocks_coverage = min_clocks_coverage,
+    min_samples_coverage = min_samples_coverage,
     scoring_failures = scored[["notes"]],
     # kept, not discarded, so a bound record can re-finalize exactly
     pending = scored[["pending"]]

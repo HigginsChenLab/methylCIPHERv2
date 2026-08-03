@@ -117,6 +117,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
   `$provenance` also carries the per-sample `mc_batch_id` (aligned to `sample_id`) and the retained
   `pending` intermediates that make an opt-in `refinalize_clocks()` exact.
+  It carries **both coverage floors, keyed by batch label** like `$coverage$per_clock` --
+  `rbind` keeps one per batch and reconciles nothing, and `samples_coverage()` finalizes them by
+  taking the **most restrictive** (`max`) and re-warning under it, which is the only thing that
+  makes a post-bind `coverage < threshold` filter well defined. There is no `below_min` column:
+  the cell axis already exists, and a conditional one would mean different things per row after a
+  bind. `min_clocks_coverage` is recorded but read by nothing -- it aborts, so a record's existence
+  already proves it passed (DECISIONS 2026-08-03).
   **Where a verb exists it is a method**, and the built surface today is exactly `print`,
   `as.matrix`, `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()`.
   Coverage is

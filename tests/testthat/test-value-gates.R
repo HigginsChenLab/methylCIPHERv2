@@ -126,7 +126,8 @@ test_that("the kernel counts Inf as missing, not as observed", {
     sum(DNAm[-3, b$panel[5]])
   )
   # an Inf is missing, so it says nothing about range
-  expect_false(scan$any_gt1)
+  expect_equal(scan$max_val, 1)
+  expect_true(is.na(scan$max_col))
 })
 
 test_that("each range flag warns on its own, and both can fire", {
@@ -269,8 +270,9 @@ test_that("col_stats sums and counts observed entries in one sweep", {
 
   scan <- col_stats(DNAm[, b$panel[1:3], drop = FALSE])
   expect_null(scan$overflow_col)
-  expect_false(scan$any_lt0)
-  expect_false(scan$any_gt1)
+  # seeded at the beta bounds, so in-range betas leave them where they are
+  expect_equal(scan$min_val, 0)
+  expect_equal(scan$max_val, 1)
 
   st <- scan$stats
   expect_equal(rownames(st), c("sum", "n_obs"))
@@ -307,8 +309,8 @@ test_that("scanning by cols agrees with scanning a pre-subset matrix", {
 
   expect_equal(direct$stats, sliced$stats)
   expect_equal(direct$row_obs, sliced$row_obs)
-  expect_equal(direct$any_lt0, sliced$any_lt0)
-  expect_equal(direct$any_gt1, sliced$any_gt1)
+  expect_equal(direct$min_val, sliced$min_val)
+  expect_equal(direct$max_val, sliced$max_val)
   expect_null(direct$overflow_col)
 
   # results are ordered by cols, not by position in DNAm
@@ -326,11 +328,13 @@ test_that("cols narrows the sweep -- unlisted columns are not scanned", {
 
   narrow <- col_stats(DNAm, match(b$panel[1:4], colnames(DNAm)))
   expect_equal(narrow$row_obs, c(4L, 0L, 4L, 4L, 4L, 4L))
-  expect_false(narrow$any_lt0)
+  expect_equal(narrow$min_val, 0)
 
-  # widen over the same matrix and the flag fires
+  # widen over the same matrix and the range moves
   wide <- col_stats(DNAm, match(b$panel[c(1:4, 20)], colnames(DNAm)))
-  expect_true(wide$any_lt0)
+  expect_equal(wide$min_val, -0.5)
+  # position within cols, like overflow_col -- panel[20] is the 5th entry
+  expect_equal(wide$min_col, 5L)
   expect_equal(wide$row_obs, c(5L, 1L, 5L, 5L, 5L, 5L))
 })
 

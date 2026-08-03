@@ -58,6 +58,8 @@ construct_mc_result <- function(
   pheno_id,
   covariates_used,
   normalized,
+  min_clocks_coverage,
+  min_samples_coverage,
   scoring_failures = list(),
   pending = list()
 ) {
@@ -105,6 +107,9 @@ construct_mc_result <- function(
         covariates_used = covariates_used,
         # which clocks were actually normalized
         normalized = normalized,
+        # the gates this batch was scored under, keyed by batch like per_clock
+        min_clocks_coverage = stats::setNames(min_clocks_coverage, batch),
+        min_samples_coverage = stats::setNames(min_samples_coverage, batch),
         # clock id -> sample ids the scorer could not fit
         scoring_failures = scoring_failures,
         # retained per-sample intermediates, so a bind can re-finalize exactly

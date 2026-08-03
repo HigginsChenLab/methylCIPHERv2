@@ -9,6 +9,18 @@ using namespace Rcpp;
 // moments on iff moment_sets non-NULL. K is 1..8. zero-count rows: mean 0 / m2 0 / count 0.
 // overflow_col is position within cols. on overflow, moments are dropped.
 
+// observed value range over the scanned columns, seeded at the beta bounds so
+// only an out-of-range value moves it. `col` is the 1-based position within
+// `cols`, the same convention overflow_col uses, so R can name the probe.
+struct value_range
+{
+  double min_val = 0.0;
+  double max_val = 1.0;
+  int min_col = NA_INTEGER;
+  int max_col = NA_INTEGER;
+  bool any_inf = false;
+};
+
 // one welford step with a cached reciprocal (n bounded by ncol).
 static inline void welford_update(int &n, double &mean, double &m2,
                                   double v, const double *inv)
@@ -26,7 +38,7 @@ static bool scan_col(const double *col, R_xlen_t nr,
                      double *st_pair, int *robs,
                      int *gn, double *gmean, double *gm2,
                      const double *inv,
-                     bool &any_lt0, bool &any_gt1, bool &any_inf)
+                     value_range &vr, int col_pos)
 {
   double sum = 0.0, n_obs = 0.0;
   for (R_xlen_t i = 0; i < nr; ++i)
@@ -39,15 +51,22 @@ static bool scan_col(const double *col, R_xlen_t nr,
       ++robs[i];
       if constexpr (RM)
         welford_update(gn[i], gmean[i], gm2[i], v, inv);
-      if (v < 0.0)
-        any_lt0 = true;
-      else if (v > 1.0)
-        any_gt1 = true;
+      // min_val <= 0 <= 1 <= max_val always, so the two are exclusive
+      if (v < vr.min_val)
+      {
+        vr.min_val = v;
+        vr.min_col = col_pos;
+      }
+      else if (v > vr.max_val)
+      {
+        vr.max_val = v;
+        vr.max_col = col_pos;
+      }
     }
     else if (!std::isnan(v))
     {
       // missing like the rest, but the caller is told it was an Inf
-      any_inf = true;
+      vr.any_inf = true;
     }
   }
   // inf never enters sum, so only a finite-value overflow can poison it
@@ -66,7 +85,7 @@ static R_xlen_t sweep_cols(const double *x, R_xlen_t nr, R_xlen_t nc,
                            int *an, double *am, double *a2,
                            double *st, int *robs,
                            const double *inv,
-                           bool &any_lt0, bool &any_gt1, bool &any_inf)
+                           value_range &vr)
 {
   for (R_xlen_t j = 0; j < nc; ++j)
   {
@@ -80,13 +99,13 @@ static R_xlen_t sweep_cols(const double *x, R_xlen_t nr, R_xlen_t nc,
       const R_xlen_t off = static_cast<R_xlen_t>(slot[col_off]) * nr;
       ok = scan_col<true>(col, nr, st + 2 * j, robs,
                           an + off, am + off, a2 + off, inv,
-                          any_lt0, any_gt1, any_inf);
+                          vr, static_cast<int>(j) + 1);
     }
     else
     {
       ok = scan_col<false>(col, nr, st + 2 * j, robs,
                            nullptr, nullptr, nullptr, inv,
-                           any_lt0, any_gt1, any_inf);
+                           vr, static_cast<int>(j) + 1);
     }
     if (!ok)
       return j + 1;
@@ -231,7 +250,7 @@ List col_stats(NumericMatrix obj,
     inv = inv_v.data();
   }
 
-  bool any_lt0 = false, any_gt1 = false, any_inf = false;
+  value_range vr;
 
   // nr == 0 skips the pointer-based passes (empty vector::data may be null).
   if (nr > 0)
@@ -242,8 +261,7 @@ List col_stats(NumericMatrix obj,
                    moments ? &pending : nullptr,
                    moments ? slot.data() : nullptr,
                    a_n.data(), a_mean.data(), a_m2.data(),
-                   st, robs, inv,
-                   any_lt0, any_gt1, any_inf);
+                   st, robs, inv, vr);
 
     if (overflow != 0)
     {
@@ -253,9 +271,11 @@ List col_stats(NumericMatrix obj,
           _["row_moment_obs"] = R_NilValue,
           _["row_mean"] = R_NilValue,
           _["row_m2"] = R_NilValue,
-          _["any_lt0"] = any_lt0,
-          _["any_gt1"] = any_gt1,
-          _["any_inf"] = any_inf,
+          _["min_val"] = vr.min_val,
+          _["max_val"] = vr.max_val,
+          _["min_col"] = vr.min_col,
+          _["max_col"] = vr.max_col,
+          _["any_inf"] = vr.any_inf,
           _["overflow_col"] = IntegerVector::create(static_cast<int>(overflow)));
     }
 
@@ -328,8 +348,10 @@ List col_stats(NumericMatrix obj,
       _["row_moment_obs"] = moments ? (SEXP)Nout : R_NilValue,
       _["row_mean"] = moments ? (SEXP)Mout : R_NilValue,
       _["row_m2"] = moments ? (SEXP)M2out : R_NilValue,
-      _["any_lt0"] = any_lt0,
-      _["any_gt1"] = any_gt1,
-      _["any_inf"] = any_inf,
+      _["min_val"] = vr.min_val,
+      _["max_val"] = vr.max_val,
+      _["min_col"] = vr.min_col,
+      _["max_col"] = vr.max_col,
+      _["any_inf"] = vr.any_inf,
       _["overflow_col"] = R_NilValue);
 }

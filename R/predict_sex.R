@@ -3,6 +3,15 @@
 # the one group that answers this question
 SEX_GROUP <- "DNAmSex_Wang"
 
+# companion columns to the declared karyotype output_column
+RECORDED_SEX <- "recorded_sex"
+SEX_MISMATCH <- "sex_mismatch"
+
+# the two non-aneuploid calls the rule table emits, and the labels a recorded
+# binary Female maps onto. 47,XXY and 45,XO are biology, not a pheno error, so
+# they are shown against the record and never flagged.
+BINARY_CALLS <- c(female = "Female", male = "Male")
+
 # declared karyotype_call block for SEX_GROUP.
 karyotype_spec <- function() {
   kc <- group_entry(SEX_GROUP)[["routing"]][["karyotype_call"]]
@@ -81,6 +90,82 @@ apply_karyotype <- function(scores, kc) {
   call
 }
 
+# every call the rule table can emit, its default included
+karyotype_calls <- function(kc) {
+  out_col <- as.character(kc[["output_column"]])
+  unique(c(
+    as.character(kc[["default"]]),
+    vapply(kc[["rules"]], function(r) as.character(r[[out_col]]), character(1L))
+  ))
+}
+
+# pheno Female (1/0) -> the rule table's own labels, so the two columns compare
+# directly. anything that is not a 0/1 record is refused rather than guessed at.
+recorded_from_female <- function(female) {
+  checkmate::assert_integerish(
+    female,
+    lower = 0,
+    upper = 1,
+    any.missing = TRUE,
+    null.ok = FALSE,
+    .var.name = "pheno$Female"
+  )
+  # na carries through: an unrecorded sex is not a disagreement
+  ifelse(
+    as.integer(female) == 1L,
+    BINARY_CALLS[["female"]],
+    BINARY_CALLS[["male"]]
+  )
+}
+
+# left join the recorded sex onto the calls, by id and never by row order.
+# calc_clocks() has already refused a pheno whose id column is duplicated or
+# does not cover every DNAm row, so this match is total and one-to-one.
+attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
+  if (is.null(pheno) || !"Female" %in% names(pheno)) {
+    return(out)
+  }
+  missing_labels <- setdiff(BINARY_CALLS, karyotype_calls(kc))
+  if (length(missing_labels)) {
+    catalog_bug(
+      "%s: karyotype_call emits no '%s' call to compare a recorded sex against.",
+      SEX_GROUP,
+      missing_labels[[1L]]
+    )
+  }
+
+  idx <- match(out[[pheno_id]], as.character(pheno[[pheno_id]]))
+  if (anyNA(idx)) {
+    stop(
+      "predict_sex: a scored sample has no pheno row. This is a package bug --
+       please report it.",
+      call. = FALSE
+    )
+  }
+
+  recorded <- recorded_from_female(pheno[["Female"]][idx])
+  out[[RECORDED_SEX]] <- recorded
+  # an aneuploid or unscored call is never a disagreement
+  out[[SEX_MISMATCH]] <- !is.na(recorded) &
+    pred %in% BINARY_CALLS &
+    pred != recorded
+  out
+}
+
+say_mismatch <- function(out) {
+  n <- sum(out[[SEX_MISMATCH]])
+  if (!n) {
+    return(invisible(NULL))
+  }
+  cli::cli_inform(c(
+    "!" = "{n} sample{?s} {cli::qty(n)}{?has/have} a predicted sex that
+           disagrees with {.field pheno$Female}.",
+    "i" = "See the {.field {SEX_MISMATCH}} column. This is worth a look, not a
+           verdict -- either side can be the wrong one."
+  ))
+  invisible(NULL)
+}
+
 #' Stub
 #'
 #' Rcpp needs some roxygen2 stub
@@ -100,6 +185,20 @@ predict_sex <- function(DNAm, pheno = NULL, ...) {
   out <- as.data.frame(res, long = FALSE)
 
   scores <- lapply(map, function(id) out[[id]])
-  out[[as.character(kc[["output_column"]])]] <- apply_karyotype(scores, kc)
+  pred <- apply_karyotype(scores, kc)
+  out[[as.character(kc[["output_column"]])]] <- pred
+
+  # Female is never a required covariate here, so it does not reach the record
+  # -- the comparison reads the caller's own pheno.
+  out <- attach_recorded(
+    out,
+    pheno,
+    res[["provenance"]][["pheno_id"]],
+    pred,
+    kc
+  )
+  if (SEX_MISMATCH %in% names(out)) {
+    say_mismatch(out)
+  }
   out
 }
