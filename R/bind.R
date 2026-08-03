@@ -13,8 +13,9 @@ check_bind_inputs <- function(recs) {
       c(
         "{.fn rbind} needs every argument to be an {.cls mc_result}.",
         # qty() on a length-1 numeric reads the value, not the count
-        "x" = "Argument{cli::qty(length(bad))}{?s} {.val {bad}}
-               {cli::qty(length(bad))}{?is/are} not."
+        "x" = "Argument{cli::qty(length(bad))}{?s} {.val {capped_vals(bad)}}
+               {cli::qty(length(bad))}{?is/are} a different class.",
+        "i" = "{.fn calc_clocks} returns an {.cls mc_result}."
       ),
       call = NULL
     )
@@ -30,10 +31,11 @@ gate_disjoint_ids <- function(recs) {
     cli::cli_abort(
       c(
         "{length(dup)} sample id{?s} appear{?s/} in more than one record:",
-        capped_bullets(dup),
-        "i" = "Give each batch its own ids before scoring -- e.g.
-               {.code rownames(DNAm) <- paste0(rownames(DNAm), '_T1')} -- so a
-               bound record cannot double-count a sample."
+        capped_bullets(dup, val_lines),
+        "i" = "Give each batch its own sample ids before scoring.",
+        "i" = "For example,
+               {.code rownames(DNAm) <- paste0(rownames(DNAm), '_T1')}.",
+        "i" = "A bound record must not count one sample twice."
       ),
       call = NULL
     )
@@ -52,8 +54,8 @@ gate_same_set <- function(recs, field, what, hint) {
     diff <- c(setdiff(ref, got), setdiff(got, ref))
     cli::cli_abort(
       c(
-        "Record {i} has different {what} from record 1.",
-        capped_bullets(diff),
+        "Record {i} has different {what} from record 1:",
+        capped_bullets(diff, val_lines),
         "i" = hint
       ),
       call = NULL
@@ -73,9 +75,10 @@ gate_same_pheno_id <- function(recs) {
   if (!all(ids == ref_id)) {
     cli::cli_abort(
       c(
-        "Records were scored against different {.arg pheno_id} columns:
-         {.val {unique(ids)}}.",
-        "i" = "Re-score with one id column so the bound pheno has one identity."
+        "{.fn calc_clocks} scored these records with different
+         {.arg pheno_id} columns: {.val {capped_vals(unique(ids))}}.",
+        "i" = "Call {.fn calc_clocks} again with one {.arg pheno_id} column
+               for every batch."
       ),
       call = NULL
     )
@@ -90,15 +93,17 @@ run_bind_gates <- function(recs) {
     recs,
     "clocks",
     "score columns",
-    "Bind records scored from the same {.arg clocks} request."
+    "Bind only records that {.fn calc_clocks} scored from the same
+     {.arg clocks} request."
   )
   gate_same_pheno_id(recs)
   gate_same_set(
     recs,
     "normalized",
     "normalized clocks",
-    "Use one {.arg normalize} setting across every batch -- the same clock
-     normalized in one batch and not another is not one column."
+    "Use one {.arg normalize} setting for every batch. A clock that is
+     normalized in one batch, and not in another, gives two different
+     columns."
   )
   invisible(NULL)
 }
@@ -132,11 +137,13 @@ say_pending <- function(x) {
     return(invisible(NULL))
   }
   cli::cli_inform(c(
-    "!" = "Cohort-reducing {cli::qty(ids)}column{?s} {.val {ids}}
-           {cli::qty(ids)}{?was/were} reduced within each batch, so this record
-           holds {n_batch} separate reductions rather than one.",
-    "i" = "Call {.fn refinalize_clocks} to recompute {cli::qty(ids)}{?it/them}
-           against all {nrow(x[['scores']])} samples."
+    "!" = "This record holds {n_batch} separate values for
+           {cli::qty(ids)}column{?s} {.val {ids}}, one value per batch.",
+    "i" = "{cli::qty(ids)}{?This/These} score{?s} {cli::qty(ids)}{?is/are}
+           computed from all the samples together, and {.fn calc_clocks}
+           scored each batch on its own.",
+    "i" = "Call {.fn refinalize_clocks} to compute {cli::qty(ids)}{?it/them}
+           again from all {nrow(x[['scores']])} samples."
   ))
   invisible(NULL)
 }
@@ -226,7 +233,8 @@ refinalize_clocks <- function(x) {
   if (!length(pending)) {
     cli::cli_inform(
       c(
-        "i" = "No cohort-reducing clocks on this record; nothing to re-finalize."
+        "i" = "{.fn refinalize_clocks} changes only clocks that are scored
+               from all the samples together. This record has none."
       )
     )
     return(invisible(x))
@@ -240,8 +248,9 @@ refinalize_clocks <- function(x) {
     x[["scores"]][, id] <- col[rownames(x[["scores"]]), 1L]
   }
   cli::cli_inform(c(
-    "v" = "Re-finalized {cli::qty(ids)}{?column/columns} {.val {ids}} against
-           all {nrow(x[['scores']])} samples."
+    "v" = "{cli::qty(ids)}{?Column/Columns} {.val {ids}}
+           {cli::qty(ids)}{?is/are} now computed from all
+           {nrow(x[['scores']])} samples."
   ))
   invisible(x)
 }

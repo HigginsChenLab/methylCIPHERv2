@@ -196,8 +196,12 @@ say_low_samples <- function(out, threshold) {
       "{sum(low)} of {nrow(out)} row{?s} {cli::qty(sum(low))}{?is/are} under
        {.arg min_samples_coverage} = {format(threshold)}, across
        {n_samp} sample{?s}.",
-      "i" = "The {.field coverage} column carries the fraction each row was
-             scored on -- filter on it to see them."
+      "i" = "The {.field coverage} column gives the fraction of the panel
+             present for each row.",
+      "i" = "Filter the returned frame on that column to see
+             {cli::qty(sum(low))}{?the row/the rows}. For example,
+             {.code cov[cov$coverage < {format(threshold)}, ]}.",
+      "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
     ),
     call = NULL
   )

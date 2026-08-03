@@ -267,10 +267,13 @@ say_fill_batch <- function(x, rhs_vars) {
     return(invisible(NULL))
   }
   cli::cli_inform(c(
-    "!" = "This record has {length(per_clock)} batches and some CpGs were
-           cohort-mean filled, which is done within a batch.",
-    "i" = "Add {.field {MC_BATCH}} to your {.arg formula} to regress that
-           offset out."
+    "!" = "This record has {length(per_clock)} batch{?es}, and
+           {.fn calc_clocks} filled some absent CpGs with a mean taken inside
+           each batch.",
+    "i" = "A fill of that kind can shift the scores of one batch against
+           another.",
+    "i" = "Add {.field {MC_BATCH}} to {.arg formula} so the model accounts for
+           the batch."
   ))
   invisible(NULL)
 }

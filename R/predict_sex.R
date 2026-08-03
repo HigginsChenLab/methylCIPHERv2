@@ -158,10 +158,12 @@ say_mismatch <- function(out) {
     return(invisible(NULL))
   }
   cli::cli_inform(c(
-    "!" = "{n} sample{?s} {cli::qty(n)}{?has/have} a predicted sex that
-           disagrees with {.field pheno$Female}.",
-    "i" = "See the {.field {SEX_MISMATCH}} column. This is worth a look, not a
-           verdict -- either side can be the wrong one."
+    "!" = "{n} sample{?s} {cli::qty(n)}{?has/have} a predicted sex that does
+           not match the {.field Female} column in {.arg pheno}.",
+    "i" = "The {.field {SEX_MISMATCH}} column marks
+           {cli::qty(n)}{?that sample/those samples}.",
+    "i" = "A mismatch can come from the recorded sex or from the array data.
+           Check both sources before you correct either one."
   ))
   invisible(NULL)
 }
