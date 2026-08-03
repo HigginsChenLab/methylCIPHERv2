@@ -14,6 +14,57 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- The Age units gate is per row, not distributional, and it lives in `check_pheno()`
+
+`check_pheno()` bounded `Age` only by `assert_numeric(finite = TRUE)`, which accepts an age in
+months, weeks or days without comment. It now also warns per row, on both sides:
+`AGE_MAX_YEARS <- 122` (the verified human maximum) and `AGE_MIN_YEARS <- -2`.
+
+**Per row, not a cohort statistic.** The queued item floated keying on the distribution -- a median
+far past any plausible age -- as the way to separate "wrong units" from "one unusual subject". That
+is the weaker test and was rejected. A cohort statistic can only fire once **most** of the cohort is
+wrong, so it is blind to the row-wise failure: a degenerate upstream `ifelse`, or a merge of two
+files that coded age differently. That case leaves every other row looking fine, which is exactly
+when a human will not catch it by eye. The per-row test also catches everything the distributional
+test would have -- if the median is past 122 then rows are too -- so it strictly dominates. It is a
+`warn`, so the usual objection to a sensitive test (it stops good runs) does not apply.
+
+**Both bounds are at the edge of possibility, not the edge of typical**, because a units error is an
+order-of-magnitude error: a 50-year-old is 600 in months and 18000 in days. So `122` never doubts a
+real centenarian, and `-2` leaves the legitimate pre-birth convention (`-0.5`, `-1`) alone while
+still catching gestational age in weeks (`-40` to `0`). The two sides warn **independently**,
+mirroring `check_col_values()`'s `min_val` / `max_val` -- one pheno can carry both.
+
+**It lives in `check_pheno()`, and the alternative would have covered half the surface.** The
+obvious placement is after `resolve_pheno()`, which is where the canonical id vector and the
+narrowed covariates first exist together. But `calc_accel()` **never calls `resolve_pheno()`** -- it
+merges `data =` over the record's `$pheno` in `merge_accel_data()` and does its own id-join. It
+does call `check_pheno()`, with `extra_columns = vars` (which includes `"Age"` whenever
+`type = "diff"` or the formula names it) and `sample_id` in hand. So `check_pheno()` is already the
+one place both entry points meet, and `warn_missing_covariates()` already establishes the pattern
+there: narrow to the join-surviving rows, then warn per column. Both warners now share
+`joined_rows()` rather than each re-deriving the join -- one fewer hand-rolled left join, not one
+more (cf. the `collapse` question).
+
+**Gating on `extra_columns` means the check fires exactly when the age is consumed.** If no
+requested clock requires `Age`, `resolve_pheno()` drops it from `$pheno` and nothing warns -- the
+package does not audit columns it does not read. If that same record later reaches
+`calc_accel(type = "diff")`, the age must arrive via `data =`, `vars` contains `"Age"`, and the
+gate fires there instead. There is no path where an age is used unchecked.
+
+**The flagged ids are returned, not stored.** `warn_age_units()` hands back the offending ids on the
+`sample_id` axis, so it is testable and could be threaded into `$provenance` later. It deliberately
+is not: the flag is a pure function of `$pheno$Age`, which the record already carries, so storing it
+duplicates derivable state -- the same reasoning that refused a `below_min` column on the coverage
+frames. What would change the answer is a case where the age is **not** recoverable from the record,
+and the one candidate (`calc_accel(data =)`) has nowhere to store it anyway: `calc_accel()` returns
+a frame, not a record.
+
+Suite: 0 failed / 0 error / 0 warning / 264 skipped / 1242 passed (+8, five new tests).
+`R CMD check` not run. Parity not run.
+
+---
+
 ## 2026-08-03 -- Assertions live at the boundary, and `.var.name` is filled only where the deparse lies
 
 One pass over `R/`: 32 `checkmate` calls across 12 files -> 30 across 9. `coverage_gates.R`,

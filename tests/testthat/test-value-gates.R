@@ -649,3 +649,44 @@ test_that("an empty domain is a data fact, reported as NA", {
   expect_true(all(is.na(mna$sample_moments$none$mean)))
   expect_true(all(is.na(mna$sample_moments$none$sd)))
 })
+
+# pheno Age units gate: per row, warn only, both sides independent.
+
+age_pheno <- function(age) {
+  data.frame(ID = paste0("s", seq_along(age)), Age = age)
+}
+
+test_that("one wrong row fires even in an otherwise clean cohort", {
+  # the whole reason this is per row: a cohort statistic cannot see this
+  ph <- age_pheno(c(45, 52, 600, 38, 61, 47, 55, 39))
+  expect_warning(flagged <- warn_age_units(ph, "ID", ph$ID))
+  expect_equal(flagged, "s3")
+})
+
+test_that("both bounds fire independently on one pheno", {
+  ph <- age_pheno(c(45, 600, -38, 38))
+  seen <- warnings_of(flagged <- warn_age_units(ph, "ID", ph$ID))
+  expect_equal(length(seen), 2L)
+  expect_equal(flagged, c("s2", "s3"))
+})
+
+test_that("real ages, pre-birth fractions and NA are left alone", {
+  # -0.5/-1 are a legitimate pre-birth convention and 122 is a real maximum
+  ph <- age_pheno(c(-0.5, -1, 122, 0, 45, NA, 118))
+  expect_no_warning(flagged <- warn_age_units(ph, "ID", ph$ID))
+  expect_equal(flagged, character(0))
+})
+
+test_that("only rows surviving the id-join are judged", {
+  # the out-of-range row is not in the DNAm sample set, so it is not this run's
+  ph <- age_pheno(c(45, 52, 600))
+  expect_no_warning(warn_age_units(ph, "ID", c("s1", "s2")))
+})
+
+test_that("calc_accel reaches the gate through its own pheno merge", {
+  b <- gate_betas(n = 4L)
+  res <- suppressMessages(calc_clocks(b$DNAm, "Hannum"))
+  ids <- rownames(b$DNAm)
+  bad <- data.frame(ID = ids, Age = c(45, 52, 600, 38))
+  expect_warning(calc_accel(res, type = "diff", data = bad))
+})
