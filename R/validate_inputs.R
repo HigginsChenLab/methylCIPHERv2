@@ -158,9 +158,9 @@ check_pheno <- function(
   if (!ID %in% names(pheno)) {
     cli::cli_abort(
       c(
-        "{.arg pheno} has no column {.val {ID}} to match samples on.",
-        "i" = "{.arg pheno_id} names the id column; {.arg pheno} has
-               {.field {names(pheno)}}."
+        "The sample id column {.val {ID}} is not in {.arg pheno}.",
+        "i" = "{.arg pheno_id} names the column that holds the sample ids.",
+        "i" = "{.arg pheno} has {.field {utils::head(names(pheno), 10L)}}."
       ),
       call = NULL
     )
