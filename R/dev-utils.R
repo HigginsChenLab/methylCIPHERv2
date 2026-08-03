@@ -6,6 +6,12 @@ test_parity <- function(filter = "fixtures-parity", ...) {
   )
 }
 
+# score an mc_sim without unpacking it: sim_DNAm("Hannum", n = 4) |> sim_score()
+# dev only -- calc_clocks() takes a matrix, and that stays its one input shape.
+sim_score <- function(sim, clocks = sim[["clocks"]], ...) {
+  calc_clocks(sim[["DNAm"]], clocks, pheno = sim[["pheno"]], ...)
+}
+
 # accepted extensions, longest first so `.csv.gz` never reads as `.gz`
 WRITE_SIM_EXTS <- c(".csv.gz", ".h5")
 

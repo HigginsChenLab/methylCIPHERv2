@@ -51,6 +51,8 @@ sim_DNAm <- function(
   out <- list(
     DNAm = DNAm,
     pheno = pheno,
+    # the clocks argument as given, so a dev helper can score without restating it
+    clocks = clocks,
     # null unless the ids were suffixed -- reported, never fed back in
     suffix = suffix
   )

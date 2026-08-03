@@ -14,6 +14,83 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- One beta entry point, and no pre-flight surface
+
+Written down because it was already true and nobody had said it: **`calc_clocks()` is the only
+public surface that reads a beta matrix.** Verified over the exported surface -- only
+`calc_clocks` and `predict_sex` take a `DNAm` argument, `predict_sex` reads it exclusively through
+`calc_clocks`, `sim_DNAm` generates rather than reads, and every remaining export takes either
+catalog arguments or an `mc_result`.
+
+**Why state it now.** It settles a class of proposals in one line instead of re-arguing each one.
+PR #3's `build_coverage_table()` (per-clock coverage on a bare matrix), the `report(DNAm)` arm, and
+any future "dry run" or preflight helper are all the same shape: a **second beta reader**. The
+objection is not duplication, it is decoupling -- a second reader is handed its own matrix, so its
+verdict can be about a different object than the one that eventually gets scored, and nothing in
+the package can detect the substitution. `predict_sex()` already shows the shape that is fine:
+it is a `calc_clocks()` call whose output feeds a later call, which is composition, not a
+pre-check.
+
+**Nothing is bought by the second reader.** Scoring is a matmul over a matrix that is already
+resident; the costly parts (materializing the betas, loading packs) are paid by any caller either
+way. And both coverage gates are arguments, so `calc_clocks(min_clocks_coverage = 0,
+min_samples_coverage = 0)` is already the full-report dry run, with the real numbers rather than a
+prediction of them.
+
+**Why the pre-flight model feels obligatory anyway, and why it does not transfer.** It is inherited
+from upstream, where it is correct: an ENmix or minfi pipeline threads one object through its
+steps, caches an expensive IDAT parse at the front, and has genuine cross-sample and cross-probe
+stages where dropping a sample changes what follows. Within a coupled pipeline there is no
+decoupling hazard -- the object *is* the state. Neither condition holds here. Users will still
+arrive with the habit; the answer is that the model is right where they learned it and does not
+apply to a calculator.
+
+**The premise, kept visible.** This rests on scoring being cheap enough that running it is not a
+commitment. A chunked or streaming path over an on-disk store weakens exactly that, which is the
+one change that would put a preflight surface back on the table -- and it would need an explicit
+decision at that point, not an inherited one. See `dev/to-do.md` sec 7, where the chunked front end
+is still an open question.
+
+**Not in scope:** internals under `calc_clocks()` obviously touch the matrix (`check_DNAm()`,
+`col_stats()`, the scan and fill machinery). The rule is about the public surface and where a
+matrix enters the package, not about who may hold a pointer to it.
+
+---
+
+## 2026-08-03 -- Working trees get native line endings; only the index is pinned to LF
+
+`.gitattributes` said `* text=auto eol=lf` -- LF in the repo **and in every working tree, on every
+platform**. The second half is now dropped: `* text=auto`, so the index is still always LF and the
+working tree follows `core.eol` (CRLF on Windows).
+
+**Why.** `Rcpp::compileAttributes()` -- which `devtools::document()` and `load_all()` both call --
+generates `R/RcppExports.R` and `src/RcppExports.cpp` inside its compiled
+`.Call("compileAttributes", ...)`, writing through a text-mode `std::ofstream`. That is CRLF on
+Windows and there is no R-level knob for it. Under `eol=lf` those two files came back ` M` after
+every document run, forever, on every Windows machine. `git diff` showed nothing (it normalizes
+before comparing) while `git status` showed the modification, which is the confusing part: git's
+index refresh short-circuits on a size mismatch and never reaches the content comparison, so the
+CRLF file reads as changed even though its filtered hash matches the blob exactly.
+
+**Why not just live with it.** It is cosmetic -- `git add` normalizes, so no CRLF can reach the
+index -- but it trained every Windows collaborator to ignore a dirty `git status`, which is the one
+signal that has to stay trustworthy. Cost of the fix is one attributes line; cost of the noise is
+paid on every commit.
+
+**What stays pinned to LF**, because these are read on a platform other than the one that checked
+them out: `src/Makevars` and `src/Makevars.win` (they ship inside the source tarball, and a stray CR
+lands in a GNU make variable value), `.Rbuildignore` (`readLines()` does not strip a CR off it
+outside Windows, so the ignore patterns silently stop matching), plus `*.sh` and `*.py` on the same
+reasoning. Everything else is native.
+
+**Do not "fix" a Windows worktree by re-normalizing the whole tree.** Existing LF files stay clean
+because their recorded stat still matches; only a file some tool *rewrites* can churn, which today
+is exactly the two generated ones. The one-time repair is `rm` + `git checkout --` on those two --
+a plain `git checkout` alone is a no-op, since git skips writing an entry it already considers
+up to date.
+
+---
+
 ## 2026-08-02 -- `score_associations()` ships as a disposable advisory, and it is the one sanctioned `cor()`
 
 **This is a deliberate, scoped carve-out of "Correlation is never a numeric gate."** The invariant

@@ -1,5 +1,16 @@
-# LF in the repo and in every working tree, on every platform.
-* text=auto eol=lf
+# LF in the repo; native in the working tree (CRLF on Windows).
+# Forcing eol=lf made every Rcpp-generated file churn on Windows -- Rcpp writes
+# R/RcppExports.R and src/RcppExports.cpp with CRLF and offers no knob for it.
+* text=auto
+
+# Must be LF even in a Windows working tree: these get read on other platforms
+# verbatim (Makevars ships in the source tarball; a stray CR breaks GNU make,
+# and readLines() does not strip one off .Rbuildignore outside Windows).
+src/Makevars text eol=lf
+src/Makevars.win text eol=lf
+.Rbuildignore text eol=lf
+*.sh text eol=lf
+*.py text eol=lf
 
 # Binary payloads: never touch line endings.
 *.rda binary
