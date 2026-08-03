@@ -1,6 +1,107 @@
 # dnam/pheno structure checks, run before any clock is resolved
 
+# probe-id prefixes across 450K / EPICv1 / EPICv2 / MSA.
+PROBE_ID_PREFIXES <- c("cg", "ch", "rs", "nv")
+
+# EPICv2 and MSA suffix every probe with its address (cg00002033_TC11) and ship
+# several rows per CpG. Matches all 937055 EPICv2 and all 281806 MSA ids, and
+# nothing on EPICv1/450K, which carry no underscore at all.
+PROBE_REPLICATE_SUFFIX <- "_[BT][CO][0-9]+$"
+
+# orientation and replicate suffixes are whole-array properties -- every EPICv2
+# and MSA id carries a suffix, no EPICv1/450K id does -- so a bounded stride
+# sample decides both, and the cost does not grow with a 900k-column matrix.
+id_sample <- function(x, n = 2000L) {
+  if (!length(x)) {
+    return(character(0))
+  }
+  if (length(x) <= n) {
+    return(x)
+  }
+  x[unique(as.integer(seq(1L, length(x), length.out = n)))]
+}
+
+has_probe_ids <- function(x) {
+  length(x) > 0L &&
+    any(vapply(
+      PROBE_ID_PREFIXES,
+      function(p) any(startsWith(x, p)),
+      logical(1)
+    ))
+}
+
 check_DNAm <- function(DNAm) {
+  # dim/dimnames work on a data.frame too, so orientation and suffixes are
+  # diagnosed before the matrix refusal -- a data.frame caller gets the real
+  # problem, not just "not a matrix".
+  d <- dim(DNAm)
+  if (length(d) != 2L) {
+    cli::cli_abort(
+      "{.arg DNAm} must be two-dimensional, with samples in rows and CpGs
+       in columns.",
+      call = NULL
+    )
+  }
+  cn <- id_sample(colnames(DNAm))
+  rn <- id_sample(rownames(DNAm))
+  cn_probes <- has_probe_ids(cn)
+  rn_probes <- has_probe_ids(rn)
+
+  # probe ids in the rows is decisive; more rows than columns is only
+  # suspicious, since one clock over a large cohort is legitimately tall.
+  transposed <- rn_probes && !cn_probes
+  if (length(cn) && !cn_probes && (transposed || d[[1L]] > d[[2L]])) {
+    cli::cli_warn(
+      c(
+        if (transposed) {
+          "{.arg DNAm} looks transposed -- probe ids are in the rows."
+        } else {
+          "No {.arg DNAm} column names look like probe ids
+           ({.val {PROBE_ID_PREFIXES}}), and there are more rows than columns."
+        },
+        "i" = "{.fn calc_clocks} reads samples from rows and CpGs from columns.
+               Try {.code t(DNAm)} if yours is the other way around."
+      ),
+      call = NULL
+    )
+  }
+
+  # EPICv2/MSA replicate probes. Panels are declared on the unsuffixed id, so a
+  # suffixed column matches nothing and is filled or dropped as absent.
+  suffixed <- cn[grepl(PROBE_REPLICATE_SUFFIX, cn)]
+  if (length(suffixed)) {
+    cli::cli_warn(
+      c(
+        "{.arg DNAm} carries EPICv2/MSA replicate suffixes, for example
+         {.val {suffixed[[1L]]}}.",
+        "i" = "Clock panels are declared on the unsuffixed id, so every
+               suffixed column counts as absent and is vendor-filled or
+               dropped by policy rather than read.",
+        "i" = "Collapse replicates to one column per CpG before scoring.
+               {.fn calc_clocks} does not do it for you -- that needs the
+               array manifest."
+      ),
+      call = NULL
+    )
+  }
+
+  if (is.data.frame(DNAm)) {
+    conv <- if (transposed) "t(as.matrix(DNAm))" else "as.matrix(DNAm)"
+    cli::cli_abort(
+      c(
+        "{.arg DNAm} is a data.frame; {.fn calc_clocks} needs a numeric matrix.",
+        "i" = "Convert with {.code {conv}}.",
+        if (!transposed && !cn_probes) {
+          c(
+            "i" = "Methylation tables usually ship CpGs as rows. Check the
+                   orientation before converting."
+          )
+        }
+      ),
+      call = NULL
+    )
+  }
+
   checkmate::assert_matrix(
     DNAm,
     mode = "double",
@@ -21,21 +122,6 @@ check_DNAm <- function(DNAm) {
     )
   }
   checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
-  # cg... ids should be columns
-  if (ncol(DNAm) < 2e5 && !any(startsWith(colnames(DNAm), "cg"))) {
-    cli::cli_warn(
-      c(
-        if (any(startsWith(rownames(DNAm), "cg"))) {
-          "DNAm looks transposed -- CpG ids (cg...) are in the rows."
-        } else {
-          "No DNAm column names look like CpG ids (cg...)."
-        },
-        "i" = "{.fn calc_clocks} expects samples in rows and CpGs in columns.
-               Try {.code t(DNAm)} if yours is the other way around."
-      ),
-      call = NULL
-    )
-  }
   invisible(NULL)
 }
 
