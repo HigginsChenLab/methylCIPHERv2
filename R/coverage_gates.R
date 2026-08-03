@@ -13,57 +13,64 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   # warn within 10% of the floor, before the gate itself trips
   warn_below <- min(1, threshold * 1.1)
   routed <- sex_routed_members()
+  per_clock <- cpg_list[["per_clock"]]
 
+  # the label is an interpolated value, so a brace in an id can never become a
+  # cli template. the two line builders run over the ids that survive the cap.
   panel_line <- function(id, present, needed, label) {
-    sprintf(
-      "%s: %d/%d %s CpGs (%.1f%%)",
-      gate_label(id, routed),
-      length(present),
-      length(needed),
-      label,
-      100 * length(present) / length(needed)
+    cli::format_inline(
+      "{.val {gate_label(id, routed)}}: {length(present)}/{length(needed)}
+       {label} CpGs ({round(100 * length(present) / length(needed), 1)}%)"
+    )
+  }
+  score_lines <- function(ids) {
+    vapply(
+      ids,
+      function(id) {
+        x <- per_clock[[id]]
+        panel_line(id, x[["score_present"]], x[["score_needed"]], "scoring")
+      },
+      character(1L)
+    )
+  }
+  norm_lines <- function(ids) {
+    vapply(
+      ids,
+      function(id) {
+        x <- per_clock[[id]]
+        panel_line(id, x[["norm_present"]], x[["norm_needed"]], "normalization")
+      },
+      character(1L)
     )
   }
 
   classify <- function(x) {
     if (!length(x[["score_needed"]])) {
-      return(list(level = "", line = NA_character_))
+      return("")
     }
     ratio <- length(x[["score_present"]]) / length(x[["score_needed"]])
     # empty panel is scoreable only under vendor_mean fill
     undefined <- ratio == 0 &&
       !identical(clock_impute(x[["clock_id"]])[["policy"]], "vendor_mean")
-    level <- if (undefined || ratio < threshold) {
+    if (undefined || ratio < threshold) {
       "stop"
     } else if (ratio < warn_below) {
       "warn"
     } else {
       ""
     }
-    list(
-      level = level,
-      line = panel_line(
-        x[["clock_id"]],
-        x[["score_present"]],
-        x[["score_needed"]],
-        "scoring"
-      )
-    )
   }
 
-  graded <- lapply(cpg_list[["per_clock"]], classify)
-  levels <- vapply(graded, function(g) g[["level"]], character(1L))
-  lines_for <- function(lvl) {
-    vapply(graded[levels == lvl], function(g) g[["line"]], character(1L))
-  }
+  graded <- vapply(per_clock, classify, character(1L))
+  ids_for <- function(lvl) names(graded)[graded == lvl]
 
-  fail <- lines_for("stop")
+  fail <- ids_for("stop")
   if (length(fail)) {
     cli::cli_abort(
       c(
         "{length(fail)} clock{?s} {?doesn't/don't} have enough CpGs to score
          ({.arg min_clocks_coverage} = {format(threshold)}):",
-        capped_bullets(fail),
+        capped_bullets(fail, score_lines),
         "i" = "Try dropping {cli::qty(fail)}{?it/them} from {.arg clocks}, or
                lower {.arg min_clocks_coverage} if you meant to allow thinner
                panels."
@@ -72,13 +79,13 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     )
   }
 
-  marginal <- lines_for("warn")
+  marginal <- ids_for("warn")
   if (length(marginal)) {
     cli::cli_warn(
       c(
         "{length(marginal)} clock{?s} only just clear{?s/}
          {.arg min_clocks_coverage} = {format(threshold)}:",
-        capped_bullets(marginal),
+        capped_bullets(marginal, score_lines),
         "i" = "Scoring continues, but more of the panel will be filled by
                imputation."
       ),
@@ -87,28 +94,17 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   }
 
   # thin QN backgrounds warn only
-  thin <- vapply(
-    cpg_list[["per_clock"]],
+  thin <- names(per_clock)[vapply(
+    per_clock,
     function(x) {
-      if (
-        !length(x[["norm_needed"]]) ||
-          length(x[["norm_present"]]) / length(x[["norm_needed"]]) >= threshold
-      ) {
-        return(NA_character_)
-      }
-      panel_line(
-        x[["clock_id"]],
-        x[["norm_present"]],
-        x[["norm_needed"]],
-        "normalization"
-      )
+      length(x[["norm_needed"]]) > 0L &&
+        length(x[["norm_present"]]) / length(x[["norm_needed"]]) < threshold
     },
-    character(1L)
-  )
-  thin <- thin[!is.na(thin)]
+    logical(1L)
+  )]
   if (length(thin)) {
     # qn fills absent background CpGs from the target, BMIQ does not
-    thin_schemes <- unique(vapply(names(thin), clock_norm_scheme, character(1)))
+    thin_schemes <- unique(vapply(thin, clock_norm_scheme, character(1)))
     fate <- if (all(thin_schemes == "bmiq")) {
       "Absent background CpGs are dropped from the calibration fit."
     } else if (any(thin_schemes == "bmiq")) {
@@ -121,7 +117,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
       c(
         "{length(thin)} clock{?s} {?has/have} a thin normalization background
          (under {.arg min_clocks_coverage} = {format(threshold)}):",
-        capped_bullets(thin),
+        capped_bullets(thin, norm_lines),
         "i" = fate,
         "i" = "See {.fn clocks_coverage} for the panel counts per clock."
       ),
@@ -153,38 +149,54 @@ check_row_coverage <- function(coverage, threshold = 0.75) {
   # threshold is validated at the calc_clocks() front door, before scoring
   routed <- sex_routed_members()
 
-  line_for <- function(id) {
+  # counts per clock first, strings only for the ids that survive the cap
+  stat_for <- function(id) {
     rc <- row_coverage(
       coverage[["per_clock"]][[id]],
       coverage[["sample_miss"]][["score"]][[id]],
       coverage[["sample_miss"]][["norm"]][[id]]
     )
     if (is.null(rc)) {
-      return(NA_character_)
+      return(NULL)
     }
     cov <- rc[["cov"]]
     low <- !is.na(cov) & cov < threshold
     if (!any(low)) {
-      return(NA_character_)
+      return(NULL)
     }
-    sprintf(
-      "%s: %d of %d sample(s), worst %.1f%% of %d CpGs",
-      gate_label(id, routed),
-      sum(low),
-      sum(!is.na(cov)),
-      100 * min(cov[low]),
-      rc[["needed"]]
+    list(
+      low = sum(low),
+      scored = sum(!is.na(cov)),
+      worst = min(cov[low]),
+      needed = rc[["needed"]]
     )
   }
 
-  lines <- vapply(names(coverage[["per_clock"]]), line_for, character(1L))
-  lines <- lines[!is.na(lines)]
-  if (length(lines)) {
+  ids <- names(coverage[["per_clock"]])
+  hits <- stats::setNames(lapply(ids, stat_for), ids)
+  hits <- hits[!vapply(hits, is.null, logical(1L))]
+
+  row_lines <- function(these) {
+    vapply(
+      these,
+      function(id) {
+        s <- hits[[id]]
+        cli::format_inline(
+          "{.val {gate_label(id, routed)}}: {s[['low']]} of {s[['scored']]}
+           sample{?s}, worst {round(100 * s[['worst']], 1)}% of
+           {s[['needed']]} CpGs"
+        )
+      },
+      character(1L)
+    )
+  }
+
+  if (length(hits)) {
     cli::cli_warn(
       c(
-        "{length(lines)} clock{?s} scored some samples under
+        "{length(hits)} clock{?s} scored some samples under
          {.arg min_samples_coverage} = {format(threshold)}:",
-        capped_bullets(lines),
+        capped_bullets(names(hits), row_lines),
         "i" = "Those sample scores rely more on imputed CpGs, so interpret
                them with a bit of care."
       ),

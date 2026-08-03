@@ -40,10 +40,10 @@ print.mc_citation <- function(x, ...) {
     fmt_header("mc_citation", n_clocks, "clock", n_papers, "paper")
   )
   cat("\n")
-  cli::cli_verbatim(c(
-    fmt_section("bibtex", plural_count(n_papers, "paper")),
-    x[["bibtex"]]
-  ))
+  cli::cli_verbatim(fmt_section("bibtex", plural_count(n_papers, "paper")))
+  # the bibliography is the payload, so it is never capped and never a cli
+  # template. writeLines reproduces what citation() prints.
+  writeLines(x[["bibtex"]])
   cat("\n")
   cli::cli_alert_info(
     "{.code as.data.frame(x)} gives the clock-to-paper table. Export the

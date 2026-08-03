@@ -59,16 +59,18 @@ list_clocks <- function(group = NULL, tag = NULL, pattern = NULL) {
       cli::cli_abort(
         c(
           "Don't recognize group{cli::qty(length(unknown))}{?s}:
-           {.val {unknown}}.",
-          bullets(vapply(
-            unknown,
-            function(tok) {
-              cli::format_inline(
-                "did you mean {.or {.val {did_you_mean(tok, pool)}}}?"
-              )
-            },
-            character(1L)
-          )),
+           {.val {capped_vals(unknown)}}.",
+          capped_bullets(unknown, function(toks) {
+            vapply(
+              toks,
+              function(tok) {
+                cli::format_inline(
+                  "did you mean {.or {.val {did_you_mean(tok, pool)}}}?"
+                )
+              },
+              character(1L)
+            )
+          }),
           "i" = "Call {.fn list_clocks} with no arguments to see every group."
         ),
         call = NULL
