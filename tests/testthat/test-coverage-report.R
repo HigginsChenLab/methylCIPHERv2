@@ -128,6 +128,62 @@ test_that("samples_coverage coverage is literally row_coverage() for a partial f
   expect_true(all(hannum$coverage[-1] == 1))
 })
 
+# the coverage floors the run was scored under
+
+# one sample leaning on a cohort mean for all but 10 CpGs of the panel
+thin_sample_betas <- function(n = 6L) {
+  panel <- clock_scoring_cpgs("Hannum")
+  DNAm <- random_betas(panel, n = n)
+  DNAm[1, panel[-seq_len(10L)]] <- NA_real_
+  DNAm
+}
+
+test_that("both floors reach provenance, keyed by batch", {
+  DNAm <- random_betas(clock_cpgs("Hannum"), n = 4L)
+  res <- calc_clocks(
+    DNAm,
+    "Hannum",
+    min_clocks_coverage = 0.5,
+    min_samples_coverage = 0.25
+  )
+
+  expect_equal(unname(res$provenance$min_clocks_coverage), 0.5)
+  expect_equal(unname(res$provenance$min_samples_coverage), 0.25)
+  expect_equal(
+    names(res$provenance$min_samples_coverage),
+    unique(res$provenance$mc_batch_id)
+  )
+})
+
+test_that("samples_coverage re-warns under the record's own floor", {
+  DNAm <- thin_sample_betas(4L)
+
+  quiet <- calc_clocks(DNAm, "Hannum", min_samples_coverage = 0)
+  expect_silent(samples_coverage(quiet))
+
+  expect_warning(
+    hot <- calc_clocks(DNAm, "Hannum", min_samples_coverage = 0.9)
+  )
+  expect_warning(samples_coverage(hot))
+})
+
+test_that("a bound record keeps a floor per batch and exits under the strictest", {
+  DNAm <- thin_sample_betas(6L)
+  a <- calc_clocks(DNAm[1:3, ], "Hannum", min_samples_coverage = 0)
+  b <- calc_clocks(DNAm[4:6, ], "Hannum", min_samples_coverage = 0.9)
+
+  # differing floors bind without complaint -- record what batching forced
+  out <- rbind(a, b)
+  expect_equal(unname(out$provenance$min_samples_coverage), c(0, 0.9))
+  expect_equal(
+    names(out$provenance$min_samples_coverage),
+    names(out$coverage$per_clock)
+  )
+
+  # 0.9 is the strictest, and the thin sample is under it
+  expect_warning(samples_coverage(out))
+})
+
 test_that("samples_coverage gives a normalizing clock a score and a norm row", {
   skip_if_not_installed("betanorm")
   norm_panel <- names(clock_norm_target("DunedinPACE"))

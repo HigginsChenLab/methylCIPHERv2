@@ -14,6 +14,110 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- `predict_sex()` compares against the recorded sex; the join is by id
+
+`predict_sex()` already took `DNAm` and `pheno` on one call over one matrix and passed `pheno`
+through purely for the id column. It now also reads `Female` off it and returns two companion
+columns beside the declared `predicted_sex`: `recorded_sex` and `sex_mismatch`.
+
+**The recorded sex is read from the caller's `pheno`, not from the record, and that is forced.**
+`resolve_pheno()` narrows `$pheno` to the id column plus the covariates the run *required*, and the
+two `DNAmSex_Wang` members declare none -- so `Female` never reaches `$pheno` on a `predict_sex()`
+run. There is no version of this that reads the record.
+
+**So it is a left join, and the join key is the id column.** Not row order, and not row names --
+`match(out[[pheno_id]], pheno[[pheno_id]])`, with `pheno_id` read back from
+`$provenance$pheno_id` rather than re-derived, because `...` may have carried a non-default one
+into `calc_clocks()`. The match is total and one-to-one for a reason worth writing down rather than
+re-checking: `calc_clocks()` has already run, and `check_pheno()` refuses a duplicated or NA id
+column while `resolve_pheno()` refuses a pheno that does not cover every `DNAm` row. An `NA` from
+the match is therefore a package bug and is raised as one, not handled.
+
+**`Female` is validated here because nothing else does.** It is not a required covariate for these
+clocks, so `check_pheno()`'s `assert_integerish(lower = 0, upper = 1)` never fires on it. The same
+assertion runs in `recorded_from_female()`, so a factor or an `"M"`/`"F"` column is refused with
+the message it would have got from `calc_clocks()`, rather than being guessed at.
+
+**Only an unambiguous binary disagreement is flagged.** The rule table emits `47,XXY` and `45,XO`,
+so a flat mismatch would fire on biology; those are shown against the record and never flagged, as
+are an unscored sample (NA call) and an unrecorded one (NA `Female`). `BINARY_CALLS` is checked
+against the declared `karyotype_calls(kc)` on every run, so an upstream rename fails loudly instead
+of silently never flagging. The flag is an invitation to investigate -- either side can be the
+wrong one -- and `say_mismatch()` says so in as many words.
+
+**Not done, and not to be re-proposed: auto-resolving sex inside `calc_clocks()`** when a requested
+clock needs `Female`. (a) Sex-chromosome probes are routinely filtered out -- `cohort_450K` has
+none, which is why both `DNAmSex_Wang_*@cohort_450K` sit in `KNOWN_PARITY_GAPS` -- so an implicit
+check would be unavailable on an unpredictable fraction of matrices, and an explicit surface can
+refuse where an implicit one can only shrug. (b) It would put the sex panel under the coverage gate
+on runs that do not need it, turning a working `DNAmFitAge` call into a hard `ratio == 0` stop on
+any sex-filtered matrix -- avoidable only by exempting one clock from the gate, a special case in a
+system whose pitch is that routing is total. (c) It is quality-of-life, not a correctness guard.
+The residual gap -- the user who never calls `predict_sex` -- belongs in the docs for the
+sex-requiring clocks, not in a runtime hint that would fire on every GrimAge and FitAge run.
+
+---
+
+## 2026-08-03 -- `col_stats()` carries the observed range, not two booleans
+
+`any_lt0` / `any_gt1` are gone. The kernel now carries `min_val` / `max_val`, **seeded at 0.0 and
+1.0** so only an out-of-range value ever moves them, plus `min_col` / `max_col` -- the 1-based
+position within `cols`, the same convention `overflow_col` already uses, so R can name the probe.
+The old flags are derived (`min_val < 0`, `max_val > 1`) and nothing is lost.
+
+Cost is unchanged: the same two comparisons on the same branch, two assignments on the rare side,
+no extra pass and no new pass structure. The `else if` stays correct because `min_val <= 0 <= 1 <=
+max_val` holds by construction, so the two branches remain exclusive. The kernel is serial -- no
+OpenMP anywhere in `src/` -- so the reference-accumulation pattern the booleans used carries over
+with no reduction; the four fields are one struct only to keep the signatures readable.
+
+**Only the panel columns are scanned, and that is enough.** Scale is a whole-matrix property, so
+the panel is a valid sample of it. Pass 2 (`sweep_moments_remaining`) still tracks nothing, exactly
+as before.
+
+The point of the change is the message. The `< 0` warning already named M-values and gave the
+conversion; the `> 1` one only said "double-check the scale". Both now report the observed extreme
+(at `signif(, 4)` -- a diagnostic, not a value to compute with) and the column it came from, and
+above **50** the `> 1` warning names percent methylation and gives `DNAm / 100`. 50 is not a
+guess at a boundary: a units error is an order-of-magnitude error, so anything between 1 and 50 is
+not a scale story and gets the honest "check the scale" instead.
+
+---
+
+## 2026-08-03 -- The coverage floors go into `$provenance`, batch-wise
+
+`min_clocks_coverage` and `min_samples_coverage` were arguments that reached no result field, so a
+saved record could not say what floor it was scored under and the `check_row_coverage()` warning
+was unreproducible from the record. Both now sit in `$provenance`, **keyed by batch label** like
+`$coverage$per_clock`.
+
+**Batch-wise, not record-wise, and `rbind` reconciles nothing** -- the same line every other bind
+gate follows: record what batching forced, refuse what the caller chose differently. A differing
+floor across batches is not an error and does not throw. It cannot be: the raw per-sample
+`coverage` column survives the bind, so which samples in which batch sat low stays answerable
+whatever the floors were.
+
+**The exits finalize it, the way the finalizers resolve `pending`.** `samples_coverage()` takes the
+**most restrictive** floor across the bound batches (`max`) and re-warns under it. That is what
+makes a post-`rbind` `sc[["coverage"]] < threshold` filter well defined at all -- without it there
+is no single number to compare against.
+
+**No `below_min` logical column.** The cell axis already exists -- one row per (sample, clock,
+panel) carrying `coverage` -- and a conditional second column would mean different things on
+different rows after a bind, which is precisely the failure the batch-keyed storage avoids.
+
+Asymmetry between the two is deliberate and follows from what each gate does. `min_clocks_coverage`
+aborts, so a record's existence already proves it passed and nothing reads it back; it is stored
+for the record's own account of itself. `min_samples_coverage` only warns, so the raw per-sample
+numbers are what matter -- and those were already carried.
+
+Resolved while scoping, recorded so it is not re-derived: NA in `$scores` has exactly four sources
+-- NA covariates, unknown sex on a routed alias (both recoverable from the retained `$pheno`), BMIQ
+unfit samples and Wang domain failures (both in `$provenance$scoring_failures`). None come from the
+beta matrix. Unverified corner: MiAge L-BFGS-B non-convergence.
+
+---
+
 ## 2026-08-03 -- The test-suite trim is the last step before public alpha, not the next one
 
 The queued audit of the suite (assert output not wiring, let parity own the goldens it already

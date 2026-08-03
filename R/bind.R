@@ -200,6 +200,10 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         dependencies = setdiff(clocks, requested),
         covariates_used = ref[["covariates_used"]],
         normalized = ref[["normalized"]],
+        # kept per batch and never reconciled -- a differing gate is not a gate.
+        # the exits finalize by taking the most restrictive.
+        min_clocks_coverage = prov(args, "min_clocks_coverage"),
+        min_samples_coverage = prov(args, "min_samples_coverage"),
         # clock -> the sample ids it failed on anywhere
         scoring_failures = bind_by_key(args, "scoring_failures", function(v) {
           unique(unlist(v))

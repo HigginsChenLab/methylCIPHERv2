@@ -1,5 +1,9 @@
 # partial NA -> cohort mean, fully absent -> vendor ref
 
+# a max this far past 1 is an order-of-magnitude error, not a rounding one, so
+# percent methylation is worth naming outright rather than hedging about scale.
+PERCENT_SCALE_AT <- 50
+
 # value gates over one col_stats() sweep: overflow stops, everything else warns
 check_col_values <- function(scan, cols) {
   at <- scan[["overflow_col"]]
@@ -31,11 +35,16 @@ check_col_values <- function(scan, cols) {
     )
   }
 
-  # range flags are global (a matrix can carry both sides)
-  if (isTRUE(scan[["any_lt0"]])) {
+  # the range is a running min/max seeded at the beta bounds, so out-of-range
+  # is exactly min_val < 0 / max_val > 1. a matrix can carry both sides. only
+  # the panel columns are scanned, which is enough: scale is a whole-matrix
+  # property, so the panel is a valid sample of it.
+  lo <- scan[["min_val"]]
+  if (lo < 0) {
     cli::cli_warn(
       c(
-        "DNAm contains values below {.val {0}}.",
+        "DNAm contains values below {.val {0}}; the smallest is
+         {.val {signif(lo, 4)}}, in column {.val {cols[scan[['min_col']]]}}.",
         "i" = "{.fn calc_clocks} expects beta values in {.val {0}} to
                {.val {1}}. An M-value matrix is a common cause -- it will
                score without error, but the ages won't be meaningful.",
@@ -45,13 +54,23 @@ check_col_values <- function(scan, cols) {
       call = NULL
     )
   }
-  if (isTRUE(scan[["any_gt1"]])) {
+  hi <- scan[["max_val"]]
+  if (hi > 1) {
     cli::cli_warn(
       c(
-        "DNAm contains values above {.val {1}}.",
+        "DNAm contains values above {.val {1}}; the largest is
+         {.val {signif(hi, 4)}}, in column {.val {cols[scan[['max_col']]]}}.",
         "i" = "{.fn calc_clocks} expects beta values in {.val {0}} to
-               {.val {1}}. You may want to double-check the scale of
-               {.arg DNAm}."
+               {.val {1}}. It will score without error, but the ages won't be
+               meaningful.",
+        if (hi > PERCENT_SCALE_AT) {
+          c(
+            "i" = "Percent methylation is the usual cause at this size --
+                   convert with {.code DNAm / 100}."
+          )
+        } else {
+          c("i" = "Please double-check the scale of {.arg DNAm}.")
+        }
       ),
       call = NULL
     )
