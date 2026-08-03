@@ -245,6 +245,25 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   whose L-BFGS-B objective and gradient share one cached `b^(n-1)` that way. Outside `R/` this is
   a preference, not a rule: `data-raw/sync.R` and a condition collector in `tests/` still use
   `<<-` legitimately.
+- **`checkmate` asserts at the exported surface; internals get bare `stop()`.** Internals assume
+  validated input -- by the time a helper runs the value has already crossed the front door, so a
+  second assertion fires only when *we* have a bug, at which point a `checkmate` message aimed at a
+  user is the wrong register. An export called by another export is a **trusted** caller
+  (`predict_sex` -> `calc_clocks`), so the inner assertion is redundant, not protective; the
+  exception is a value the inner one reads that the outer never validated, which is why
+  `recorded_from_female()` keeps its assert. An internal guard that must stay -- a bounds check
+  ahead of a kernel, say -- keeps its checks and drops to `stop()` with short greppable text
+  (`check_moment_sets()` in `R/missingness.R` is the pattern).
+  **`.var.name` is filled only where the deparse lies.** `checkmate` names the failing value by
+  deparsing the expression, so at a boundary it already prints the caller's own word and a
+  hand-written string is staleness risk. Fill it **iff the deparsed expression does not name
+  something the caller can locate in their own call** -- which is not the same as "not a bare
+  symbol": `assert_character(colnames(DNAm))` deparses to `colnames(DNAm)` and is left alone, while
+  `check_pheno()`'s `pheno[[ID]]` names an internal parameter and carries
+  `.var.name = paste0("pheno$", ID)`. **Never as a substitute for moving a check**: a wrong name in
+  a `checkmate` message is usually evidence the check sits in the wrong frame -- that is how the
+  missing front-door assert on `min_clocks_coverage` surfaced, as `Assertion on 'threshold' failed`
+  (DECISIONS 2026-08-03).
 - **Accessors read declarations; they never search.** No `grep`/regex/fuzzy match over tensor
   names, clock ids, or file paths to find a payload. Resolve the declared pointer (component,
   `probe_sets[["scoring"]][["file"]]`, `imputation[["ref"]]`) and `stop()` when it is absent or

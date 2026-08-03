@@ -27,6 +27,9 @@ calc_clocks <- function(
   ext_data = NULL,
   ask = TRUE
 ) {
+  # the boundary: everything downstream assumes these are already validated
+  checkmate::assert_string(pheno_id)
+  checkmate::assert_number(min_clocks_coverage, lower = 0, upper = 1)
   checkmate::assert_number(min_samples_coverage, lower = 0, upper = 1)
 
   spec <- mc_spec(clocks, pheno_id, normalize, ext_data, ask)

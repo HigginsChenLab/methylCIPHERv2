@@ -9,7 +9,6 @@ finalized <- function(x) {
 }
 
 shape_scores <- function(m, id_col, value_col, batch, long, label = NULL) {
-  checkmate::assert_flag(long)
   if (!long) {
     ids <- stats::setNames(
       data.frame(rownames(m), stringsAsFactors = FALSE),
@@ -51,6 +50,7 @@ as.data.frame.mc_result <- function(
   long = TRUE
 ) {
   check_mc_result(x)
+  checkmate::assert_flag(long)
   x <- finalized(x)
   shape_scores(
     x[["scores"]],
@@ -109,7 +109,6 @@ merge_accel_data <- function(pheno, data, pheno_id) {
   if (is.null(data)) {
     return(pheno)
   }
-  checkmate::assert_data_frame(data, min.rows = 1)
   if (MC_BATCH %in% names(data)) {
     stop(
       sprintf(
@@ -292,6 +291,8 @@ calc_accel <- function(
   long = TRUE
 ) {
   check_mc_result(x)
+  checkmate::assert_data_frame(data, min.rows = 1, null.ok = TRUE)
+  checkmate::assert_flag(long)
   type <- match.arg(type)
   formula <- accel_formula(formula, type)
   x <- finalized(x)

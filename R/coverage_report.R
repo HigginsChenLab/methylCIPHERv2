@@ -1,10 +1,15 @@
 # formatters over a finished record's $coverage (no re-touch of beta)
 
+# every caller is an exported verb taking a user-supplied record, so this is a
+# front-door refusal and reads as cli, not as a developer stop().
 check_mc_result <- function(x, arg = "x") {
   if (!inherits(x, "mc_result")) {
-    stop(
-      sprintf("%s must be an mc_result from calc_clocks().", arg),
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} must be an {.cls mc_result}, not {.cls {class(x)[[1L]]}}.",
+        "i" = "{.cls mc_result} is what {.fn calc_clocks} returns."
+      ),
+      call = NULL
     )
   }
   invisible(x)

@@ -141,23 +141,48 @@ check_score_values <- function(scores) {
 MAX_MOMENT_SETS <- 8L
 
 # moment_sets for col_stats(): NULL, or a list of column-index vectors.
-# validated here before the kernel.
+# the domains are catalog-derived, so a failure here is a package bug -- but it
+# is the guard standing between a bad index and an out-of-bounds kernel read,
+# so it stays. bare stop(), not checkmate: nothing a user typed reaches it.
 check_moment_sets <- function(sets, nc) {
   if (is.null(sets)) {
     return(NULL)
   }
-  checkmate::assert_list(sets, min.len = 1L, max.len = MAX_MOMENT_SETS)
+  bug <- function(...) {
+    stop(sprintf(...), call. = FALSE)
+  }
+  if (!is.list(sets) || !length(sets) || length(sets) > MAX_MOMENT_SETS) {
+    bug(
+      "moment_sets must be a list of 1 to %d index vectors, got %s of length %d.",
+      MAX_MOMENT_SETS,
+      class(sets)[[1L]],
+      length(sets)
+    )
+  }
   labels <- names(sets) %||% rep("", length(sets))
   out <- lapply(seq_along(sets), function(k) {
     who <- if (nzchar(labels[[k]])) labels[[k]] else as.character(k)
-    checkmate::assert_integerish(
-      sets[[k]],
-      lower = 1L,
-      upper = nc,
-      any.missing = FALSE,
-      .var.name = sprintf("moment_sets[[%s]]", who)
-    )
-    as.integer(sets[[k]])
+    v <- sets[[k]]
+    if (!is.numeric(v)) {
+      bug("moment_sets[[%s]] must be numeric, got %s.", who, class(v)[[1L]])
+    }
+    if (anyNA(v)) {
+      bug("moment_sets[[%s]] has missing values.", who)
+    }
+    if (any(v != trunc(v))) {
+      bug("moment_sets[[%s]] has non-integer values.", who)
+    }
+    # 1-based column indices into DNAm -- the kernel does not range-check them
+    if (length(v) && (min(v) < 1 || max(v) > nc)) {
+      bug(
+        "moment_sets[[%s]] indexes outside 1:%d (range %g to %g).",
+        who,
+        nc,
+        min(v),
+        max(v)
+      )
+    }
+    as.integer(v)
   })
   names(out) <- names(sets)
   out
