@@ -14,6 +14,73 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- The public message surface: audience, not transport, and one English
+
+Four agents audited all 70 user-visible message sites against a proposed rule set. 11 were clean.
+The rules and the per-site evidence are in `dev/cli-audit.md` and `dev/cli-audit/` (local only).
+`CLAUDE.md` now carries R1 to R7; this entry records the reversals and the things that will be
+second-guessed.
+
+**The cli keep-set was an enumeration and is now a rule.** cli was "front-door only", named file by
+file. That put `resolve_normalize()`'s four aborts on the `stop()` side, even though every one of
+them is about a `calc_clocks()` argument the caller typed. Those four could not carry markup, so
+they could not satisfy R6, so a whole class of user-facing messages was structurally exempt from
+the rules. That is a two-tier system, not a rule. The line is now **user-choosable input against
+package defect**, which leaves the old keep set almost unchanged in practice and fixes the one
+place where the transport was deciding the register.
+
+Worth recording because it looks like a loss: the plain `stop()` text was **better** than its cli
+neighbours on R2, with no first person and no "please". The voice problem was never caused by cli.
+The bullet grammar invites it.
+
+**`--` and `;` are banned in public-facing text, and that is not a reversal of the ASCII section.**
+The ban is scoped to what a user reads -- cli message text now, roxygen prose later. Comments,
+dev-facing `stop()` text and `dev/` docs keep `--`, which the ASCII section still requires. The
+reason is accessibility: the maintainer has dyslexia that makes `--` and em-dashes require a guess
+at the intended meaning, where a single `-` does not. Evidence that the ban costs nothing: all 14
+banned characters across the audit were sentence boundaries in disguise, and not one rewrite needed
+the ` - ` allowance that was left open for them.
+
+**"Scoring continues" is deleted, not reworded.** Several warnings spent a whole bullet saying the
+run had not stopped, which is what a warning already means. The premise behind keeping it was also
+wrong: we cannot promise a transposed `DNAm` will fail at the coverage gate, and scoring can fail
+for reasons that have nothing to do with the diagnosis. So the messages describe the problem and
+name an instrument instead. One casualty is honest: `coverage_gates.R`'s marginal warning carried a
+real fact, that more of the panel gets filled by imputation, and restating it accurately needs a
+per-clock policy lookup (`vendor_mean` fills, every other policy drops). It was dropped rather than
+stated approximately.
+
+**No "... and N more" tail.** The cap was already 10 in four hand-rolled spellings with two
+different tails. Less is more: the true total is already in the lead line, so the tail was
+restating a number the reader has. The one exception is the interactive delete-consent manifest,
+which counts the remainder on its own line -- there the list is what is being consented to. This
+narrows `CLAUDE.md`'s older promise that the delete prompt "lists every file", knowingly: the
+counts above the list stay exact, and an unbounded render is the failure the cap exists to prevent.
+
+**`sprintf` never feeds cli, and interpolating is not enough on its own.** cli parses message
+elements and bullets as templates, so a built string carrying a `{` is read as syntax --
+`mc_manifest_bullets()` genuinely aborted with `Could not evaluate cli {} expression` on a brace in
+a file name. Building with `format_inline()` fixes the *inputs* but not the output, which still
+goes back through cli as a template, so `bullets()` escapes braces at the one door every bullet
+passes through. The tempting shortcut, `cli_vec(vec-trunc)`, was rejected: it truncates the display
+while still handing cli the whole vector, so it looks like the fix and does not meet the
+requirement.
+
+**`capped_bullets()` caps before it formats.** The old order formatted every element then capped,
+which is why capping and markup were mutually exclusive: a finished `sprintf` line cannot carry
+markup, and marking up an unbounded vector is what the cap forbids. Reversing the order dissolves
+the conflict and is also strictly less work.
+
+**`gate_label()` marks up the token, not the whole label.** It renders `"DNAmFitAge" (female
+model)`, so the quotes sit on the part the caller can type back. The audit proposed embedding
+`sprintf("{.val %s}", id)`, which is exactly the `sprintf`-into-cli mixing banned above; it uses
+`format_inline()` instead. Two assertions in `test-coverage-gate.R` tested the exact string shape,
+which the altitude rule discourages, and now assert what the label must and must not name.
+
+**Two class names got `{.cls}` and nothing else changed at those sites.** Worth noting because it
+is the one rule that reaches sites the other six leave alone: R6 caught `class(x)[[1L]]` rendering
+bare in prose at two sites that were otherwise clean.
+
 ## 2026-08-03 -- The Age units gate is per row, not distributional, and it lives in `check_pheno()`
 
 `check_pheno()` bounded `Age` only by `assert_numeric(finite = TRUE)`, which accepts an age in

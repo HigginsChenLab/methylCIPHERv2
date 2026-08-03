@@ -417,8 +417,11 @@ contribute** (the catalog is committed). `sync()` needs read access to `methylCI
   **and** every superseded one, with no opt-in flag. Filenames are content-addressed, so each sync
   that moves a `payload_hash` orphans the old file; leaving those behind made `clear` fail to
   reclaim and grew the dir without bound. The consent gate is what makes this safe -- the prompt
-  counts the two kinds apart ("3 downloaded packs and 3 superseded packs") and lists every file
-  before anything is deleted. The stale scan is not a search for a payload -- it never returns one,
+  counts the two kinds apart ("3 downloaded packs and 3 superseded packs") and lists the files
+  before anything is deleted -- capped at `MC_MSG_CAP` like every other list, with any remainder
+  counted on its own line, because a message that renders an unbounded vector is the one failure
+  mode the cap exists for and the counts above it are already exact (DECISIONS 2026-08-03). The
+  stale scan is not a search for a payload -- it never returns one,
   and the stem comes from the declared `file` field, so only the hash is a wildcard; a foreign stem
   or an uncontent-addressed file in the dir is never touched.
   **The gate argument fails closed.** `ask` is a strict flag: only `FALSE` consents, and anything
@@ -596,22 +599,83 @@ out set notation.
 
 ## CLI messages
 
-`cli` is **front-door only**. Keep it for the public interactive surface; everything else is
-plain `stop()` / `warning()` / `message()` with `call. = FALSE`.
+**The line is audience, not transport.** A message about **input the user chose** is `cli`,
+whatever function raises it. A message about a **package defect** -- a "cannot happen" condition,
+a catalog/sync gap, a missing dispatch branch -- is a plain `stop()` with `call. = FALSE`. This
+replaced an enumerated cli keep-set on 2026-08-03, because that list put four `resolve_normalize()`
+messages about a `calc_clocks()` argument on the `stop()` side, where they could not carry markup
+and so **could not meet the rules below at all**. A rule a whole class of user-facing messages is
+structurally incapable of meeting is a two-tier system, not a rule (DECISIONS 2026-08-03).
 
-**Keep `cli` in:**
-- assets lifecycle (`R/mc_data.R`: consent, download, clear, path/`ext_data` validation)
-- discovery printers (`print.mc_citation`, `list_clocks` unknown-group). **`list_clock_tags()` is
-  not one** -- it returns the registry as a value and prints nothing (DECISIONS 2026-07-29)
-- public S3 refusals (`rbind.mc_result`, `cite_clocks.default`)
-- `calc_clocks` front door: `resolve_clocks` token errors (incl. did-you-mean), DNAm/pheno
-  structure (`validate_inputs.R`), coverage gates, value gates / dead samples
-  (`missingness.R`), missing pheno in `mc_cohort`, `clock_cpgs` unresolved panels
+So today: assets lifecycle, discovery printers, public S3 refusals, and the whole `calc_clocks`
+front door (token resolution, `validate_inputs.R`, coverage gates, `missingness.R`, `mc_cohort`,
+`clock_cpgs`, `resolve_normalize`) are cli. Accessors, score branches, pack dispatch, catalog/sync
+bugs and citation internals are `stop()`. **`list_clock_tags()` is not a printer** -- it returns
+the registry as a value and prints nothing (DECISIONS 2026-07-29).
 
-**Plain `stop()` everywhere else** -- accessors, score branches, pack dispatch, catalog/sync
-bugs, normalize-arg validation, citation internals, soft-dep hints (`require_betanorm`), etc.
+A defect message is **hard-coded and greppable**: a fixed prefix, values appended after it, so a
+bug report can be located from the pasted text with no stack trace asked of the user. Not a fully
+constant string -- `check_moment_sets()`'s failing index is real debugging value -- but the fixed
+part leads.
 
-Rules that still apply on the keep set:
+### The English (public-facing text only)
+
+These bind **every message a user can see**: cli message text today, and roxygen prose when to-do
+2.1 happens. They do **not** bind code comments, dev-facing `stop()` text, `data-raw/`, or `dev/`
+docs, so the ASCII section above is untouched and `--` stays required there. This is an added
+scope, not a reversal (DECISIONS 2026-08-03).
+
+- **R1. ASD-STE100 Simplified Technical English.** One instruction per sentence. About 20 words
+  for an instruction, 25 for a description. The simple word over the elaborate one. One word for
+  one meaning. Articles present. No noun cluster longer than three words. No ambiguous `-ing`
+  form. `coverage` and `superseded` are accepted exceptions: both are public API names, and
+  vocabulary rules stop where the API starts.
+- **R2. No first person and no "please". No contractions.** Prefer the data or the object as the
+  subject over a bare passive. `{.fn calc_clocks}` **is** allowed as a grammatical subject -- it
+  is the real actor behind four record-verb messages, and making the user the subject there would
+  assert they scored records they may only have been handed. Second person is allowed where the
+  user genuinely is the actor ("You cancelled the download").
+- **R3. No `--` and no `;` in message text.** Period, comma, colon, and a single spaced hyphen.
+  This is an **accessibility requirement**, not a style preference. A `;` is how a long sentence
+  gets smuggled past a period, so prefer a period and a short new sentence: across the 70-site
+  audit every one of the 14 banned characters was a sentence boundary in disguise, and not one
+  rewrite needed the ` - ` allowance.
+- **R4. Describe the problem and give an actionable next step.** Never state that scoring
+  continues, or that nothing was stopped -- a warning already says that, and the space is better
+  spent on an instrument. Name the function to call **next**, never the one currently running
+  (`say_low_samples()` is raised from inside `samples_coverage()`, so it must not name it).
+- **R5. No vector sized by user input reaches cli.** `MC_MSG_CAP` is 10 and lives in `R/utils.R`
+  with `capped_bullets()` / `capped_vals()` / `capped()`. There is **no "... and N more" tail**: a
+  capped head is enough and the true total is already in the lead line. Wrapping a cap around a
+  two-element catalog constant buys nothing. Where the cost is upstream of the render -- the
+  `adist()` in `did_you_mean()` -- cap the **token count**, because a cap at the cli boundary does
+  not reach it.
+- **R6. Every R language object in message prose carries cli markup.** A bare identifier reads as
+  broken English. **Only R language objects**: domain and platform terms (`EPICv2`, `MSA`,
+  "M-value") stay prose, because markup that resolves to a cross-package link breaks when that
+  package is absent.
+- **R7. Keep a marked span short.** Mark the identifier, not the surrounding phrase and not a
+  whole call with long arguments. roxygen2 renders a long backticked span badly and it breaks the
+  PDF manual.
+
+### Mechanics
+
+- **`sprintf` output must never become cli input.** The two do not compose: cli parses every
+  message element and every bullet as a template, so a `{` that arrives inside a built string is
+  read as syntax. This is not theoretical -- `mc_manifest_bullets()` aborted with
+  `Could not evaluate cli {} expression` on a brace in a file name. Build the line with
+  `cli::format_inline()` and hand data in as **interpolated values**; interpolated values are
+  never re-parsed. `sprintf` is still right for a plain `stop()`, for `cli_verbatim()` (which does
+  no interpolation, which is why the aligned manifest keeps it), and for an `askYesNo()` prompt.
+- **Rendered text goes back through cli as a template, so `bullets()` escapes braces.** Building
+  the line with `format_inline()` is not enough on its own: its *output* still contains any brace
+  the data carried. Every bullet path is covered because `bullets()` is the one door.
+- Line builders are **cap first, then format** (`capped_bullets(x, fmt)`), which is what makes
+  per-element markup affordable: at most ten elements are ever formatted.
+- **`say_*` emits to the user; `note_*` records into the block's collector.** Do not use `note_`
+  for something that prints.
+
+Rules that still apply:
 
 - **Bind every `{?}` plural marker with an explicit `cli::qty()` unless the quantity is the
   interpolation immediately before it.** cli resolves a marker against the *last interpolated
