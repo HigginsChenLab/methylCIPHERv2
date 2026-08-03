@@ -10,11 +10,13 @@ check_col_values <- function(scan, cols) {
   if (!is.null(at)) {
     cli::cli_abort(
       c(
-        "DNAm column {.val {cols[at[[1L]]]}} does not sum to a finite value.",
-        "i" = "Its entries look finite but are extremely large -- far outside
-               the usual beta range of {.val {0}} to {.val {1}}. Please check
-               that column before scoring.",
-        "i" = "The scan stops at the first such column, so there may be others."
+        "{.arg DNAm} column {.val {cols[at[[1L]]]}} does not sum to a finite
+         value.",
+        "i" = "The entries are finite but very large. Beta values normally run
+               from {.val {0}} to {.val {1}}.",
+        "i" = "Use {.fn range} on that column before you score.",
+        "i" = "The value check stops at the first such column, so the matrix
+               may hold others."
       ),
       call = NULL
     )
@@ -24,12 +26,13 @@ check_col_values <- function(scan, cols) {
   if (isTRUE(scan[["any_inf"]])) {
     cli::cli_warn(
       c(
-        "DNAm contains infinite values.",
-        "i" = "They are treated as missing: filled from the cohort mean where
-               the probe is partly observed, and counted absent where it is
-               not.",
-        "i" = "An infinite beta is often an upstream divide-by-zero.
-               {.fn clocks_coverage} shows what was imputed."
+        "{.arg DNAm} contains infinite values.",
+        "i" = "An infinite value counts as missing.",
+        "i" = "The cohort mean fills it where the probe is partly observed.",
+        "i" = "The probe counts as absent where no sample observes it.",
+        "i" = "An infinite beta is often a divide by zero earlier in the
+               pipeline.",
+        "i" = "{.fn clocks_coverage} reports what the fill replaced."
       ),
       call = NULL
     )
@@ -43,13 +46,14 @@ check_col_values <- function(scan, cols) {
   if (lo < 0) {
     cli::cli_warn(
       c(
-        "DNAm contains values below {.val {0}}; the smallest is
-         {.val {signif(lo, 4)}}, in column {.val {cols[scan[['min_col']]]}}.",
-        "i" = "{.fn calc_clocks} expects beta values in {.val {0}} to
-               {.val {1}}. An M-value matrix is a common cause -- it will
-               score without error, but the ages won't be meaningful.",
-        "i" = "If that sounds right, convert with
-               {.code beta <- 2^m / (2^m + 1)}."
+        "{.arg DNAm} contains values below {.val {0}}.",
+        "x" = "The smallest is {.val {signif(lo, 4)}}, in column
+               {.val {cols[scan[['min_col']]]}}.",
+        "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
+               {.val {1}}.",
+        "i" = "An M-value matrix is a common cause. The resulting ages are not
+               meaningful.",
+        "i" = "Convert an M-value matrix with {.code beta <- 2^m / (2^m + 1)}."
       ),
       call = NULL
     )
@@ -58,18 +62,19 @@ check_col_values <- function(scan, cols) {
   if (hi > 1) {
     cli::cli_warn(
       c(
-        "DNAm contains values above {.val {1}}; the largest is
-         {.val {signif(hi, 4)}}, in column {.val {cols[scan[['max_col']]]}}.",
-        "i" = "{.fn calc_clocks} expects beta values in {.val {0}} to
-               {.val {1}}. It will score without error, but the ages won't be
-               meaningful.",
+        "{.arg DNAm} contains values above {.val {1}}.",
+        "x" = "The largest is {.val {signif(hi, 4)}}, in column
+               {.val {cols[scan[['max_col']]]}}.",
+        "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
+               {.val {1}}.",
+        "i" = "The resulting ages are not meaningful.",
         if (hi > PERCENT_SCALE_AT) {
           c(
-            "i" = "Percent methylation is the usual cause at this size --
-                   convert with {.code DNAm / 100}."
+            "i" = "Percent methylation is the usual cause at this size.",
+            "i" = "Convert percent methylation with {.code DNAm / 100}."
           )
         } else {
-          c("i" = "Please double-check the scale of {.arg DNAm}.")
+          c("i" = "Check the scale of {.arg DNAm}.")
         }
       ),
       call = NULL
@@ -112,17 +117,18 @@ check_score_values <- function(scores) {
   hint <- c(
     if (length(full)) {
       c(
-        "i" = "{.val {full}} divide{cli::qty(full)}{?s/} by a per-sample sd
-               taken over every column of {.arg DNAm}, so a sample observing one
-               value, or the same value everywhere, has no spread to scale by."
+        "i" = "{.val {full}} divide{cli::qty(full)}{?s/} by a per-sample
+               standard deviation over every column of {.arg DNAm}.",
+        "i" = "A sample with one distinct value has no spread to divide by."
       )
     },
     if (length(ref)) {
       c(
-        "i" = "{.val {ref}} divide{cli::qty(ref)}{?s/} by a per-sample sd taken
-               over {cli::qty(ref)}{?its/their} declared reference set, so a
-               sample observing one value, or the same value everywhere, on that
-               set has no spread to scale by."
+        "i" = "{.val {ref}} divide{cli::qty(ref)}{?s/} by a per-sample standard
+               deviation over {cli::qty(ref)}{?its/their} declared reference
+               set.",
+        "i" = "A sample with one distinct value on that set has no spread to
+               divide by."
       )
     }
   )
@@ -133,9 +139,9 @@ check_score_values <- function(scores) {
        score{?s}:",
       capped_bullets(names(bad), bad_lines),
       hint,
-      "i" = "{.code NaN} or {.code Inf} usually means a non-finite value
-             reached the arithmetic. Please check {.arg DNAm} rather than
-             the score itself."
+      "i" = "A {.code NaN} or an {.code Inf} usually means a non-finite value
+             reached the score calculation.",
+      "i" = "Check {.arg DNAm} rather than the score."
     ),
     call = NULL
   )
@@ -270,8 +276,10 @@ scan_missing_cpgs <- function(
         c(
           "{length(dead)} sample{?s} {?has/have} no observed CpGs on any
            scoring panel: {.val {capped_vals(dead)}}.",
-          "i" = "Please remove or repair {cli::qty(dead)}{?it/them} before
-                 scoring."
+          "i" = "Remove or repair {cli::qty(dead)}{?it/them} before you
+                 score.",
+          "i" = "{.code rowSums(!is.na(DNAm))} counts the observed values per
+                 sample."
         ),
         call = NULL
       )
