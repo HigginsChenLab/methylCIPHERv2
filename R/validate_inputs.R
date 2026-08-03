@@ -153,12 +153,26 @@ check_pheno <- function(
     return(invisible(NULL))
   }
   checkmate::assert_data_frame(pheno, min.rows = 1)
-  checkmate::assert_choice(ID, names(pheno))
+  # front-door pheno structure, so cli -- and checkmate's own message here reads
+  # "Assertion on 'ID' failed", naming an argument the caller never typed.
+  if (!ID %in% names(pheno)) {
+    cli::cli_abort(
+      c(
+        "{.arg pheno} has no column {.val {ID}} to match samples on.",
+        "i" = "{.arg pheno_id} names the id column; {.arg pheno} has
+               {.field {names(pheno)}}."
+      ),
+      call = NULL
+    )
+  }
+  # the expression deparses to pheno[[ID]], which names an internal argument --
+  # so this is one of the few sites that needs .var.name spelled out
   checkmate::assert_character(
     pheno[[ID]],
     any.missing = FALSE,
     unique = TRUE,
-    null.ok = FALSE
+    null.ok = FALSE,
+    .var.name = paste0("pheno$", ID)
   )
   # required covariates must exist -- the score branches read them unguarded
   miss <- setdiff(extra_columns, names(pheno))

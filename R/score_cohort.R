@@ -137,7 +137,6 @@ mc_spec <- function(
   ext_data = NULL,
   ask = TRUE
 ) {
-  checkmate::assert_string(pheno_id)
   clock_ids <- resolve_clocks(clocks)
   clock_sequence <- resolve_clocks_sequence(clock_ids)
   normalize <- resolve_normalize(normalize, clock_sequence)

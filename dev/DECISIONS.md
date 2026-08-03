@@ -14,6 +14,72 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- Assertions live at the boundary, and `.var.name` is filled only where the deparse lies
+
+One pass over `R/`: 32 `checkmate` calls across 12 files -> 30 across 9. `coverage_gates.R`,
+`missingness.R` and `score_cohort.R` now use `checkmate` not at all, which is the point -- all
+three were asserting values that had already crossed the front door.
+
+**What forced the pass was a measured message, not a principle.**
+`calc_clocks(min_clocks_coverage = "a")` reported
+
+```
+Assertion on 'threshold' failed: Must be of type 'number', not 'character'.
+```
+
+because that floor was asserted **nowhere** at the front door -- `calc_clocks()` asserted only
+`min_samples_coverage`, and the floor's sole validation was `assert_number(threshold, ...)` three
+frames down in `check_coverage()`, reached through `mc_cohort()`. So the assertion named a variable
+the caller never typed, while the cli messages in that same function correctly said
+`{.arg min_clocks_coverage}`.
+
+**The tempting fix is the wrong one.** Setting `.var.name = "min_clocks_coverage"` inside
+`check_coverage()` makes the message right for today's one caller and a lie for any other, and it
+buries a missing boundary check under a cosmetic patch. The floor is now asserted in
+`calc_clocks()` beside its sibling, and `check_coverage()` asserts nothing -- at which point the
+deparse is correct for free. **That is the general shape: a wrong variable name in a `checkmate`
+message is usually evidence the check is in the wrong frame.** Look there first.
+
+**So `.var.name` is filled only where relocation cannot help.** `checkmate` derives the name by
+deparsing the expression, so at a boundary the default is already the caller's own word and a
+hand-written string is pure staleness risk -- it survives the next rename; the deparse does not
+need to. The rule: fill it **iff the deparsed expression does not name something the caller can
+locate in their own call.** This is deliberately *not* "iff it is not a bare symbol" --
+`assert_character(colnames(DNAm))` deparses to `colnames(DNAm)`, which any caller can find, and
+filling it would be noise. The one site in this pass that qualified was `check_pheno()`'s
+`assert_character(pheno[[ID]], ...)`, where `ID` is an internal parameter name; it now carries
+`.var.name = paste0("pheno$", ID)`, which names the *actual column* and so beats both the internal
+name and a generic `"pheno_id"`. Precedents already in the tree: `predict_sex.R`'s
+`"pheno$Female"` and `missingness.R`'s `sprintf("moment_sets[[%s]]", who)`.
+
+**`check_moment_sets()` went the other way -- checkmate to bare `stop()`.** Its input is
+catalog-derived (`resolve_moment_domains()`), so a failure is a package bug and a `checkmate`
+message aimed at a user is the wrong register. It is *not* deleted, because it is the guard between
+a bad index and an out-of-bounds kernel read; the bounds, NA, integer and arity checks are all
+still there, just as `stop()` with greppable text. Its existing tests assert *that* it errors and
+nothing about wording, so they carried over untouched -- which is the altitude rule paying for
+itself.
+
+**`check_pheno()`'s missing-id-column refusal became cli.** `assert_choice(ID, names(pheno))`
+printed `Assertion on 'ID' failed: Must be element of set {'zz'}, but is 'ID'` -- where `'ID'` is
+simultaneously the fake variable name and the value. Pheno structure at the `calc_clocks` front
+door is already on the cli keep-list, so this was never a `.var.name` question.
+
+**`check_mc_result()` is a front-door refusal.** This was the open question section 4.1 flagged: it
+is not an S3 method, so the keep-list did not name it. All six call sites (`rbind.mc_result`,
+`refinalize_clocks`, `as.data.frame.mc_result`, `calc_accel`, `clocks_coverage`,
+`samples_coverage`, `score_associations`) are exported verbs receiving a user-supplied first
+argument, which is the keep-list's own pattern. It is now `cli_abort` and reports the class it got.
+
+**The suite did not move: 0 failed / 0 error / 0 warning / 264 skipped / 1234 passed, identical to
+the pre-pass baseline.** That is the check on the pass, not a coincidence -- tests assert *that* an
+error fires rather than its wording, so relocating and rewording checks is invisible to them. A
+failure here would have meant a test was too tight, not that the pass was wrong.
+
+`R CMD check` not run (maintainer-only). Parity not run.
+
+---
+
 ## 2026-08-03 -- `predict_sex()` compares against the recorded sex; the join is by id
 
 `predict_sex()` already took `DNAm` and `pheno` on one call over one matrix and passed `pheno`
