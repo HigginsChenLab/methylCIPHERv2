@@ -14,6 +14,36 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-03 -- The test-suite trim is the last step before public alpha, not the next one
+
+The queued audit of the suite (assert output not wiring, let parity own the goldens it already
+owns, delete what a no-behavior refactor would break) is **deferred until immediately before
+public alpha**, and it is the last piece of work before it. It was previously slotted first, on
+the reasoning that a faster suite makes every later iteration faster.
+
+**Why it moves to last.** The suite is the thing that has to be stable when `R CMD check` starts
+running, and check does not run yet -- it is maintainer-on-demand precisely because the suite is
+bloated. So the trim and the first real check run are one piece of work, and doing the trim now
+buys a faster suite for a period in which the code it tests is still moving. Two things in
+particular are still unsettled and both rewrite test surface: **roxygen prose does not exist**
+(the exported surface still carries a placeholder block, and turning prose on is its own pending
+decision), and the validation/message pass will relocate and reword checks across `R/`. Trimming
+against a surface that is about to move means auditing the same files twice.
+
+**What this is not.** Not a reversal of the altitude rules -- they stand and bind on every test
+written meanwhile, which is what keeps the eventual trim from growing. Not permission to add
+tests loosely on the theory that a cleanup is coming. And not a change to the standing
+prohibition on running `R CMD check`: it stays maintainer-on-demand until the trim lands, which
+is the point at which running it is expected to become routine.
+
+**Ordering consequence.** The message/validation pass (validate at the boundary, then tighten the
+bounds, then tone) is a deliberate forcing function for the trim: those passes reword and
+relocate messages, and by the altitude rule tests assert *that* an error fires rather than its
+wording, so anything that breaks under them was too tight and is already on the trim's list.
+Doing them first means arriving at the trim with the list half-written.
+
+---
+
 ## 2026-08-03 -- `check_DNAm()` diagnoses shape and replicate probes; it never dedups
 
 Three changes to `check_DNAm()`, and one standing refusal.
