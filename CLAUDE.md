@@ -478,18 +478,22 @@ output**, not implementation detail (see "Test altitude").
   never listed). It needs no duckdb and no staged cohort, so `test_parity()` runs it even where
   nothing is staged -- but it **is** behind `MC_PARITY`, so a plain `devtools::test()` does not
   catch a dropped fixture; CI does (DECISIONS 2026-07-26).
-  **Standing state: 217 tests / 30 skip / 0 fail** -- census 1/1, core 130/130, fitage 28/28,
-  packs 56/56, PhysAge 2/2, horvath 30 skipped. **The runner reports this as `PASS 657`**, because
-  testthat counts *expectations*, not `test_that` blocks, and `expect_parity()` carries three
-  (an all-finite check plus the abs and rel bounds): 214 x 3 + PhysAge 2 x 6 + census 3 = 657.
-  Read a parity run by its **fail and skip** counts -- 0 and 30 -- and check the two against each
+  **Standing state, re-measured 2026-08-02: 263 blocks / 32 skip / 0 fail** -- census 1/1,
+  core 146, fitage 28, packs 56, PhysAge 2/2, horvath 30 skipped, Wang@cohort_450K 2 skipped.
+  **The runner reports this as `PASS 699`**, because testthat counts *expectations*, not
+  `test_that` blocks, and `expect_parity()` carries three (an all-finite check plus the abs and rel
+  bounds): 228 targets run x 3 + PhysAge 2 x 6 + census 3 = 699.
+  Read a parity run by its **fail and skip** counts -- 0 and 32 -- and check the two against each
   other before concluding anything from the pass number.
-  **These counts predate the 2026-07-29 Zhang2019 split and have not been re-measured.** The split
-  added one clock, so `core` gains its two cohort targets (`Zhang2019BLUP` skips wherever its pack
-  is not staged). Re-measure on the next parity run before trusting the totals; the fail count is
-  still 0-or-bust.
-  `KNOWN_PARITY_GAPS` (clock- or `clock@cohort`-keyed) holds only genuine skips and is **empty**
-  today. `KNOWN_PARITY_GAP_GROUPS` (group-keyed) is empty too but stays a **separate** map,
+  `core` grew 130 -> 146 across the Zhang2019 split and the `DNAmSex_Wang` family; six of those
+  are accounted for and the other ten arrived with an uncommitted `sysdata.rda` regeneration
+  (DECISIONS 2026-08-02, "Wang parity"). The fail count is 0-or-bust either way.
+  `KNOWN_PARITY_GAPS` (clock- or `clock@cohort`-keyed) holds only genuine skips. It holds
+  **two** today, both `DNAmSex_Wang_*@cohort_450K`: that cohort's deposited matrix carries no
+  sex-chromosome probes, so the panel is 0% present and the fixture is the oracle's empty-panel
+  `0`. **Do not relax `check_coverage()`'s `ratio == 0` stop to make them pass** -- a 0 there is
+  the `Female` quadrant of the sign map, not a small number.
+  `KNOWN_PARITY_GAP_GROUPS` (group-keyed) is empty but stays a **separate** map,
   because group ids and clock ids share a namespace (`DNAmFitAge` is both) and one flat map could
   not say which a key meant.
 

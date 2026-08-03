@@ -1,6 +1,6 @@
-# shared print grammar for every print.mc_* method. builders return strings so cli and cat match
+# shared print grammar for every print.mc_* method.
 
-# one plural form for every count we print. suffix covers nouns like batch(es)
+# one plural form for every count we print.
 plural_count <- function(n, noun, suffix = "s") {
   sprintf("%d %s(%s)", n, noun, suffix)
 }
@@ -33,7 +33,7 @@ fmt_section <- function(name, ...) {
   sprintf("$%s [%s]", name, paste(c(...), collapse = ", "))
 }
 
-# one component block. cut_cols = false when columns stay whole (pheno)
+# one component block. cut_cols = false when columns stay whole.
 print_block <- function(name, x, ni, pi, col_noun, cut_cols = TRUE) {
   nr <- nrow(x)
   nc <- ncol(x)

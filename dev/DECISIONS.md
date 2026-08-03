@@ -14,6 +14,419 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-02 -- Wang scores as a matmul plus two scalars, and the scalars stay runtime
+
+**`score_DNAmSex_Wang()` no longer materializes the z-scored or centred matrix.**
+`sum_j ((x_ij - m_i)/s_i - c_j) * r_j` is algebraically `(x_i . r - m_i * sum(r)) / s_i -
+sum(c * r)`, so the projection is one `n x p` matmul against a vector plus two reductions over
+`p`. The two `n x p` temporaries -- the z-score and the `rep(center, each = n)` broadcast -- and
+the `rep()` itself all vanish. Same rearrangement `score_Zhang2019()` already used, so this is the
+established form here, not a new trick.
+
+**Measured** (ChrX, p = 4047, real tensors): n=500 30x, n=2000 33x (0.99s -> 0.03s over 10 reps),
+and 247 MB of transient allocation per call gone at n=2000. The win grows with n because the old
+form's cost is `O(n*p)` elementwise work while the new one's is the matmul BLAS was going to do
+anyway.
+
+**It reorders the summation, so it is not bit-identical.** Old vs new on the shipped tensors, over
+100%/90%/50% coverage and both members: worst 1.1e-12 absolute on scores of scale ~230, worst
+1.5e-11 relative (that relative is inflated by samples whose score is near zero, where a 1e-12
+absolute miss is large in ratio). Against the 1e-10 abs / 1e-10 rel `core` parity gates that is
+~100x and ~7x of margin respectively. **Re-run parity before trusting this**: EPICv1 previously
+passed at 5.5e-12 abs (ChrX), so expect ~6.5e-12; the relative axis is the tighter one and is the
+one to read.
+
+**The two scalars are computed at scoring time, from `present`, and must stay there.** The
+tempting next step is precomputing `sum(center * rotation)` upstream as an intercept -- it looks
+like a catalog constant. It is not: both Wang members declare `imputation: omit`, so an absent CpG
+is *dropped*, and the correct constant is over `present`, not the declared panel. Measured drift of
+`sum(center*rotation)` on ChrX as coverage falls: 0.37 at 1% absent, 1.9 at 5%, 3.8 at 10%, against
+a score scale of ~+/-137 -- i.e. 0.3% to 2.8%, applied as a **uniform offset to every sample**. That
+is orders of magnitude past the parity gate and is exactly the failure a correlation check cannot
+see, which is why the gate is a bounded per-element difference. `sum(r)` in the z-score half is
+coverage-dependent for the same reason and drifts faster (0.55 at 1% absent).
+
+**So the contrast with the SystemsAge sync precompute is the point:** that one survived review
+because its arithmetic does not depend on which CpGs the user measured. Wang looks like the same
+shape and is not. A precomputed constant here would be correct only at exactly 100% coverage and
+silently wrong everywhere else.
+
+---
+
+## 2026-08-02 -- Wang parity: EPICv1 passes, cohort_450K is a declared gap
+
+**Parity was run** (maintainer-authorized). **FAIL 0 / SKIP 32 / PASS 699**, 61s. Re-measured
+standing state below; the figures in `CLAUDE.md` were stale and are updated. `R CMD check` not run.
+
+**The first run failed 8 targets, all Wang, and the cause was ours.** `run_parity_target()` carried
+its own projection -- `panels_union(clock_panels(seq_ids, packs))` -- so it fetched the 4047 / 284
+panels and none of the 442533-probe ref. Every EPICv1 sample scored `NA`. This is the **same defect
+as the `clock_cpgs()` one two entries below, in a second copy of the same logic**, which is the
+argument for the fix that landed: `sequence_cpgs()` (`R/clock_cpgs.R`) is now the one union, called
+by both, with an always-on test in `test-score-wang.R` asserting they agree. A private copy of "what
+must I measure" is the bug; deleting the copy is the fix.
+
+**EPICv1 then passed with room:** ChrX 5.5e-12 abs / 2.3e-13 rel, ChrY 9.4e-13 / 9.2e-14, against
+`core`'s 1e-10 on both axes. First evidence the branch is right against something other than a
+re-implementation of it.
+
+**Free finding, since the cohort carries `Female`:** the karyotype call agrees with reported sex
+**71/71** on EPICv1 (43 Female, 28 Male, no aneuploid calls). Recorded as an observation, **not
+wired as a test** -- see the reasoning in `dev/moment-domains-plan.md` sec 12: parity gates "we match
+the oracle", and per-sample agreement with a binary `Female` cannot represent `47,XXY` / `45,XO`, so
+any true aneuploid would be a permanent red. What it does settle cheaply is inversion: a swapped X/Y
+binding scores 0/71, not 71/71.
+
+**cohort_450K is a genuine gap and is now declared** -- the first two entries in the deliberately
+empty `KNOWN_PARITY_GAPS`. The deposited 450K matrix carries **no sex-chromosome probes** (473034 of
+485512), so both panels are 0% present; upstream's own fixture declares all 4047 / 284 missing and
+expects `0`, which is what the author's code returns from summing an empty panel. We refuse instead:
+`check_coverage()` treats `ratio == 0` under a non-`vendor_mean` policy as an unconditional stop,
+independent of `min_clocks_coverage`. **That rule is right and was not relaxed to make a fixture
+pass** -- a `0` here is not a small score, it is the `Female` quadrant of the sign map, so scoring it
+would be a meaningless number wearing a real answer's clothes. Upstream may want to drop those two
+fixtures; they can only ever assert `0 == 0` from a run that scored nothing.
+
+**Re-measured standing state**, replacing the pre-Zhang-split figures:
+
+| block   | targets | note                                  |
+|---------|---------|---------------------------------------|
+| core    | 146     | includes Zhang2019BLUP and Wang@EPICv1 |
+| fitage  | 28      |                                       |
+| packs   | 56      |                                       |
+| horvath | 30      | all skipped (DECISIONS 2026-07-25)    |
+
+260 targets + 2 PhysAge + 1 census = **263 blocks**. 228 targets run x 3 expectations, + PhysAge
+2 x 6, + census 3 = **699**. Skips are 30 horvath + 2 Wang@450K = **32**.
+
+`core` grew from the recorded 130 to 146. Six of those are accounted for (Zhang2019BLUP x 2 cohorts,
+Wang x 2 members x 2 cohorts); the other ten arrived with the uncommitted `R/sysdata.rda`
+regeneration and are **not** explained here -- stated as a measurement, not a claim.
+
+---
+
+## 2026-08-02 -- `predict_sex()` reads the karyotype call; it does not reimplement it
+
+Always-on suite **1179 pass / 0 fail / 264 skip / 0 warn**. Parity not run; `R CMD check` not run.
+Implies one new export: `export(predict_sex)`. `document()` also re-sorted `export(calc_accel)`
+into alphabetical position -- incidental, not a surface change.
+
+`R/predict_sex.R`: `calc_clocks()` on both `DNAmSex_Wang` members, `as.data.frame(long = FALSE)`,
+then `apply_karyotype()`. The whole call is `default` + `rules` read off
+`group_entry("DNAmSex_Wang")[["routing"]][["karyotype_call"]]` -- **the first consumer of
+`mc_groups` in `R/`**, which is why `group_entry()` (`R/accessors.R`) exists at all: group
+declarations are read through an accessor like clock ones, never off `mc_groups` in place.
+Verified against all four quadrants: `X<0,Y>0 -> Male`, `X>0,Y>0 -> 47,XXY`,
+`X<0,Y<0 -> 45,XO`, and `X>0,Y<0 -> Female` **because no rule covers it**, which is also what an
+exact 0 on both axes gives. That last pair is the whole reason this is read rather than written: a
+symmetric four-quadrant table agrees on the interior and diverges on the boundary, and the boundary
+is every sample in `cohort_450K`.
+
+**Two deliberate divergences from the author.**
+
+1. **A sample missing either score gets `NA`, not the default label.** `wateRmelon::estimateSex`
+   overwrites with `predicted_sex[which(...)]`, and `which()` drops `NA`, so an unscorable sample
+   silently keeps `Female`. We can produce that state -- a matrix carrying the panels but not the
+   z-score ref -- and reporting a sex for a sample nothing was measured for is the same error as
+   reporting coverage for a sample it is not true of.
+2. **The operand -> input binding is checked against the clock id.** The catalog pairs rule keys
+   (`chrX`, `chrY`) with `inputs` by declared order only; the actual binding lives in the prose
+   `by_chromosome` field, which is not machine-readable. Positional pairing alone means an upstream
+   reorder inverts every call with nothing to catch it -- fixture goldens store scores, not calls.
+   So `karyotype_inputs()` also asserts `endsWith(tolower(id), tolower(key))` and stops otherwise.
+   This is **not** the banned accessor search: the payload is already declared in `inputs`, and the
+   string test only cross-checks two declarations against each other.
+
+**The rule engine is unit-tested, against the usual altitude rule, on purpose.** No fixture covers
+it in either repo (parity goldens are scores) and `random_betas()` cannot be steered into a
+quadrant, so an output-level test can reach the shape and the label set but never the mapping.
+`apply_karyotype()` therefore takes `key -> score vector` and is tested directly on synthetic
+quadrants including both boundary cases. If a `predicted_sex` fixture ever lands upstream, that
+becomes the golden and this drops to a smoke.
+
+---
+
+## 2026-08-02 -- `clock_cpgs()` reports declared moment refs; panels are unchanged
+
+Always-on suite **1173 pass / 0 fail / 264 skip / 0 warn**. Parity not run; `R CMD check` not run.
+
+Settles the question the entry below left open. `clock_cpgs()` is now
+`panels_union(...)` unioned with `unlist(resolve_moment_domains(sequence))`.
+
+**Two placements got conflated, and only one of them is dangerous.** Making the ref a **panel role**
+inside `clock_panels()` is wrong: `needed_union` is `panels_union(panels)` over both roles, so it
+would widen Wang's coverage denominators from 4047 / 284 to 442533 and break "a moment domain is not
+a panel". But `clock_cpgs()` is a **leaf** -- `clock_panels_union()` has exactly one caller, and
+`mc_spec()` builds `needed_union` from its own `clock_panels()` call -- so adding the ref there
+cannot reach coverage at all. The first was briefly taken as an argument against the second, and it
+is not one.
+
+**What decided it: `clock_cpgs()` is on a shipped path, not just in front of the simulator.**
+`dev/id-streaming-plan.md` sec 8 makes "project with `clock_cpgs()`, block, score, bind" the
+supported route for a cohort that does not fit. A user following that advice for `DNAmSex_Wang` would
+project away the ref and get an all-`NA` column with no error -- so under-reporting here is a bug on
+a documented workflow. The name is also a promise: this function answers "what must I measure", and
+a CpG whose absence turns the score into `NA` is measured input by any reading.
+
+**The rule is "is the domain declarable", not a clock.** `resolve_moment_domains()` already carries
+`NULL` for the whole-matrix domain, so `Zhang2019`'s `"full"` drops out of `unlist()` on its own --
+there is no set to name -- while Wang's ref contributes its 442533. Same distinction the kernel's
+`moment_sets` keys on, reused rather than restated: no clock is named, and a future ref-declaring
+clock is served without an edit. `Zhang2019EN` is therefore still exactly its 514-CpG panel, and
+what a full-panel clock needs beyond that is still carried by `note_full_panel_clocks()` at
+`calc_clocks()` time. Both are tested.
+
+**`sim_DNAm()` stays exactly `clock_cpgs()`.** An earlier pass put this union in `sim_DNAm()`
+instead; that left the public answer wrong, split one rule across two functions, and would have made
+the simulator the only place that knew the real requirement. The blank/NA screen moved up with it,
+out of `clock_panels_union()` and onto the whole answer, so it is applied once.
+
+**Costs, accepted.** `clock_cpgs("DNAmSex_Wang_ChrX")` now answers 446580 rather than 4047, and a
+Wang sim is that wide (~14 MB at n = 4, transient). `remove =` is diluted for this family -- 5
+dropped columns out of 446580 hit a panel probe ~1% of the time, so it stops being a way to force
+absent-panel behaviour there. Nothing uses `remove` today. And the smoke tier's 2 expected warnings
+are gone, since it now scores Wang for real -- which leaves the `NA`-with-no-reference path covered
+**only** by its named test in `test-score-wang.R`. Better place for it, but load-bearing now: do not
+delete it as redundant.
+
+---
+
+## 2026-08-02 -- the Wang branch reads its own domain, and says when it cannot
+
+Always-on suite **1167 pass / 0 fail / 264 skip / 2 warn**. The 4 red tests from the two entries
+below are green. Parity not run; `R CMD check` not run. The skip count jumping 2 -> 264 is not a
+regression: `test-fixtures-parity.R` used to die at **file** level on `score_type()` (one of the 4
+failures), so it emitted no targets at all; now it loads and its parity tier skips normally.
+
+`R/score_DNAmSex_Wang.R` + a `(DNAmSex_Wang, wrapper) -> "DNAmSex_Wang"` group hook. The branch is
+the declared recipe and nothing else: `sample_scale` against the `DNAmSex_Wang:zscore_ref` domain,
+`center_scale` by the declared `center`, `project` onto `rotation`. Verified against an independent
+R implementation on both members -- max abs difference 1.4e-13 on scores of magnitude ~40, i.e. 3e-15
+relative.
+
+**The operand names are read off the recipe, not hardcoded.** `recipe_step_op(id, op)` finds the step and
+the step names its component (`center`, `rotation`); `SystemsAge` hardcodes its component names and
+that was the tempting precedent. Reading the declaration costs six lines and means a rename upstream
+is a `catalog_bug()` naming the component instead of a silently-NA score vector. Same reason the
+branch stops when `center_scale` declares a `scale` it does not apply, and when `center` and
+`rotation` do not cover the same CpGs: `center[present]` on a missing name returns `NA`, which would
+propagate through the projection and produce an all-`NA` column with no diagnostic.
+
+**A sample with fewer than 2 observed reference CpGs is scored `NA`, noted, and warned about.**
+This is the `n < 2` guard in `split_moments()` arriving at a consumer. It has to be said out loud
+because **coverage cannot see it**: the ref is not a panel, so a sample can hold 4047/4047 of the
+scoring panel, report 100% coverage, and still be unscorable. The mechanism already existed for
+exactly this -- `note_scoring_failure()` + a plain `warning()`, the shape `score_normalized()` uses
+for a failed BMIQ fit -- so the samples land in `$provenance$scoring_failures` rather than only in a
+message the user may have suppressed.
+
+**Consequence, and it is load-bearing for how the smoke tier reads:** `sim_DNAm()` materializes
+declared panels, and a moment ref is not one, so the smoke tier hands both Wang members a matrix
+their ref meets nowhere and gets `NA` plus that warning back. The tier still does its job (default
+configuration, no error), but it is **not** a numeric check on this family, and the 2 warnings in a
+green run are expected rather than a smell. `test-score-wang.R` builds panels plus a slice of the
+ref to get finite scores. Whether `clock_cpgs()` should report a clock's moment ref as required
+input -- which would make `sim_DNAm("DNAmSex_Wang_ChrX")` scorable and fold the ref into the public
+"what must I measure" answer -- is left open, not decided by silence: see
+`dev/moment-domains-plan.md` sec 12 item 3.
+
+---
+
+## 2026-08-02 -- `DNAmSex_Wang` stays in the callable pool
+
+Decision only; no code. Resolves the contradiction between `dev/moment-domains-plan.md` sec 9
+("take Wang out of the pool", left open) and the settled `predict_sex()` shape (thin sugar over
+`calc_clocks(DNAm, c("DNAmSex_Wang_ChrX", "DNAmSex_Wang_ChrY"))`, which requires both members to be
+callable by name). Both could not hold. **The design wins: `resolve_clocks()` accepts both.**
+
+**Two of the three arguments for removal had expired**, which is what made this lopsided rather than
+a genuine toss-up. Removal was offered mainly to buy K = 1 in both front doors -- but the
+multi-domain sweep is built and tested, so that simplification no longer exists to be bought. And
+the kernel was the stated blocker for the whole family; it no longer is. What was a
+cost-of-delay argument in favour of the smaller option is now an argument for nothing.
+
+**The surviving argument against is real but misfiled.** A sex PC in `$scores` is an `n x k` double
+a user can hand to `calc_accel()` and get confident nonsense from, since nothing in the type says
+only the sign is meaningful. That is a fact about **output typing**, and it generalizes to every
+score that is not an age -- `EpiTOC2`'s mitotic index has the same shape. Solving it by removing one
+clock from the pool would fix one instance of a general problem while creating specific work:
+Wang would never return an `mc_result`, so its coverage record needs a new home, and `predict_sex()`
+would have to drive `mc_spec()` / `mc_cohort()` / `score_cohort()` directly instead of the one
+public entry point. If the hazard is worth addressing it should be addressed as typing, for all such
+clocks, not as pool membership for one.
+
+**Consequence to expect:** `calc_clocks(DNAm, "all")` will span `"full"` and
+`DNAmSex_Wang:zscore_ref`, so **K = 2 becomes reachable through the front door** for the first time
+-- the case the moment-domain work was built for, and one no test can currently reach.
+
+---
+
+## 2026-08-02 -- moments are keyed domains, not one banked pair
+
+Always-on suite 1154 pass / 4 fail / 2 skip. The 4 are the same parked `DNAmSex_Wang` routing gap
+as the entry below (`score_type()` stops on both members, so smoke plus the two census tests that
+sweep every catalog clock fail); none are new. Parity not run; `R CMD check` not run.
+
+**`spec[["needs_moments"]]` (logical) becomes `spec[["moment_domains"]]` (key -> cpgs).** The
+logical could only ever say "bank the whole-matrix moments", which is why the entry below had to
+record Wang banking nothing at all as a deliberate consequence. A request spanning both kinds --
+`calc_clocks(DNAm, "all")` the moment Wang is callable -- had no representation, and the failure
+mode was silent: Wang would have taken Zhang's whole-matrix moments. Now `mc_cohort()` banks
+`key -> list(mean, sd)` and a branch reaches its moments by clock id (`block_domain_moments(block,
+id)`, which derives the key), so reaching for an unbanked domain is a `stop()` rather than a wrong
+number and **no branch ever spells a domain key**.
+
+**The key is derived, never assigned:** `"full"` (`FULL_MOMENT_KEY`) for a ref-less step, else
+`<group_id>:<ref_name>`, minted in `clock_moment_key()` (`R/accessors.R`). `clock_moment_key()` is
+split out of `clock_moment_domain()` so a caller wanting only the key -- the `resolve_moment_domains()`
+dedup, `clock_needs_full_panel()`, every score branch -- never resolves the ref's CpGs (442533 of
+them for Wang) just to throw them away. Minting it in the accessor rather than in
+`mc_spec()` is what makes two clocks sharing a ref collapse to one domain by construction -- both
+Wang members land on `DNAmSex_Wang:zscore_ref` without anything comparing CpG sets. The `:` is what
+keeps a declared domain from colliding with `"full"`, and a group id cannot contain one.
+
+**One pass, whatever K is.** `col_stats(obj, cols, moment_sets)` labels each column with the bitmask
+of the sets containing it, accumulates into one Welford atom per distinct mask, and merges atoms per
+set with Chan's formula. A column in several domains is read once. Welford rather than the additively
+obvious `(n, sum, sum_sq)`: on betas in [0,1] the cancellation is about one digit in sixteen, which
+would be unremarkable except that Wang's output is a **sign**, so the error concentrates exactly on
+the samples near a quadrant boundary, where a lost digit flips a call instead of nudging a number.
+Atoms are indexed by observed mask, not `2^k` -- fine at k = 3, not at k = 8.
+
+**The rejected cheaper option is one sweep per domain**, which needs no kernel change and about
+30 lines of R. It re-reads every overlapping column once per domain (~+50% scan on a mixed request).
+That was the fallback if the mask proved fiddly; it did not.
+
+**Element validation lives in R (`check_moment_sets()`), not in the kernel.** Not a style call: on
+this toolchain `as<IntegerVector>()` on a `NULL` or character element is **not a catchable
+condition** -- it terminates the process (exit 127, `tryCatch` bypassed), and the same throw is
+catchable under plain `sourceCpp`, so the cause is build configuration (`~/.R/Makevars.win` carries
+`-UNDEBUG -g -O0`; the package adds `-fopenmp` with `-static-libgcc`). Validating in R removes the
+only path that reaches it. Worth knowing independently: `expect_error()` on any future kernel path
+relying on a C++ throw is unusable locally.
+
+**The `n < 2` guard is load-bearing, not defensive.** The kernel reports an unobserved row as
+`n = 0, mean = 0, m2 = 0` -- counts disambiguate rather than the kernel emitting NaN -- so R applies
+two different thresholds in `split_moments()`: a mean needs `n >= 1`, an sd needs `n >= 2`. `n = 1`
+yields `NaN` naturally (`0/0`); `n = 0` yields `sqrt(0 / -1) = -0`, which reads as real zero spread
+and divides to `Inf`. Nothing upstream makes this unreachable: the dead-sample gate keys on the
+**scoring** panels, and for Wang the scoring panel and the moment ref are **disjoint** (0 shared
+probes, 4047 and 284 sex-chromosome probes against a 442533 autosomal ref), so a sample can clear
+every existing gate with full sex-chromosome coverage and still have zero ref observations. An
+empty domain is likewise a data fact reported as `NA`, not a usage error.
+
+**Coverage is untouched, deliberately.** A moment domain is not a panel: the sets index `DNAm`
+directly, so a ref never widens `needed_union` and the declared `n_cpgs` do not move.
+
+**The 1 GiB accumulator guard was written and then removed.** It refused `NS * nr * 20` bytes above
+a ceiling, on the theory that `NS` is emergent -- it counts distinct membership *patterns*, not sets
+-- so a set system the caller thinks is small could allocate more than it looks like. The bound that
+kills the guard is in the same sentence: a signature is a **per-column** fact, so `NS <= ncol`
+always, and the accumulators can never exceed `20 * nr * nc` -- **2.5x an `obj` R has already
+materialized**. The check could not fire before R itself had failed to allocate, so it was buying a
+different error message, not a different outcome. The only shape approaching the ratio is a matrix
+narrow enough that nearly every column has a unique pattern (measured: ~430 MB of input at
+`nc = 3`), which is unreachable through `scan_missing_cpgs()` -- `col_stats()` is internal, and its
+sets come from the catalog, where `K <= 2` gives `NS <= 3`. What survives is the *fact*, as a
+three-line comment at the allocation; the ceiling constant, the branch and the four-argument `stop()`
+are gone.
+
+**The mask-width check stays, and is not the same kind of thing.** `1u << 8` does not fit a
+`uint8_t`, so that bound is correctness. Do not read the removal above as licence to drop it: one
+guard was a resource heuristic against an unreachable state, the other is the type's own limit.
+
+**The mask is a `uint8_t`, and K is dynamic.** The width went `uint64_t` -> `uint8_t`: `mask[]` is
+one entry per column, so at EPICv2 width that is 7.5 MB -> 0.94 MB, and -- the larger win -- an
+8-bit signature has only 256 values, so the signature -> slot map is a flat 256-entry table instead
+of an `unordered_map`, and `<unordered_map>` leaves the file. This does **not** undo "index atoms by
+observed mask, not by `2^k`": that argument is about the `nr`-length accumulator **blocks**, which
+still get compact ids. Only the lookup became a table, because 1 KB is free at any width a byte
+holds.
+
+**What K is, since this was gotten wrong once.** K is the number of distinct domains **the requested
+sequence** needs: 0 for a clock with no `sample_scale`, **1 for a Zhang arm on its own** (the common
+case today), 2 for a run spanning Zhang and Wang. The catalog-wide count of 2 is a *ceiling* over
+every clock that exists, not a per-call value. An intermediate version hardcoded `K = 2` and derived
+a closed-form slot layout from it; that pinned the kernel to the one value the front door never
+produces, so `calc_clocks(DNAm, "Zhang2019EN")` -- the most ordinary call a `sample_scale` clock has
+-- failed with "exactly 2 moment sets are required", and the suite went from 4 failures to 18. Only
+the *width* is fixed. Do not hardcode K, and do not read a census of the catalog as a contract on
+one request.
+
+**The width is enforced where a maintainer sees it.** Dropping 64 -> 8 moves the ceiling closer to a
+plausible upstream future, and the refusal would otherwise fire at runtime inside a user's
+`calc_clocks()`. So `MAX_MOMENT_SETS` (`R/missingness.R`) mirrors the kernel, one test asserts the
+two agree on the boundary, and an always-on census asserts the shipped catalog's distinct domain
+count fits. A ninth domain is then a red suite for whoever synced it, not an error for whoever
+scored with it -- which is what makes the tighter type safe rather than merely smaller.
+
+**K is still 1 through the front door.** Wang has no scoring branch, so `mc_spec()` only ever mints
+`"full"` today; the K > 1 path is covered by unit tests on `col_stats()` and `scan_missing_cpgs()`,
+not by `calc_clocks()`. That is the point of doing the seam first -- the Wang branch is now a branch,
+not a re-plumbing. Whether Wang stays in the callable pool at all is still open and independent
+(`dev/moment-domains-plan.md` sec 9).
+
+---
+
+## 2026-08-02 -- `shared[]` is a declaration, not build scrap; full-panel splits on `ref`
+
+Always-on suite 1074 pass / 4 fail / 2 skip. The 4 are the parked `DNAmSex_Wang` routing gap
+(`score_type()` stops on both members, so smoke + the two census tests that sweep every catalog
+clock fail); none are new. Parity not run; `R CMD check` not run.
+
+**`shared` leaves `CATALOG_BUILD_ONLY_FIELDS`.** The handoff in `dev/update-DNAmSex.md` asked
+upstream to re-declare `zscore_ref` as a `probe_sets[]` entry, on the premise that the trim left
+the tensor with no declared pointer. Upstream declined (`dev/reply-DNAmSex.md`) and was right on
+the facts, which were checkable here: `build_group_bundles()` runs *before*
+`trim_build_only_fields()` (`sync.R:2184` vs `:2187`) and `mc_bundles` / `mc_groups` are assigned
+untrimmed (`:2192-93`), so the payload was always in the bundle and the path was always in
+`mc_groups[[gid]][["shared_tensors"]]`.
+
+What the trim actually destroyed was narrower and worse-shaped: the **`name` -> `file` binding**.
+`shared_tensors` is paths only, so nothing could resolve `recipe[["Xz"]][["ref"]] == "zscore_ref"`
+to a file. That is a resolution gap, and the accessor invariant forbids closing it by searching the
+bundle. Retaining `shared` closes it exactly, and `SHARED_FIELDS` is already `c("name", "file")`,
+so the entry carries the binding and nothing else -- 33 clocks, two strings each. Measured: the
+regenerated `sysdata.rda` did not grow.
+
+**Why not accept the `probe_sets[]` copy anyway, since it was additive and cheap.** It would be a
+second owner of a fact the recipe operand already owns, and it would be *inert* -- `sample_scale`
+resolves through the shared namespace, so nothing would ever compare the two. Drift would be
+silent on both sides. Upstream's ownership rule and our "accessors read declarations" rule are the
+same rule seen from two ends; the fix belonged wherever the duplication would not be created, and
+that was here.
+
+**`shared` is keyed by `name` in `key_catalog_lists()`**, joining `components` / `probe_sets` /
+`recipe`. A resolver over an unkeyed list is a scan, and the point of the change was to make the
+lookup a lookup.
+
+**`clock_needs_full_panel()` now means "a `sample_scale` step with no `ref`", not "has a
+`sample_scale` step".** It was user-visible and wrong: it told a caller that Wang "scores against
+every column of `DNAm`" when Wang's moments come from a declared, closed 442533-probe set. The
+distinction is not size -- Zhang's moment set is *whatever the caller supplied*, so it has no
+closed membership at any time, including sync time. That is a difference in kind, and `ref`
+presence is the seam that expresses it.
+
+Note the knock-on, which is deliberate: `spec[["needs_moments"]]` is `length(full_panel) > 0`, so
+Wang now banks no moments at all. That is correct while Wang has no scoring branch, and it means
+whoever writes that branch cannot get whole-matrix moments by accident -- they have to do the
+`col_stats()` work first.
+
+**Still parked, and the block moved.** `col_stats(row_moments = TRUE)` sweeps the subset *plus*
+its complement by construction (`col_stats.cpp:180`), so there is no way to obtain moments over a
+declared subset today. That blocks the Wang scoring branch, hence the `score_type()` group hook,
+hence `predict_sex()`. The upstream contract is no longer the blocker; the kernel is.
+
+**Do not hard-code the karyotype quadrants.** Upstream found our prose wrong while structuring it:
+`wateRmelon::estimateSex` assigns `Female` unconditionally and overwrites with three rules, so
+`X>0 & Y<0` is never evaluated and a four-quadrant table diverges wherever a score is exactly 0.
+`cohort_450K` is that case -- every score 0, all 80 samples labelled Female, which no quadrant
+matches. Both suites store scores, not calls, so neither would have caught it. The map now ships
+as `mc_groups[["DNAmSex_Wang"]][["routing"]][["karyotype_call"]]` (a `default` plus three rules);
+derive from it.
+
+---
+
 ## 2026-08-01 -- the multi-batch test is `is_multi_batch()`, and a frame may decline to build
 
 Always-on suite 1051 pass / 0 fail / 260 skip. Parity not run; `R CMD check` not run.

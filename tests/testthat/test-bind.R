@@ -36,8 +36,7 @@ test_that("disjoint records bind into one labelled union", {
     unique(out$provenance$mc_batch_id)
   )
 
-  # the label is derived from the ids, so each record kept the one it was born
-  # with -- rbind mints nothing
+  # label is derived from the ids. rbind mints nothing.
   expect_equal(
     names(out$coverage$per_clock),
     unlist(lapply(fx$records, function(r) names(r$coverage$per_clock)))
@@ -109,8 +108,7 @@ test_that("differing pheno_id throws", {
 })
 
 test_that("pheno never carries row names, whatever came in", {
-  # negative .row_names_info means automatic/compact -- no second identity
-  # alongside the id column
+  # negative .row_names_info means automatic/compact row names.
   is_auto <- function(df) .row_names_info(df) < 0
 
   n <- 6L
@@ -151,8 +149,7 @@ test_that("passing a pheno and omitting it give the same carried columns", {
   )
   r2 <- calc_clocks(fx$parts[[2]], "Hannum")
 
-  # an omitted pheno is materialized to the id column, so the two records are
-  # the same shape and bind -- there is nothing left to refuse
+  # omitted pheno materializes to the id column, so both records bind.
   expect_equal(names(r1$pheno), "ID")
   expect_equal(names(r2$pheno), "ID")
   out <- rbind(r1, r2)
@@ -162,8 +159,7 @@ test_that("passing a pheno and omitting it give the same carried columns", {
 
 test_that("records normalized differently do not bind", {
   fx <- bind_records(blocks = 2L)
-  # the gate reads the recorded decision, so state it directly rather than
-  # standing up a BMIQ fit that U(0,1) betas cannot support
+  # state the normalize decision directly (bmiq unfit on U(0,1)).
   fx$records[[2]]$provenance$normalized <- "Hannum"
   expect_error(rbind(fx$records[[1]], fx$records[[2]]))
 })
@@ -249,8 +245,7 @@ test_that("clocks_coverage is one row per (clock, batch)", {
 
   cc <- clocks_coverage(out)
   one <- clocks_coverage(fx$records[[1]])
-  # the hash is the key this frame is on, but it reads as noise -- so it sits
-  # at the end, not in front of the clock id
+  # batch hash is last, not in front of clock_id.
   expect_equal(names(cc)[[length(cc)]], "mc_batch_id")
   expect_equal(names(cc)[[1]], "clock_id")
   expect_equal(nrow(cc), nrow(one) * 3L)

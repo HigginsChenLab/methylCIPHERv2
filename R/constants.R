@@ -1,5 +1,4 @@
-# constants read from more than one file. a value used in exactly one file stays
-# next to its caller -- this file is for the shared ones only.
+# constants shared across files. single-use values stay next to their caller.
 
 # reserved batch label: both coverage frames, provenance, the formula namespace
 MC_BATCH <- "mc_batch_id"

@@ -1,6 +1,6 @@
 # mc_result record: constructor + methods for class "mc_result"
 
-# batch label is a hash of the pheno id column. same ids always get the same label
+# batch label is a hash of the pheno id column.
 batch_hash <- function(ids) {
   # hash the id set, not the sequence or r representation
   key <- paste0(
@@ -10,28 +10,22 @@ batch_hash <- function(ids) {
   digest::digest(key, algo = "xxhash64", serialize = FALSE)
 }
 
-# the record's distinct batch labels. every multi-batch-only decision reads this
-# one definition -- print.mc_result and all four exit frames -- so they cannot
-# disagree about how many batches a record has
+# the record's distinct batch labels.
 batch_labels <- function(x) {
   unique(x[["provenance"]][[MC_BATCH]])
 }
 
-# does the batch label carry anything? the one multi-batch test. a frame may
-# read it to decline building the column (shape_scores) or to drop it after the
-# fact (drop_single_batch) -- either way there is one statement of the rule
+# true when the record spans more than one batch.
 is_multi_batch <- function(batch) {
   length(unique(batch)) > 1L
 }
 
-# at one batch the label is a single repeated hash, so it says nothing and every
-# exit frame drops it. batch is provenance's per-sample vector at every call
-# site: the two coverage frames must never disagree about whether the key is there
+# drop the batch column when it is a single repeated hash.
 drop_single_batch <- function(df, batch) {
   if (is_multi_batch(batch)) {
     return(df)
   }
-  # a no-op where the column was never built -- still the gate every exit runs
+  # no-op where the column was never built.
   df[[MC_BATCH]] <- NULL
   df
 }
@@ -73,7 +67,7 @@ construct_mc_result <- function(
   # derived, never passed in: the id column is the batch's whole identity
   batch <- batch_hash(pheno[[pheno_id]])
 
-  # coverage spans clocks that read cpgs. pure composites are in none of them
+  # coverage spans clocks that read cpgs.
   per_clock <- coverage[["per_clock"]]
   record_ids <- covered_ids(per_clock)
   # normalizers from the record's normalizes flag
@@ -149,8 +143,7 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
     cut_cols = FALSE
   )
 
-  # multi-batch only, on the same test the exit frames use. a single-pass record
-  # has nothing new to say here
+  # multi-batch only, same test as the exit frames.
   labels <- batch_labels(x)
   if (length(labels) > 1L) {
     cat(

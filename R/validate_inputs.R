@@ -1,4 +1,4 @@
-# DNAm/pheno structure checks, run before any clock is resolved
+# dnam/pheno structure checks, run before any clock is resolved
 
 check_DNAm <- function(DNAm) {
   checkmate::assert_matrix(
@@ -40,7 +40,6 @@ check_DNAm <- function(DNAm) {
 }
 
 # note when a clock scores against the whole matrix, not its panel.
-# returns the full-panel ids so callers need not re-sweep the sequence
 note_full_panel_clocks <- function(clock_ids) {
   full <- clock_ids[vapply(clock_ids, clock_needs_full_panel, logical(1))]
   if (!length(full)) {
@@ -152,7 +151,7 @@ warn_missing_covariates <- function(
   invisible(NULL)
 }
 
-# align pheno by id-join. with none supplied it is the id column alone
+# align pheno by id-join. none supplied -> id column alone.
 resolve_pheno <- function(DNAm, pheno, pheno_id, keep) {
   sample_id <- rownames(DNAm)
   out <- if (is.null(pheno)) {

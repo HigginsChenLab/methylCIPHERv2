@@ -10,7 +10,7 @@ check_mc_result <- function(x, arg = "x") {
   invisible(x)
 }
 
-# per-sample miss from the finished panel matrix. a missing column is a bug
+# per-sample miss from the finished panel matrix.
 miss_vec <- function(x, id, panel = c("score", "norm")) {
   panel <- match.arg(panel)
   m <- x[["coverage"]][["sample_miss"]][[panel]]
@@ -30,8 +30,8 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
   m[, id]
 }
 
-# one batch's rows (aliases have NA panels). batch is NULL where the label would
-# not survive the exit, so the column is never built
+# one batch's rows (aliases have NA panels).
+# batch is NULL when the exit drops the label.
 batch_coverage <- function(per_clock, batch, returned) {
   ids <- names(per_clock)
 
@@ -84,15 +84,14 @@ batch_coverage <- function(per_clock, batch, returned) {
   out
 }
 
-# one row per (clock, batch). counts are only true of the batch that produced them
+# one row per (clock, batch).
 #' @export
 clocks_coverage <- function(x) {
   check_mc_result(x)
   batches <- x[["coverage"]][["per_clock"]]
   returned <- x[["provenance"]][["clocks"]]
   batch <- x[["provenance"]][[MC_BATCH]]
-  # keyed on provenance's per-sample vector, never on per_clock's names, so the
-  # frame cannot be keyed on a count other than its own contents
+  # keyed on provenance's per-sample vector, never on per_clock's names.
   keep <- is_multi_batch(batch)
   out <- do.call(
     rbind,
@@ -116,9 +115,8 @@ panel_rows <- function(id, panel, batch, ratio, sample_id) {
     stringsAsFactors = FALSE,
     row.names = NULL
   )
-  # last, like clocks_coverage() -- the column the two frames join on.
-  # dropped for both frames at once when the record has a single batch, so a
-  # NULL batch here is that record and the column is never built
+  # last join key, like clocks_coverage().
+  # omitted at single batch so the column is never built.
   if (!is.null(batch)) {
     out[[MC_BATCH]] <- batch
   }
@@ -158,9 +156,7 @@ clock_sample_rows <- function(x, id, rec, batch, rows) {
   do.call(rbind, out)
 }
 
-# zero-row frame in samples_coverage() shape -- nothing to report is not an error.
-# it seeds the rbind, so it carries the batch column on the same test the parts
-# do. a flag, not a label: at zero rows there is no value to carry
+# empty samples_coverage() frame. seeds rbind and matches the batch-column test.
 empty_sample_rows <- function(keep_batch) {
   out <- data.frame(
     id = character(0),
@@ -182,15 +178,14 @@ empty_sample_rows <- function(keep_batch) {
 samples_coverage <- function(x) {
   check_mc_result(x)
   batch <- x[["provenance"]][[MC_BATCH]]
-  # this frame is one row per (sample, clock, panel), so a doomed batch column
-  # costs a full height. b still masks the rows -- only the label is withheld
+  # one row per (sample, clock, panel). batch masks rows. label withheld when single-batch.
   keep <- is_multi_batch(batch)
 
   parts <- list()
   for (b in names(x[["coverage"]][["per_clock"]])) {
     per_clock <- x[["coverage"]][["per_clock"]][[b]]
     rows <- batch == b
-    # no record means no cpgs of its own. read descendants for pure composites
+    # no record means no cpgs of its own.
     ids <- covered_ids(per_clock)
     parts <- c(
       parts,

@@ -1,5 +1,4 @@
-# the shared printer grammar (R/print.R). loose on purpose: the class tag and
-# the return value are the contract, the counts and layout are not
+# shared printer grammar (R/print.R). class tag and return value are the contract.
 
 test_that("every mc_* printer runs and returns its input invisibly", {
   sim <- sim_DNAm("Hannum", n = 3L)
@@ -11,8 +10,7 @@ test_that("every mc_* printer runs and returns its input invisibly", {
     expect_equal(out, x)
   }
 
-  # the cat-based printers write to stdout. mc_citation goes through cli, whose
-  # output is on the message stream, so only its return value is checked above
+  # cat printers write stdout. mc_citation uses the message stream.
   expect_output(print(sim), "<mc_sim>", fixed = TRUE)
   expect_output(print(res), "<mc_result>", fixed = TRUE)
 })

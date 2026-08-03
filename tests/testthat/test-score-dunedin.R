@@ -22,7 +22,7 @@ test_that("DunedinPoAm38 vendor-fills fully-absent CpGs (score_imputed_full)", {
   expect_equal(as.numeric(res$scores[, "DunedinPoAm38"]), golden)
 })
 
-# PACE QN golden (always-on proof that normalization runs)
+# pace QN golden (always-on proof that normalization runs)
 test_that("DunedinPACE quantile-normalizes the gold panel before the linear score", {
   skip_if_not_installed("betanorm")
   gold <- clock_norm_target("DunedinPACE")
@@ -68,13 +68,12 @@ test_that("DunedinPACE reports score and norm panel miss separately", {
 
   cov <- res$coverage$per_clock[[1]]$DunedinPACE
   expect_true(cov$normalizes)
-  # score panel holds one of the two holed CpGs, norm panel both (score is a
-  # subset of norm)
+  # score panel holds one of the two holed cpgs, norm panel both.
   expect_equal(cov$score_imputed_partial, 1L)
   expect_equal(cov$norm_imputed_partial, 2L)
 })
 
-# QN needs the whole background panel, so an absent one is filled, not dropped
+# qn needs the whole background panel, so an absent one is filled, not dropped
 test_that("DunedinPACE counts fully-absent norm CpGs as norm_imputed_full", {
   skip_if_not_installed("betanorm")
   norm_panel <- names(clock_norm_target("DunedinPACE"))
@@ -97,7 +96,7 @@ test_that("DunedinPACE counts fully-absent norm CpGs as norm_imputed_full", {
 test_that("DunedinPACE matches danbelsky/DunedinPACE through a holed panel", {
   skip_if_not_installed("betanorm")
   skip_if_not_installed("DunedinPACE")
-  skip_if_not_installed("preprocessCore") # PACEProjector's QN backend
+  skip_if_not_installed("preprocessCore") # paceProjector's qn backend
 
   norm_panel <- names(clock_norm_target("DunedinPACE"))
   score_panel <- clock_scoring_cpgs("DunedinPACE")
@@ -120,8 +119,7 @@ test_that("DunedinPACE matches danbelsky/DunedinPACE through a holed panel", {
   expect_false(anyNA(ref))
   expect_equal(got$scores[, "DunedinPACE"], ref[rownames(DNAm)])
 
-  # the record reads the same scenario: absent CpGs filled from the target,
-  # present-but-holed ones cohort-mean filled, nothing dropped
+  # absent cpgs filled from the target. present-but-holed ones cohort-mean filled.
   cov <- got$coverage$per_clock[[1]]$DunedinPACE
   expect_equal(cov$score_imputed_full, 3L)
   expect_equal(cov$norm_imputed_full, 1003L)

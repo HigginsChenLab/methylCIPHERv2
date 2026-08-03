@@ -183,7 +183,7 @@ merge_accel_data <- function(pheno, data, pheno_id) {
 # the model's rhs, carried as language so terms like I(Age^2) survive
 accel_formula <- function(formula, type) {
   if (is.null(formula)) {
-    # accel with no formula is the classic age regression. diff has no fit
+    # accel with no formula is the classic age regression.
     if (type == "diff") {
       return(NULL)
     }

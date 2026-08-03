@@ -46,7 +46,7 @@ mask_routed_rows <- function(miss, sex_key, rows) {
   miss
 }
 
-# one clock coverage record. every count is a cpg count (sample axis is sample_miss)
+# one clock coverage record. every count is a cpg count.
 coverage_record <- function(cpgs, score_partial, norm_partial = 0L) {
   id <- cpgs[["clock_id"]]
   policy <- clock_impute(id)[["policy"]]
@@ -74,8 +74,7 @@ coverage_record <- function(cpgs, score_partial, norm_partial = 0L) {
   )
 }
 
-# the clocks a per_clock map holds a record for. a NULL entry read no cpgs,
-# so it spans neither sample_miss nor samples_coverage()
+# clocks with a per_clock record. NULL entry read no cpgs.
 covered_ids <- function(per_clock) {
   names(per_clock)[!vapply(per_clock, is.null, logical(1L))]
 }
@@ -125,14 +124,14 @@ compute_coverage <- function(clock_sequence, cpg_list, block) {
   # every beta-reading clock: per-sample miss (sex-masked) plus the probe-axis record
   for (i in seqi[reads_cpgs]) {
     id <- clock_sequence[[i]]
-    # NA when the clock routes no sex -- masks nothing
+    # na when the clock routes no sex -- masks nothing
     sex_key <- routed[["sex"]][id]
     score_miss[[id]] <- mask_routed_rows(
       score_part_miss[[pidx[["score"]][["idx"]][[i]]]],
       sex_key,
       rows
     )
-    # single bracket + list() keeps a null norm entry. `[[<-` would drop the name
+    # single bracket + list() keeps a null norm entry.
     norm_miss[id] <- list(mask_routed_rows(
       norm_part_miss[[pidx[["norm"]][["idx"]][[i]]]],
       sex_key,

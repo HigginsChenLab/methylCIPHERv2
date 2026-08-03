@@ -160,7 +160,7 @@ pays per-block resolution and asset loading and emits per-block error messages.
 `facts` carries `sample_id`, the aligned `pheno`, `usable_cols`, `cpg_list`, `partial_fill` and
 `sample_moments`. `spec` carries the resolved clock ids, the compute `sequence`, `output_ids`, the
 `normalize` decisions, the covariate union, `pheno_id`, the loaded `packs`, the `panels`,
-`cross_sample` and `needs_moments`.
+`cross_sample` and `moment_domains`.
 
 `score_cohort()` takes no pheno argument: it narrows `facts$pheno` to the rows in hand by matching
 `rownames(DNAm)` against `facts$sample_id`, so a block can never be handed a misaligned pheno.
@@ -378,24 +378,29 @@ would select samples rather than the panel.
 projection, and `col_stats()` does every sum in C++. This is not a workaround for the depth limit, it
 is sec 5.2's rule -- no SQL aggregate ever produces a number that reaches a score.
 
-**The probe filter is on iff `spec$needs_moments` is FALSE.** The two Zhang2019 arms z-score each
-sample over **every** probe in the input matrix, so when one is requested pass 1 reads unfiltered and
-`cols` is the needed subset within each chunk -- exactly `col_stats()`'s split (sec 5.5), `stats`
-panel-scoped while the row accumulators cover everything. Projecting first would silently redefine that
-z-score: substituting the panel union was measured at 1.8e1 absolute / 82% relative.
+**The probe filter is on iff `spec$moment_domains` carries no whole-matrix domain.** The two
+Zhang2019 arms z-score each sample over **every** probe in the input matrix -- their domain is the
+`"full"` key, whose CpG set is `NULL` because there is nothing to declare -- so when one is
+requested pass 1 reads unfiltered and `cols` is the needed subset within each chunk: exactly
+`col_stats()`'s split (sec 5.5), `stats` panel-scoped while the row accumulators cover everything.
+Projecting first would silently redefine that z-score: substituting the panel union was measured at
+1.8e1 absolute / 82% relative. A domain with a **declared** ref does not force this -- it names a
+closed set the filter can keep.
 
 **Per-sample moments come from the kernel, not from SQL.** `avg()` plus `stddev_samp()` over the sample
 columns is the cheap axis (1.99s over 20,000 columns) and would work, but duckdb does not treat
 `+/-Inf` as missing while `col_stats()` does (sec 5.5), so the two disagree on a file carrying an `Inf`
 -- and the abort that would make this moot is itself computed in pass 1, so the SQL route needs the
-value gate ordered ahead of it. Pass 1 already scans every probe whenever `needs_moments` is TRUE, so
+value gate ordered ahead of it. Pass 1 already scans every probe whenever a whole-matrix domain is
+requested, so
 the kernel gives the moments in the same traversal under the package's own semantics. The divergence is
 recorded because it is a real property of the store, not because the design relies on it.
 
 **The per-sample sd needs a cross-chunk merge that does not exist yet.** `scan_missing_cpgs()`
-(`R/missingness.R`) reads `row_mean` / `row_m2` / `row_obs` off a single sweep. Under chunking they
-arrive per chunk and must be combined pairwise (Chan's parallel Welford) -- a few lines, but it is the
-**only** accumulator pass 1 needs, since per-probe stats are complete within a probe block.
+(`R/missingness.R`) reads `row_mean` / `row_m2` / `row_moment_obs` off a single sweep. Under chunking
+they arrive per chunk, **per domain**, and must be combined pairwise (Chan's parallel Welford) -- a
+few lines, and the same formula the kernel already applies across atoms, but it is the **only**
+accumulator pass 1 needs, since per-probe stats are complete within a probe block.
 
 Derived once at the end of pass 1 -- the same values `mc_cohort()` derives today, so Phase 6
 replaces the accumulator and nothing below it:
@@ -481,8 +486,8 @@ Both live in `src/` and both are already built:
   `DNAm[, cols, drop = FALSE]` slice, and matrix subsetting always allocates. **The safety property
   is a caller contract, not a guarantee of the kernel, and it is stated only at the call site** --
   a second caller must re-establish the fresh-slice property.
-- **`col_stats(obj, cols, row_moments)`** -- one traversal returning `stats` (2 x ncol, rows `sum`
-  and `n_obs`), `row_obs`, `row_obs_complement`, `row_mean`, `row_m2`, the flags `any_lt0` /
+- **`col_stats(obj, cols, moment_sets)`** -- one traversal returning `stats` (2 x ncol, rows `sum`
+  and `n_obs`), `row_obs`, `row_moment_obs`, `row_mean`, `row_m2`, the flags `any_lt0` /
   `any_gt1` / `any_inf`, and `overflow_col`.
   - **Every non-finite value is missing** -- NA, NaN and `+/-Inf` alike are skipped, not summed.
     `any_inf` says an `Inf` was among them: a data bug worth naming, not a different fate.
@@ -490,11 +495,31 @@ Both live in `src/` and both are already built:
     `row_m2` as `NULL` with `overflow_col` set. So `overflow_col` is checked **first** and nothing
     else is read in that branch (`check_overflow_col()`).
   - The kernel **reports and does not decide**: `check_col_values()` raises the abort and warnings.
-  - `row_moments = TRUE` adds Welford per-row mean/`m2`. **The two halves have different column
-    domains and the kernel owns the split:** pass 1 sweeps `cols` fused with the moments, pass 2
-    sweeps only the complement into the row accumulators. So `stats` and the value gates stay
-    `cols`-scoped while the row accumulators cover all of `obj`, and each column is read exactly
-    once. **`cols` must be unique** for this.
+  - `moment_sets` is `NULL` (no moments at all) or a **list of column-index vectors, one per
+    domain**, whose names become the output dimnames. Whole-matrix moments are spelled
+    `list(all = seq_len(ncol(obj)))` by the caller; a `NULL` *element* is an error. `row_mean` /
+    `row_m2` / `row_moment_obs` come back `nr x K`, one column per set in the order supplied.
+  - **Any number of domains costs one pass.** Each column is labelled with the bitmask of the sets
+    containing it, distinct masks become disjoint Welford atoms, and per-set outputs are the
+    pairwise Chan merge of the atoms carrying that bit -- so a column in several domains is read
+    once, not once per domain. Welford rather than `(n, sum, sum_sq)` because the raw triple's
+    cancellation lands on samples near a quadrant boundary, where a lost digit flips a sign call.
+  - **The two halves have different column domains and the kernel owns the split:** pass 1 sweeps
+    `cols` fused with the moments, pass 2 sweeps only the marked columns pass 1 did not reach. So
+    `stats` and the value gates stay `cols`-scoped while the accumulators cover each set in full,
+    and each column is read exactly once. **`cols` must be unique** for this.
+  - **Element validation is the caller's job** (`check_moment_sets()`, `R/missingness.R`): the
+    kernel coerces on trust, and a bad element there is a C-level type error rather than a
+    condition. It refuses more than `MAX_MOMENT_SETS` (8) sets, and so does the kernel --
+    that bound is correctness, not resource policy, since the mask is a `uint8_t`. **K is a
+    property of the request**: 1 for a lone Zhang arm, 2 for a run spanning Zhang and Wang.
+    A census test asserts the shipped catalog's distinct domains fit the width. There is
+    **no** accumulator size guard: a signature is a per-column fact, so `NS <= ncol` and the
+    accumulators top out at 2.5x an `obj` R has already allocated.
+  - **A row with no observation in a set reports `n = 0, mean = 0, m2 = 0`**, not NaN -- counts
+    disambiguate. R applies the two thresholds (`split_moments()`): a mean needs `n >= 1`, an sd
+    needs `n >= 2`. Without that, `n = 0` yields `sqrt(0 / -1) = -0`, a real-looking zero spread
+    that divides to `Inf`.
   - `cols` is 1-based indices into `obj`; `NULL` scans every column and skips validation. Positions
     in `stats` and `overflow_col` are relative to `cols`.
   - `row_observed()` `stop()`s on a `NULL` `row_obs` rather than trusting that the value gate ruled

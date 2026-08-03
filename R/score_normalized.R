@@ -53,7 +53,7 @@ score_normalized <- function(id, cpgs, block, results) {
   )
 }
 
-# BMIQ onto vendored gold (absent probes dropped, unfit samples -> NA + notes)
+# bmiq onto vendored gold (absent probes dropped, unfit samples -> NA + notes)
 bmiq_panel <- function(obs, target, id, block) {
   fit <- betanorm::bmiq_calibration(
     obs[["values"]],

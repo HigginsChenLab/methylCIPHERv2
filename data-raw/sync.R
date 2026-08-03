@@ -21,8 +21,8 @@ for (pkg in c(
 SYNC_SCRIPT <- file.path("data-raw", "sync.R")
 ACCESSORS_FILE <- file.path("R", "accessors.R")
 
-# shared constants and stack-operand rules come from R/accessors.R so sync and
-# score share one vocabulary. sourced into its own env (definitions only).
+# shared constants and stack-operand rules from R/accessors.R.
+# sourced into its own env (definitions only).
 if (!file.exists(ACCESSORS_FILE)) {
   stop(
     "sync.R runs from the package root; ",
@@ -93,7 +93,8 @@ FIELD_REGISTRY <- c(
 )
 
 # build-time only, stripped after resolution. `n_cpgs` cross-checks the derived panel.
-CATALOG_BUILD_ONLY_FIELDS <- c("shared", "file_refs", "n_cpgs")
+# `shared` stays: recipe operands resolve name -> file through it.
+CATALOG_BUILD_ONLY_FIELDS <- c("file_refs", "n_cpgs")
 
 trim_build_only_fields <- function(clocks) {
   lapply(clocks, function(e) {
@@ -216,8 +217,7 @@ prune_group_meta <- function(gmeta) {
 CITATION_FIELDS <- c("clock_id", "pmid", "role", "bib_key")
 CITATION_ROLES <- c("primary", "cite_also")
 
-# paper fields lifted from clocks.bib onto the citation join. pmid stays on the
-# csv and is cross-checked
+# paper fields from clocks.bib onto the citation join. pmid stays on the csv.
 BIB_FIELDS <- c(
   "title",
   "author",
@@ -297,8 +297,7 @@ build_citations_table <- function(citations, clock_ids) {
   df
 }
 
-# parse clocks.bib as upstream emits it (one field per line, fixed order). a
-# tolerant search would hide a moved field set
+# parse clocks.bib as upstream emits it (one field per line, fixed order).
 BIB_INDENT <- "  "
 BIB_ASSIGN <- " = {"
 
@@ -411,8 +410,7 @@ read_bib_fields <- function(repo_path) {
     cells[i, have] <- fields[have]
   }
 
-  # every field we read must appear on some entry. a missing name means the
-  # emitter field set moved
+  # every field we read must appear on some entry.
   never <- setdiff(wanted, unique(seen))
   if (length(never)) {
     stop(
@@ -440,8 +438,7 @@ read_bib_fields <- function(repo_path) {
   out
 }
 
-# join paper fields onto citations. every key must resolve and both pmid copies
-# must agree
+# join paper fields onto citations. every key and both pmid copies must agree.
 attach_bib_fields <- function(citations, bib) {
   absent <- setdiff(unique(citations[["bib_key"]]), bib[["bib_key"]])
   if (length(absent)) {
@@ -1238,8 +1235,7 @@ split_group_ids <- function(catalog, external) {
   sort(unique(gids[!is.na(gids)]))
 }
 
-# per-group tensor payload for the given group_ids, restricted to the members on
-# one side of the split -- so a mixed group ships some tensors and packs others.
+# per-group tensor payload for group_ids on one side of the external split.
 build_group_bundles <- function(
   repo_path,
   catalog,
@@ -1737,8 +1733,7 @@ encode_pcclocks <- function(bundle, catalog) {
   bundle
 }
 
-# stack operand -> column label. operand order and the label rule are the
-# accessors' -- the pack must be labelled the way it is read
+# stack operand -> column label, same rule the accessors use when reading.
 systemsage_stack_labels <- function(entry) {
   stack <- Filter(
     function(s) identical(s[["op"]], "stack"),
@@ -1875,8 +1870,7 @@ encode_pcbrainage <- function(bundle, catalog) {
   bundle
 }
 
-# zhang2019 BLUP arm alone: one dense coef vector (no shared row order). omit
-# policy, no vendored ref
+# zhang2019 BLUP arm: one dense coef vector. omit policy, no vendored ref.
 encode_zhang2019 <- function(bundle, catalog) {
   gid <- "Zhang2019"
   ids <- as.character(bundle[["clocks"]] %||% character())
@@ -2023,7 +2017,7 @@ drop_external_probe_cpgs <- function(clocks) {
 }
 
 # name items by a declared key, stop on collisions (or missing keys when total).
-# total=FALSE leaves unkeyed elements unnamed (recipe steps with no out)
+# total=FALSE leaves unkeyed elements unnamed.
 key_declarations <- function(items, field, cid, what, total = TRUE) {
   if (!length(items)) {
     return(items)
@@ -2070,8 +2064,7 @@ key_declarations <- function(items, field, cid, what, total = TRUE) {
 # recipe ops declared at most once (linear / linear_mean may repeat per stack col).
 SINGLETON_OPS <- c("stack", "poly")
 
-# probe_set roles with a normalization background, and a stack step's operand
-# namespaces -- the accessors' own constants, not a copy of them.
+# probe_set norm roles and stack operand namespaces from the accessors.
 NORM_ROLES <- mc_runtime[["NORM_ROLES"]]
 STACK_NAMESPACES <- mc_runtime[["STACK_NAMESPACES"]]
 
@@ -2157,6 +2150,12 @@ key_catalog_lists <- function(clocks) {
       "role",
       cid,
       "probe_sets"
+    )
+    entry[["shared"]] <- key_declarations(
+      entry[["shared"]],
+      "name",
+      cid,
+      "shared tensors"
     )
     entry[["recipe"]] <- key_declarations(
       entry[["recipe"]],
@@ -2604,8 +2603,7 @@ external_bundle_hashes <- function(catalog) {
   hashes[order(names(hashes))]
 }
 
-# lockfile hit when encoder code and every external bundle_hash are unchanged
-# and the packs are on disk
+# lockfile hit when encoder code, every external bundle_hash, and packs match.
 lockfile_hit <- function(lock, hashes, fingerprint) {
   if (is.null(lock)) {
     return(FALSE)

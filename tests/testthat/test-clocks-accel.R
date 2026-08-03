@@ -1,11 +1,9 @@
 # finalizer output: as.data.frame(mc_result) and calc_accel()
 
-# GrimAgeV1 requires Age + Female, so the record's pheno carries both.
-# Hannum requires neither, so the two exercise the same fit from either side
+# grimageV1 needs Age + Female. hannum needs neither.
 ACCEL_CLOCKS <- c("GrimAgeV1", "Hannum")
 
-# collect every warning an expression raises. a call that legitimately raises
-# three of them cannot be read through nested expect_warning()
+# collect every warning an expression raises.
 warnings_of <- function(expr) {
   msgs <- character(0)
   value <- withCallingHandlers(
@@ -121,8 +119,7 @@ test_that("diff is the raw difference, and is stable under subsetting", {
 test_that("diff constrains the age slope where accel estimates it", {
   fx <- accel_fixture()
 
-  # an rhs that spans Age absorbs the constraint: subtracting a column of the
-  # design changes the coefficients, never the residuals
+  # an rhs that spans Age absorbs the residual constraint.
   expect_equal(
     calc_accel(fx$res, ~Age, type = "diff", long = FALSE)$GrimAgeV1_Age_diff,
     calc_accel(fx$res, ~Age, type = "accel", long = FALSE)$GrimAgeV1_Age_accel
@@ -171,7 +168,7 @@ test_that("the NA drop is scoped to the formula's variables", {
   ph$Female[c(1L, 3L)] <- NA_real_
   expect_warning(res <- calc_clocks(fx$DNAm, ACCEL_CLOCKS, pheno = ph))
 
-  # Hannum needs no covariate, so every NA below comes from the pheno drop
+  # hannum needs no covariate, so every NA below comes from the pheno drop
   expect_equal(
     sum(is.na(calc_accel(res, ~Age, long = FALSE)$Hannum_Age_accel)),
     0L
@@ -216,7 +213,7 @@ test_that("a covariate the record does not carry errors, and data fixes it", {
   n <- 8L
   DNAm <- random_betas(clock_scoring_cpgs("Hannum"), n = n)
   res <- calc_clocks(DNAm, "Hannum")
-  # Hannum requires no covariates, so the record kept the id column alone
+  # hannum requires no covariates, so the record kept the id column alone
   expect_equal(names(res$pheno), "ID")
 
   expect_error(calc_accel(res))
@@ -254,8 +251,7 @@ test_that("clocks with different missingness patterns each fit their own rows", 
   ph$Female[c(2L, 7L)] <- NA_real_
   expect_warning(res <- calc_clocks(DNAm, cl, pheno = ph))
 
-  # ~ Age drops no rows, so the groups are the score NAs alone: the sex-routed
-  # clocks are NA where Female is, Hannum is complete
+  # ~ Age drops no rows. groups are the score NAs alone.
   scores <- as.matrix(res)
   expect_true(all(is.na(scores[c(2L, 7L), "DNAmFitAge"])))
   expect_false(anyNA(scores[, "Hannum"]))
@@ -296,8 +292,7 @@ test_that("a sample data has no row for is reported, not silently NA-filled", {
   DNAm <- random_betas(clock_scoring_cpgs("Hannum"), n = n)
   res <- calc_clocks(DNAm, "Hannum")
 
-  # ids that match nothing at all -- the case that used to warn only about
-  # missing covariates, sending the user after phenotype data that is fine
+  # ids that match nothing at all.
   wrong <- data.frame(
     ID = sub("^sample", "Sample", rownames(DNAm)),
     Age = stats::rnorm(n, 45, 8),
@@ -457,8 +452,7 @@ test_that("accel long and wide agree, and long spans the full grid", {
 test_that("accel_id names the spec, so two calls stack without ambiguity", {
   fx <- accel_fixture()
 
-  # one label per (type, formula), derived from the call and never assigned.
-  # term labels go in verbatim -- Age is the caller's column, not age
+  # one label per (type, formula), derived from the call.
   labels_of <- function(...) unique(calc_accel(fx$res, ...)$accel_id)
   expect_equal(labels_of(), "Age_accel")
   expect_equal(labels_of(~ Age + Female), "Age_Female_accel")

@@ -1,4 +1,4 @@
-# DNAmPhysAge: physage_raws (per-sample) then finalize_PhysAge (cohort reduce)
+# dnamPhysAge: physage_raws (per-sample) then finalize_PhysAge (cohort reduce)
 
 # per-sample half: n x n_surrogate reverse-coded raws
 physage_raws <- function(id, cpgs, block, results) {
@@ -50,7 +50,7 @@ zscore_raws <- function(id, raws) {
   }
 
   z <- scale(raws)
-  # the divisor scale() actually used. a nan column scales by 0 and hits the same branch
+  # the divisor scale() actually used.
   sds <- attr(z, "scaled:scale")
   flat <- colnames(raws)[!is.finite(sds) | sds == 0]
   if (!length(flat)) {
@@ -102,8 +102,7 @@ finalize_PhysAge <- function(id, raws) {
 
 # ordered surrogates: each {name, coef, negate}
 physage_surrogates <- function(id) {
-  entry <- clock_entry(id)
-  recipe <- entry[["recipe"]]
+  recipe <- clock_entry(id)[["recipe"]]
 
   order <- stack_operands(stack_step(id))
 
@@ -124,12 +123,11 @@ physage_surrogates <- function(id) {
   )
 
   lapply(order, function(raw_name) {
-    # a stack input with no linear_mean op leaves component_named() 0 hits
+    # a stack input with no linear_mean op fails the component lookup
     op <- by_out[[raw_name]]
-    comp <- component_named(entry[["components"]], op[["coef"]], id)
     list(
       name = raw_name,
-      coef = bundle_tensor(entry[["group_id"]], comp[["file"]]),
+      coef = component_tensor_named(id, op[["coef"]]),
       negate = raw_name %in% negate_set
     )
   })

@@ -16,6 +16,15 @@ clock_entry <- function(id) {
   entry
 }
 
+# one group entry, or error. never read mc_groups directly.
+group_entry <- function(gid) {
+  grp <- mc_groups[[gid]]
+  if (is.null(grp)) {
+    stop(sprintf("Unknown clock group: %s.", gid), call. = FALSE)
+  }
+  grp
+}
+
 # a catalog field that must be declared, or a stop naming it
 required_field <- function(id, field) {
   value <- clock_entry(id)[[field]]
@@ -60,6 +69,24 @@ pick_one <- function(items, pred, what, id) {
   hits[[1]]
 }
 
+# recipe steps declaring this op, empty when none. `op` is not a key (scan).
+recipe_steps_op <- function(id, op) {
+  Filter(
+    function(s) identical(as.character(s[["op"]]), op),
+    clock_entry(id)[["recipe"]] %||% list()
+  )
+}
+
+# the single recipe step declaring this op, or a stop naming it
+recipe_step_op <- function(id, op) {
+  pick_one(
+    clock_entry(id)[["recipe"]] %||% list(),
+    function(s) identical(as.character(s[["op"]]), op),
+    sprintf("%s ops", op),
+    id
+  )
+}
+
 # the single component with this row_key, resolved to its bundled tensor
 component_tensor <- function(id, row_key) {
   entry <- clock_entry(id)
@@ -81,6 +108,22 @@ component_named <- function(comps, name, id) {
   comp
 }
 
+# the named component a recipe operand points at, resolved to its tensor
+component_tensor_named <- function(id, name) {
+  entry <- clock_entry(id)
+  comp <- component_named(entry[["components"]], as.character(name), id)
+  bundle_tensor(entry[["group_id"]], comp[["file"]])
+}
+
+# shared-tensor declaration by name (name -> file for recipe operands).
+shared_named <- function(entry, name, id) {
+  sh <- entry[["shared"]][[name]]
+  if (is.null(sh)) {
+    catalog_bug("%s has no shared tensor named '%s'.", id, name)
+  }
+  sh
+}
+
 # clock specific accessors ----
 
 # row-key column a component declares (no first-column fallback)
@@ -88,7 +131,7 @@ component_row_key <- function(comp) {
   as.character(comp[["row_key"]])
 }
 
-# CpGs of one probe_set role (sync keys `probe_sets` by role)
+# cpGs of one probe_set role (sync keys `probe_sets` by role)
 probe_sets_cpgs <- function(entry, role) {
   cpgs <- entry[["probe_sets"]][[role]][["cpgs"]]
   if (is.null(cpgs)) character(0) else unique(as.character(cpgs))
@@ -103,8 +146,8 @@ clock_scoring_cpgs <- function(id, packs = NULL) {
   probe_sets_cpgs(entry, "scoring")
 }
 
-# probe_set roles carrying a background panel plus the target it calibrates onto.
-# stays here, not in constants.R: sync.R sources this file to read it
+# probe_set roles with a background panel plus the target it calibrates onto.
+# lives here so sync.R can source it.
 NORM_ROLES <- c("quantile_normalization_background", "bmiq_gold_standard")
 
 # normalization panel for one clock, character(0) unless it normalizes
@@ -290,13 +333,68 @@ clock_covariates_coefs <- function(id) {
   covariate_coefs_from(cov)
 }
 
-# true when the recipe z-scores over the full input matrix (sample_scale)
+# recipe steps taking a per-sample z-score, empty when the clock has none
+sample_scale_steps <- function(id) {
+  recipe_steps_op(id, "sample_scale")
+}
+
+# `ref` a sample_scale step declares, or NULL.
+# use clock_moment_key() to tell no-step from no-ref.
+sample_scale_ref_name <- function(id) {
+  refs <- unique(unlist(lapply(sample_scale_steps(id), function(s) s[["ref"]])))
+  if (!length(refs)) {
+    return(NULL)
+  }
+  if (length(refs) > 1L) {
+    catalog_bug(
+      "%s declares %d sample_scale refs (expected 1).",
+      id,
+      length(refs)
+    )
+  }
+  as.character(refs)
+}
+
+# whole-matrix domain key when sample_scale has no declared `ref`.
+FULL_MOMENT_KEY <- "full"
+
+# moment domain key: NULL if no sample_scale, FULL_MOMENT_KEY if no `ref`,
+# else derived from the declaration (no tensor load).
+clock_moment_key <- function(id) {
+  if (!length(sample_scale_steps(id))) {
+    return(NULL)
+  }
+  nm <- sample_scale_ref_name(id)
+  if (is.null(nm)) {
+    return(FULL_MOMENT_KEY)
+  }
+  paste0(clock_group_id(id), ":", nm)
+}
+
+# true when the recipe z-scores over the full input matrix.
 clock_needs_full_panel <- function(id) {
-  any(vapply(
-    clock_entry(id)[["recipe"]],
-    function(s) identical(as.character(s[["op"]]), "sample_scale"),
-    logical(1)
-  ))
+  identical(clock_moment_key(id), FULL_MOMENT_KEY)
+}
+
+# cpgs a sample_scale `ref` declares, or NULL for the whole-matrix case.
+clock_sample_scale_ref <- function(id) {
+  nm <- sample_scale_ref_name(id)
+  if (is.null(nm)) {
+    return(NULL)
+  }
+  entry <- clock_entry(id)
+  sh <- shared_named(entry, nm, id)
+  as.character(bundle_tensor(entry[["group_id"]], sh[["file"]]))
+}
+
+# moment domain: NULL if no sample_scale, else key and cpgs
+# (NULL cpgs = every DNAm column).
+clock_moment_domain <- function(id) {
+  key <- clock_moment_key(id)
+  if (is.null(key)) {
+    return(NULL)
+  }
+  list(key = key, cpgs = clock_sample_scale_ref(id))
 }
 
 # covariate names required for pheno checks
@@ -374,7 +472,7 @@ clock_components <- function(id) {
 }
 
 # a stack step's three operand namespaces, in column order.
-# stays here, not in constants.R: sync.R sources this file to read it
+# lives here so sync.R can source it.
 STACK_NAMESPACES <- c("inputs", "internal", "covariates")
 
 # operand -> declaring namespace (inputs / internal / covariates)
@@ -422,10 +520,5 @@ stack_labels <- function(step, id) {
 
 # the one stack step of a clock that has one
 stack_step <- function(id) {
-  pick_one(
-    clock_entry(id)[["recipe"]],
-    function(s) identical(s[["op"]], "stack"),
-    "stack ops",
-    id
-  )
+  recipe_step_op(id, "stack")
 }

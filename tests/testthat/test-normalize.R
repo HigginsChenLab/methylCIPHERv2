@@ -1,6 +1,6 @@
 # normalize=: per-clock normalization decision, resolved before any DNAm read
 
-# BMIQ needs multi-modal input -- jitter the gold standard, not U(0,1)
+# bmiq needs multi-modal input -- jitter the gold standard, not U(0,1)
 methylation_betas <- function(gold, n = 4L) {
   panel <- names(gold)
   m <- matrix(
@@ -86,7 +86,7 @@ test_that("an unnamed policy reaches only the clocks that can honor it", {
   expect_equal(unname(got), c(TRUE, TRUE, FALSE))
 })
 
-# BMIQ golden through calc_clocks
+# bmiq golden through calc_clocks
 test_that("Horvath1 BMIQ-calibrates the gold panel before the linear score", {
   skip_if_not_installed("betanorm")
   gold <- clock_norm_target("Horvath1")

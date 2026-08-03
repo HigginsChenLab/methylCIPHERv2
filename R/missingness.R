@@ -59,7 +59,7 @@ check_col_values <- function(scan, cols) {
   invisible(NULL)
 }
 
-# post-score value gate for nan/inf. na is legitimate (branch declined a sample)
+# post-score value gate for nan/inf. na is legitimate.
 check_score_values <- function(scores) {
   n_bad <- vapply(
     scores,
@@ -77,15 +77,31 @@ check_score_values <- function(scores) {
     bad,
     lengths(scores[names(bad)])
   )
-  # a full-panel clock divides by a per-sample sd, which can be 0 or undefined
-  full <- names(bad)[vapply(names(bad), clock_needs_full_panel, logical(1))]
-  hint <- if (length(full)) {
-    c(
-      "i" = "{.val {full}} divide{cli::qty(full)}{?s/} by a per-sample sd taken
-             over every column of {.arg DNAm}, so a sample observing one value,
-             or the same value everywhere, has no spread to scale by."
-    )
-  }
+  # sample_scale clocks divide by per-sample sd (may be 0 or undefined).
+  scaled <- names(bad)[vapply(
+    names(bad),
+    function(id) !is.null(clock_moment_key(id)),
+    logical(1)
+  )]
+  full <- scaled[vapply(scaled, clock_needs_full_panel, logical(1))]
+  ref <- setdiff(scaled, full)
+  hint <- c(
+    if (length(full)) {
+      c(
+        "i" = "{.val {full}} divide{cli::qty(full)}{?s/} by a per-sample sd
+               taken over every column of {.arg DNAm}, so a sample observing one
+               value, or the same value everywhere, has no spread to scale by."
+      )
+    },
+    if (length(ref)) {
+      c(
+        "i" = "{.val {ref}} divide{cli::qty(ref)}{?s/} by a per-sample sd taken
+               over {cli::qty(ref)}{?its/their} declared reference set, so a
+               sample observing one value, or the same value everywhere, on that
+               set has no spread to scale by."
+      )
+    }
+  )
 
   cli::cli_warn(
     c(
@@ -102,23 +118,92 @@ check_score_values <- function(scores) {
   invisible(NULL)
 }
 
-# one col_stats() sweep for columns, means, value gates, row_obs, and optional moments
+# max moment domains per col_stats() sweep (uint8_t mask width).
+MAX_MOMENT_SETS <- 8L
+
+# moment_sets for col_stats(): NULL, or a list of column-index vectors.
+# validated here before the kernel.
+check_moment_sets <- function(sets, nc) {
+  if (is.null(sets)) {
+    return(NULL)
+  }
+  checkmate::assert_list(sets, min.len = 1L, max.len = MAX_MOMENT_SETS)
+  labels <- names(sets) %||% rep("", length(sets))
+  out <- lapply(seq_along(sets), function(k) {
+    who <- if (nzchar(labels[[k]])) labels[[k]] else as.character(k)
+    checkmate::assert_integerish(
+      sets[[k]],
+      lower = 1L,
+      upper = nc,
+      any.missing = FALSE,
+      .var.name = sprintf("moment_sets[[%s]]", who)
+    )
+    as.integer(sets[[k]])
+  })
+  names(out) <- names(sets)
+  out
+}
+
+# domain cpgs -> column indices. NULL element is the whole matrix.
+# declared refs keep only measured cols.
+resolve_moment_sets <- function(domains, cpgs) {
+  if (!length(domains)) {
+    return(NULL)
+  }
+  lapply(domains, function(d) {
+    if (is.null(d)) {
+      return(seq_along(cpgs))
+    }
+    # one match() only. kernel ORs repeated indices, so no dedup needed.
+    m <- match(d, cpgs)
+    m[!is.na(m)]
+  })
+}
+
+# per-output mean/sd. mean needs n >= 1, sd needs n >= 2.
+split_moments <- function(scan, sets) {
+  if (is.null(sets)) {
+    return(NULL)
+  }
+  n_mom <- scan[["row_moment_obs"]]
+  row_mean <- scan[["row_mean"]]
+  row_m2 <- scan[["row_m2"]]
+  # explicit [, k]: the kernel returns a matrix per output, one column per set
+  out <- lapply(seq_along(sets), function(k) {
+    nk <- n_mom[, k, drop = TRUE]
+    mk <- row_mean[, k, drop = TRUE]
+    sk <- sqrt(row_m2[, k, drop = TRUE] / (nk - 1))
+    mk[nk < 1L] <- NA_real_
+    sk[nk < 2L] <- NA_real_
+    list(mean = mk, sd = sk)
+  })
+  names(out) <- names(sets)
+  out
+}
+
+# one col_stats() sweep: columns, means, value gates, row_obs, moment domains.
 scan_missing_cpgs <- function(
   DNAm,
   needed_cpgs,
   score_cpgs,
-  row_moments = FALSE
+  moment_domains = NULL
 ) {
   present_needed <- intersect(needed_cpgs, colnames(DNAm))
-  # unique by construction. row_moments needs that or a repeated index double-counts
+  # unique by construction, or a repeated index double-counts the column stats
   needed_idx <- match(present_needed, colnames(DNAm))
   nr <- nrow(DNAm)
 
-  # index into dnam, not a slice. with row_moments the complement only feeds row accumulators
-  scan <- col_stats(DNAm, needed_idx, row_moments = row_moments)
+  # domains index DNAm directly and are validated before the kernel sees them
+  sets <- check_moment_sets(
+    resolve_moment_sets(moment_domains, colnames(DNAm)),
+    ncol(DNAm)
+  )
+
+  # index into dnam, not a slice.
+  scan <- col_stats(DNAm, needed_idx, sets)
   check_col_values(scan, present_needed)
 
-  # dead samples checked on scoring panels only. identical inputs skip the rescan
+  # dead samples checked on scoring panels only.
   present_score <- if (identical(score_cpgs, needed_cpgs)) {
     present_needed
   } else {
@@ -151,14 +236,8 @@ scan_missing_cpgs <- function(
   partial <- present_needed[n_obs > 0 & n_obs < nr]
   i <- match(partial, present_needed)
 
-  # moments span every column. sd's divisor is panel row_obs plus the complement
-  moments <- if (row_moments) {
-    n_all <- scan[["row_obs"]] + scan[["row_obs_complement"]]
-    list(
-      mean = scan[["row_mean"]],
-      sd = sqrt(scan[["row_m2"]] / (n_all - 1))
-    )
-  }
+  # the kernel counts each domain itself, so the divisor is that domain's count
+  moments <- split_moments(scan, sets)
 
   # only partial columns get a mean (all-NA columns are classified, not divided)
   list(

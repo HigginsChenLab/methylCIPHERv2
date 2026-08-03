@@ -37,7 +37,7 @@ calc_clocks <- function(
 
   # per-sample coverage gate (warn only, after scoring)
   check_row_coverage(scored[["coverage"]], min_samples_coverage)
-  # value gate on output columns. nan/inf land here, not in the panel scan
+  # value gate on output columns. nan/inf land here.
   check_score_values(scores[spec[["output_ids"]]])
 
   construct_mc_result(

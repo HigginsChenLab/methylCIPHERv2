@@ -11,15 +11,15 @@ Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
 // col_stats
-List col_stats(NumericMatrix obj, Nullable<IntegerVector> cols, bool row_moments);
-RcppExport SEXP _methylCIPHERv2_col_stats(SEXP objSEXP, SEXP colsSEXP, SEXP row_momentsSEXP) {
+List col_stats(NumericMatrix obj, Nullable<IntegerVector> cols, Nullable<List> moment_sets);
+RcppExport SEXP _methylCIPHERv2_col_stats(SEXP objSEXP, SEXP colsSEXP, SEXP moment_setsSEXP) {
 BEGIN_RCPP
     Rcpp::RObject rcpp_result_gen;
     Rcpp::RNGScope rcpp_rngScope_gen;
     Rcpp::traits::input_parameter< NumericMatrix >::type obj(objSEXP);
     Rcpp::traits::input_parameter< Nullable<IntegerVector> >::type cols(colsSEXP);
-    Rcpp::traits::input_parameter< bool >::type row_moments(row_momentsSEXP);
-    rcpp_result_gen = Rcpp::wrap(col_stats(obj, cols, row_moments));
+    Rcpp::traits::input_parameter< Nullable<List> >::type moment_sets(moment_setsSEXP);
+    rcpp_result_gen = Rcpp::wrap(col_stats(obj, cols, moment_sets));
     return rcpp_result_gen;
 END_RCPP
 }

@@ -1,4 +1,4 @@
-# rbind over mc_result records. record what batching forced, refuse what the caller chose differently.
+# rbind over mc_result records. record batching, refuse differing caller choices.
 
 # one provenance field, flattened over every record
 prov <- function(recs, field) {
@@ -62,7 +62,7 @@ gate_same_set <- function(recs, field, what, hint) {
   invisible(NULL)
 }
 
-# pheno columns need no gate. they follow pheno_id and the clock sequence
+# pheno columns follow pheno_id and the clock sequence.
 gate_same_pheno_id <- function(recs) {
   ref_id <- recs[[1L]][["provenance"]][["pheno_id"]]
   ids <- vapply(
@@ -103,7 +103,7 @@ run_bind_gates <- function(recs) {
   invisible(NULL)
 }
 
-# no gate on batch labels: they are a hash of the ids gate 1 just made disjoint
+# batch labels are a hash of the id set gate 1 made disjoint.
 
 # assembly
 stack_by_cols <- function(recs, get, cols) {
@@ -158,7 +158,7 @@ rbind.mc_result <- function(..., deparse.level = 1) {
   clocks <- ref[["clocks"]]
 
   scores <- stack_by_cols(args, function(r) r[["scores"]], clocks)
-  # no rownames reset. resolve_pheno leaves automatic ones, and rbind renumbers them
+  # no rownames reset. resolve_pheno leaves automatic ones.
   pheno <- stack_by_cols(
     args,
     function(r) r[["pheno"]],
@@ -214,7 +214,7 @@ rbind.mc_result <- function(..., deparse.level = 1) {
   out
 }
 
-# recompute cohort-reducing clocks over every sample. never automatic, and it leaves pending so calls compose
+# recompute cohort-reducing clocks over every sample. leaves pending so calls compose.
 #' @export
 refinalize_clocks <- function(x) {
   check_mc_result(x)

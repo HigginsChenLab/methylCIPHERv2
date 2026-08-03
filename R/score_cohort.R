@@ -64,6 +64,7 @@ score_type <- function(p) {
       NULL
     ),
     PhysAge = switch(ct, linear_transformed = "PhysAge", NULL),
+    DNAmSex_Wang = switch(ct, wrapper = "DNAmSex_Wang", NULL),
     EpiTOC2 = switch(ct, reference_code_required = "EpiTOC2", NULL),
     MiAge = switch(ct, reference_code_required = "MiAge", NULL),
     CellDRIFT = switch(ct, reference_code_required = "linear", NULL),
@@ -88,7 +89,7 @@ score_type <- function(p) {
   unroutable(p)
 }
 
-# true when the branch reads betas. pure composites own no coverage of their own
+# true when the branch reads betas.
 clock_reads_cpgs <- function(p) {
   switch(
     score_type(p),
@@ -107,10 +108,25 @@ is_pack_scored <- function(p) {
   score_type(p) %in% PACK_SCORE_TYPES
 }
 
-# external pack groups for a sequence. keyed on where weights live, not the scoring path
+# external pack groups for a sequence. keyed on where weights live.
 pack_groups_needed <- function(clock_sequence) {
   ext <- clock_sequence[vapply(clock_sequence, clock_is_external, logical(1L))]
   unique(vapply(ext, clock_group_id, character(1L), USE.NAMES = FALSE))
+}
+
+# moment domains over a sequence: key -> cpgs (NULL = every DNAm column).
+resolve_moment_domains <- function(clock_sequence) {
+  out <- list()
+  for (id in clock_sequence) {
+    # key first: two clocks on one ref must not resolve its CpGs twice
+    key <- clock_moment_key(id)
+    if (is.null(key) || key %in% names(out)) {
+      next
+    }
+    # single-bracket: `out[[k]] <- NULL` would delete the element, not store one
+    out[key] <- list(clock_sample_scale_ref(id))
+  }
+  out
 }
 
 # data-independent: resolved once, whatever the front end
@@ -130,8 +146,8 @@ mc_spec <- function(
     clock_ids,
     setdiff(clock_sequence, clock_ids)
   ))
-  # the clocks that read every column, not just their panel
-  full_panel <- note_full_panel_clocks(clock_sequence)
+  # tell the caller which clocks read every column, not just their panel
+  note_full_panel_clocks(clock_sequence)
 
   # covariate union for pheno check, carried pheno, and provenance
   covariates <- unique(unlist(lapply(
@@ -157,8 +173,8 @@ mc_spec <- function(
     score_union = panels_union(panels, "score"),
     # clocks whose reduction is still inside the branch (catalog-declared)
     cross_sample = split_cross_sample(clock_sequence)[["cross_sample"]],
-    # any sample_scale clock -> mc_cohort banks per-sample moments (catalog-declared)
-    needs_moments = length(full_panel) > 0L
+    # per-sample moment domains mc_cohort banks, keyed (catalog-declared)
+    moment_domains = resolve_moment_domains(clock_sequence)
   )
 }
 
@@ -192,7 +208,7 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
     DNAm,
     spec[["needed_union"]],
     spec[["score_union"]],
-    row_moments = isTRUE(spec[["needs_moments"]])
+    moment_domains = spec[["moment_domains"]]
   )
   cpg_list <- resolve_cpgs(mna[["usable_cols"]], spec[["panels"]])
   check_coverage(cpg_list, min_clocks_coverage)
@@ -202,9 +218,9 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
     pheno = pheno,
     usable_cols = mna[["usable_cols"]],
     cpg_list = cpg_list,
-    # partial_fill names are the column classification (do not re-derive)
+    # partial_fill names are the column classification.
     partial_fill = mna[["col_mean"]],
-    # NULL unless a sample_scale clock asked the sweep to widen and count them
+    # null unless a sample_scale clock declared a domain for the sweep to count
     sample_moments = mna[["sample_moments"]]
   )
 }
@@ -214,18 +230,37 @@ block_rows <- function(DNAm, facts) {
   match(rownames(DNAm), facts[["sample_id"]])
 }
 
-# pheno follows facts$sample_id. never NULL -- see resolve_pheno()
+# pheno follows facts$sample_id. never NULL.
 block_pheno <- function(facts, rows) {
   facts[["pheno"]][rows, , drop = FALSE]
 }
 
-# moments follow facts$sample_id too. NULL unless the sweep banked them
+# moments follow facts$sample_id, one entry per domain key.
 block_moments <- function(facts, rows) {
   mom <- facts[["sample_moments"]]
   if (is.null(mom)) {
     return(NULL)
   }
-  list(mean = mom[["mean"]][rows], sd = mom[["sd"]][rows])
+  lapply(mom, function(d) list(mean = d[["mean"]][rows], sd = d[["sd"]][rows]))
+}
+
+# per-sample moments for a declared domain. missing key is a routing bug.
+block_domain_moments <- function(block, id) {
+  key <- clock_moment_key(id)
+  mom <- if (!is.null(key)) block[["sample_moments"]][[key]]
+  if (is.null(mom)) {
+    stop(
+      sprintf(
+        paste0(
+          "block_domain_moments: no moments banked for %s. ",
+          "This is a package bug -- please report it."
+        ),
+        id
+      ),
+      call. = FALSE
+    )
+  }
+  mom
 }
 
 # scoring-time failures per clock (coverage cannot see these)
@@ -313,8 +348,7 @@ score_cohort <- function(DNAm, spec, facts) {
 
   pack_ids <- clock_sequence[is_pack]
   pgroups <- vapply(pack_ids, clock_group_id, character(1), USE.NAMES = FALSE)
-  # empty when nothing is pack-scored. each group shares one declared panel,
-  # so the pool resolves it once
+  # empty when nothing is pack-scored. one declared panel per group.
   for (gids in split(pack_ids, pgroups)) {
     grp <- score_pack_group(gids, cpg_list[["per_clock"]][[gids[[1]]]], block)
     results[names(grp)] <- grp
@@ -335,6 +369,7 @@ score_cohort <- function(DNAm, spec, facts) {
       EpiTOC2 = score_EpiTOC2(p, cpgs, block, results),
       MiAge = score_MiAge(p, cpgs, block, results),
       Zhang2019 = score_Zhang2019(p, cpgs, block, results),
+      DNAmSex_Wang = score_DNAmSex_Wang(p, cpgs, block, results),
       sex_routed = score_sex_routed(p, cpgs, block, results),
       stop(
         sprintf("No dispatch branch for score_type %s (clock %s).", ty, p),

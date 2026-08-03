@@ -1,4 +1,4 @@
-# DNAmFitAge engine wiring (synthetic betas).
+# dnamFitAge engine wiring (synthetic betas).
 
 fitage_pheno <- function(ids, female, age = NULL) {
   ph <- data.frame(
@@ -72,8 +72,7 @@ test_that("panel coverage lands on the members, never on the alias", {
     c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male") %in%
       colnames(res$scores)
   ))
-  # sample_miss spans clocks that read CpGs, not returned columns -- the two
-  # members here, never the alias
+  # sample_miss spans clocks that read cpgs, not returned columns.
   expect_setequal(
     colnames(res$coverage$sample_miss$score),
     c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male")
@@ -99,8 +98,7 @@ test_that("per-sample QC routes with the score; panel counts do not", {
   miss <- res$coverage$sample_miss$score
   expect_false("DNAmGrip_wAge" %in% colnames(miss))
 
-  # only the female with a blanked value leans on a cohort mean. count sits on
-  # the member that owns the panel, masked where its sex did not score
+  # cohort-mean count sits on the member that owns the panel.
   expect_equal(
     unname(miss[, "DNAmGrip_wAge_Female"]),
     c(1L, 0L, 0L, NA, NA, NA)

@@ -36,6 +36,7 @@ test_that("every catalog clock maps to a known score_type tag", {
     "EpiTOC2",
     "MiAge",
     "Zhang2019",
+    "DNAmSex_Wang",
     "sex_routed"
   )
   # score_type() routes every catalog clock (or stops)
