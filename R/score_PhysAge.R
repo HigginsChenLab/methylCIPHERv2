@@ -74,7 +74,7 @@ zscore_raws <- function(id, raws) {
   stop(
     sprintf(
       paste0(
-        "%s cannot be scored: %d surrogate(s) constant across the cohort, ",
+        "Cannot score %s: %d surrogate(s) constant across the cohort, ",
         "so z-score is undefined (%s). A surrogate goes constant when none ",
         "of its CpGs were observed. clocks_coverage() reports panel counts."
       ),

@@ -23,11 +23,11 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
     stop(
       sprintf(
         paste0(
-          "%s has no %s-panel miss column. ",
+          "No %s-panel miss column for %s. ",
           "This is a package bug -- please report it."
         ),
-        id,
-        panel
+        panel,
+        id
       ),
       call. = FALSE
     )
