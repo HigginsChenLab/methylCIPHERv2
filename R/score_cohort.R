@@ -182,10 +182,17 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
   if (length(spec[["covariates"]]) && is.null(pheno)) {
     cli::cli_abort(
       c(
-        "These clocks need {cli::qty(spec[['covariates']])} pheno column{?s}
-         {.field {spec[['covariates']]}}, but no {.arg pheno} was provided.",
-        "i" = "Please pass a pheno table that includes
-               {cli::qty(spec[['covariates']])}{?that/those} column{?s}."
+        "{.arg pheno} is missing. The requested clocks need
+         {cli::qty(spec[['covariates']])} column{?s} in {.arg pheno}:
+         {.field {spec[['covariates']]}}.",
+        "i" = "Pass a data frame to {.arg pheno} with
+               {cli::qty(spec[['covariates']])}{?that/those} column{?s}.",
+        if ("Female" %in% spec[["covariates"]]) {
+          c(
+            "i" = "{.fn predict_sex} estimates the {.field Female} column
+                   from {.arg DNAm}."
+          )
+        }
       ),
       call = NULL
     )

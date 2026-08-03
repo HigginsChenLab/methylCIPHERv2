@@ -24,15 +24,17 @@ suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
       h <- hits[[1L]]
       return(c(
         "*" = cli::format_inline(
-          "{.val {tok}} -- did you mean {.or {.val {h}}}?"
+          "{.val {tok}}. Did you mean {.or {.val {h}}}?"
         )
       ))
     }
+    # noun phrases, so a pool name cannot read as an argument name
+    what <- c(groups = "group ids", clocks = "clock ids")
     lines <- vapply(
       names(hits),
       function(label) {
         h <- hits[[label]]
-        cli::format_inline("{label}: {.or {.val {h}}}")
+        cli::format_inline("{what[[label]]}: {.or {.val {h}}}")
       },
       character(1L),
       USE.NAMES = FALSE
@@ -63,19 +65,22 @@ resolve_clocks <- function(clocks) {
   if (length(asked_routed)) {
     cli::cli_abort(
       c(
-        "{length(asked_routed)} sex-specific model{?s} can't be requested by
+        "{length(asked_routed)} sex-specific model{?s} cannot be requested by
          name:",
-        bullets(vapply(
-          asked_routed,
-          function(tok) {
-            cli::format_inline(
-              "{.val {tok}} -- try {.val {routed[['alias']][[tok]]}} instead"
-            )
-          },
-          character(1L)
-        )),
-        "i" = "Request the family alias; sex is chosen per sample from
-               {.arg pheno}."
+        capped_bullets(asked_routed, function(toks) {
+          vapply(
+            toks,
+            function(tok) {
+              cli::format_inline(
+                "{.val {tok}}. Request {.val {routed[['alias']][[tok]]}}
+                 instead."
+              )
+            },
+            character(1L)
+          )
+        }),
+        "i" = "Request the family alias.",
+        "i" = "The alias reads the sex of each sample from {.arg pheno}."
       ),
       call = NULL
     )
@@ -103,9 +108,9 @@ resolve_clocks <- function(clocks) {
       if (length(dead)) {
         cli::cli_abort(
           c(
-            "Keyword {.val {tok}} points at {cli::qty(dead)} missing
-             input{?s}: {.val {dead}}.",
-            "i" = "That's a package bug -- please report it so we can fix it."
+            "The keyword {.val {tok}} names {cli::qty(dead)} clock{?s} that
+             the catalog does not contain: {.val {dead}}.",
+            "i" = "This is a bug in {.pkg methylCIPHERv2}. Report it."
           ),
           call = NULL
         )
@@ -122,8 +127,8 @@ resolve_clocks <- function(clocks) {
     bad <- unique(bad)
     cli::cli_abort(
       c(
-        "Don't recognize {length(bad)} name{?s} in {.arg clocks}:
-         {.val {capped_vals(bad)}}.",
+        "{length(bad)} name{?s} in {.arg clocks} {cli::qty(bad)}{?is/are} not
+         a clock, a group or a keyword: {.val {capped_vals(bad)}}.",
         "i" = "Closest matches:",
         suggestion_bullets(bad),
         "i" = "See {.fn list_clocks} or {.fn list_clock_tags}

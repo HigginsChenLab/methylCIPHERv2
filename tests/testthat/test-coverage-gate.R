@@ -58,8 +58,10 @@ test_that("the gates name a clock the caller is allowed to request", {
     random_betas(clock_scoring_cpgs(member), 4L),
     member
   ))
-  expect_true(startsWith(gate_label(member, routed), alias))
-  expect_equal(gate_label("Hannum", routed), "Hannum")
+  # the label names the alias, never the member it routed to
+  expect_true(grepl(alias, gate_label(member, routed), fixed = TRUE))
+  expect_false(grepl(member, gate_label(member, routed), fixed = TRUE))
+  expect_true(grepl("Hannum", gate_label("Hannum", routed), fixed = TRUE))
 
   # end to end: a thin matrix on the alias must not print any member id
   cpgs <- clock_scoring_cpgs(member)

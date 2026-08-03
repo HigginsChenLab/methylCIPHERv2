@@ -1,11 +1,14 @@
 # pre-score coverage gates over the resolved panels
 
-# requestable token for a compute-sequence id (alias, not routed member)
+# requestable token for a compute-sequence id (alias, not routed member).
+# the token alone is marked up, so a reader can tell what to type back.
 gate_label <- function(id, routed = sex_routed_members()) {
   if (!id %in% names(routed[["alias"]])) {
-    return(id)
+    return(cli::format_inline("{.val {id}}"))
   }
-  sprintf("%s (%s model)", routed[["alias"]][[id]], routed[["sex"]][[id]])
+  cli::format_inline(
+    "{.val {routed[['alias']][[id]]}} ({routed[['sex']][[id]]} model)"
+  )
 }
 
 check_coverage <- function(cpg_list, threshold = 0.75) {
@@ -19,7 +22,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   # cli template. the two line builders run over the ids that survive the cap.
   panel_line <- function(id, present, needed, label) {
     cli::format_inline(
-      "{.val {gate_label(id, routed)}}: {length(present)}/{length(needed)}
+      "{gate_label(id, routed)}: {length(present)}/{length(needed)}
        {label} CpGs ({round(100 * length(present) / length(needed), 1)}%)"
     )
   }
@@ -68,12 +71,13 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(fail)) {
     cli::cli_abort(
       c(
-        "{length(fail)} clock{?s} {?doesn't/don't} have enough CpGs to score
-         ({.arg min_clocks_coverage} = {format(threshold)}):",
+        "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
+         score ({.arg min_clocks_coverage} = {format(threshold)}):",
         capped_bullets(fail, score_lines),
-        "i" = "Try dropping {cli::qty(fail)}{?it/them} from {.arg clocks}, or
-               lower {.arg min_clocks_coverage} if you meant to allow thinner
-               panels."
+        "i" = "Remove {cli::qty(fail)}{?it/them} from {.arg clocks}, or lower
+               {.arg min_clocks_coverage}.",
+        "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
+               clock needs."
       ),
       call = NULL
     )
@@ -83,11 +87,12 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(marginal)) {
     cli::cli_warn(
       c(
-        "{length(marginal)} clock{?s} only just clear{?s/}
+        "{length(marginal)} clock{?s} {?is/are} just above
          {.arg min_clocks_coverage} = {format(threshold)}:",
         capped_bullets(marginal, score_lines),
-        "i" = "Scoring continues, but more of the panel will be filled by
-               imputation."
+        "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
+               clock needs.",
+        "i" = "See {.fn clocks_coverage} for the panel counts per clock."
       ),
       call = NULL
     )
@@ -106,19 +111,22 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     # qn fills absent background CpGs from the target, BMIQ does not
     thin_schemes <- unique(vapply(thin, clock_norm_scheme, character(1)))
     fate <- if (all(thin_schemes == "bmiq")) {
-      "Absent background CpGs are dropped from the calibration fit."
+      "The absent CpGs are dropped from the BMIQ fit."
     } else if (any(thin_schemes == "bmiq")) {
-      "Absent background CpGs are dropped from a BMIQ fit, and filled from
-       the reference mean for quantile normalization."
+      c(
+        "The absent CpGs are dropped from the BMIQ fit.",
+        "For quantile normalization, the absent CpGs are filled from the
+         reference mean."
+      )
     } else {
-      "Missing background CpGs are filled from the reference mean."
+      "The absent CpGs are filled from the reference mean."
     }
     cli::cli_warn(
       c(
-        "{length(thin)} clock{?s} {?has/have} a thin normalization background
-         (under {.arg min_clocks_coverage} = {format(threshold)}):",
+        "{length(thin)} clock{?s} {?has/have} too few normalization CpGs
+         (below {.arg min_clocks_coverage} = {format(threshold)}):",
         capped_bullets(thin, norm_lines),
-        "i" = fate,
+        stats::setNames(fate, rep("i", length(fate))),
         "i" = "See {.fn clocks_coverage} for the panel counts per clock."
       ),
       call = NULL
@@ -182,7 +190,7 @@ check_row_coverage <- function(coverage, threshold = 0.75) {
       function(id) {
         s <- hits[[id]]
         cli::format_inline(
-          "{.val {gate_label(id, routed)}}: {s[['low']]} of {s[['scored']]}
+          "{gate_label(id, routed)}: {s[['low']]} of {s[['scored']]}
            sample{?s}, worst {round(100 * s[['worst']], 1)}% of
            {s[['needed']]} CpGs"
         )
@@ -194,11 +202,13 @@ check_row_coverage <- function(coverage, threshold = 0.75) {
   if (length(hits)) {
     cli::cli_warn(
       c(
-        "{length(hits)} clock{?s} scored some samples under
+        "{length(hits)} clock{?s} scored some samples below
          {.arg min_samples_coverage} = {format(threshold)}:",
         capped_bullets(names(hits), row_lines),
-        "i" = "Those sample scores rely more on imputed CpGs, so interpret
-               them with a bit of care."
+        "i" = "Call {.fn samples_coverage} to see the coverage of every
+               sample.",
+        "i" = "Drop those samples from {.arg DNAm}, or lower
+               {.arg min_samples_coverage}."
       ),
       call = NULL
     )
