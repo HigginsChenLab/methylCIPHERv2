@@ -54,13 +54,15 @@ check_DNAm <- function(DNAm) {
     cli::cli_warn(
       c(
         if (transposed) {
-          "{.arg DNAm} looks transposed -- probe ids are in the rows."
+          "{.arg DNAm} looks transposed. The probe ids are in the rows."
         } else {
-          "No {.arg DNAm} column names look like probe ids
-           ({.val {PROBE_ID_PREFIXES}}), and there are more rows than columns."
+          "No {.arg DNAm} column name looks like a probe id
+           ({.val {PROBE_ID_PREFIXES}}), and the matrix has more rows than
+           columns."
         },
-        "i" = "{.fn calc_clocks} reads samples from rows and CpGs from columns.
-               Try {.code t(DNAm)} if yours is the other way around."
+        "i" = "{.fn calc_clocks} reads the samples from the rows and the CpGs
+               from the columns.",
+        "i" = "Use {.code t(DNAm)} if the matrix has the other orientation."
       ),
       call = NULL
     )
@@ -72,14 +74,20 @@ check_DNAm <- function(DNAm) {
   if (length(suffixed)) {
     cli::cli_warn(
       c(
-        "{.arg DNAm} carries EPICv2/MSA replicate suffixes, for example
-         {.val {suffixed[[1L]]}}.",
-        "i" = "Clock panels are declared on the unsuffixed id, so every
-               suffixed column counts as absent and is vendor-filled or
-               dropped by policy rather than read.",
-        "i" = "Collapse replicates to one column per CpG before scoring.
-               {.fn calc_clocks} does not do it for you -- that needs the
-               array manifest."
+        "{.arg DNAm} holds EPICv2 or MSA chip probes. Most clocks need those
+         probes deduplicated first.",
+        "i" = "An EPICv2 or MSA chip carries several probes per CpG and
+               suffixes each one with its address, for example
+               {.val {suffixed[[1L]]}}.",
+        "i" = "A clock panel names the plain CpG id, so a suffixed column
+               counts as absent.",
+        "i" = "Strip the suffixes with
+               {.code sub(\"_[BT][CO][0-9]+$\", \"\", colnames(DNAm))}.",
+        "i" = "Stripping is the first half. Collapse the duplicate columns to
+               one column per CpG as well.",
+        "i" = "{.fn calc_clocks} cannot collapse them, because that step needs
+               the array manifest.",
+        "i" = "{.fn clock_cpgs} shows the ids a clock expects."
       ),
       call = NULL
     )
@@ -89,12 +97,13 @@ check_DNAm <- function(DNAm) {
     conv <- if (transposed) "t(as.matrix(DNAm))" else "as.matrix(DNAm)"
     cli::cli_abort(
       c(
-        "{.arg DNAm} is a data.frame; {.fn calc_clocks} needs a numeric matrix.",
-        "i" = "Convert with {.code {conv}}.",
+        "{.arg DNAm} is a {.cls data.frame}. {.fn calc_clocks} needs a numeric
+         {.cls matrix}.",
+        "i" = "Convert the {.cls data.frame} with {.code {conv}}.",
         if (!transposed && !cn_probes) {
           c(
-            "i" = "Methylation tables usually ship CpGs as rows. Check the
-                   orientation before converting."
+            "i" = "Most methylation tables hold the CpGs in the rows.",
+            "i" = "Check the orientation before you convert."
           )
         }
       ),
@@ -113,10 +122,10 @@ check_DNAm <- function(DNAm) {
   if (is.null(rownames(DNAm))) {
     cli::cli_abort(
       c(
-        "{.arg DNAm} needs sample ids as rownames so scores can be matched
-         to samples.",
-        "i" = "If the rows are anonymous, you can name them with:
-               {.code rownames(DNAm) <- paste0(\"sample\", seq_len(nrow(DNAm)))}"
+        "{.arg DNAm} needs sample ids as {.fn rownames}.",
+        "i" = "The score rows carry those ids.",
+        "i" = "Name unnamed rows with
+               {.code rownames(DNAm) <- paste0(\"sample\", seq_len(nrow(DNAm)))}."
       ),
       call = NULL
     )
@@ -135,8 +144,9 @@ note_full_panel_clocks <- function(clock_ids) {
     c(
       "i" = "{.val {full}} score{cli::qty(full)}{?s/} against every column of
              {.arg DNAm}, not just {cli::qty(full)}{?its/their} own panel.",
-      "i" = "Pass every CpG you measured -- a pre-subset {.arg DNAm} changes
-             {cli::qty(full)}{?this/these} score{?s}."
+      "i" = "Pass every CpG you measured.",
+      "i" = "A subset of {.arg DNAm} changes {cli::qty(full)}{?this/these}
+             score{?s}."
     )
   )
   invisible(full)
@@ -247,14 +257,16 @@ warn_age_units <- function(pheno, ID, sample_id) {
     cli::cli_warn(
       c(
         "{sum(high)} of {length(age)} {.field Age} {cli::qty(sum(high))}value{?s}
-         {?is/are} above {.val {AGE_MAX_YEARS}}; the largest is
-         {.val {signif(age[[at]], 6)}}, for sample {.val {ids[[at]]}}.",
-        "i" = "{.field Age} is read in years, and {AGE_MAX_YEARS} is the
-               verified human maximum -- so this is usually a units mistake.
-               Convert with {.code Age / 12} (months), {.code Age / 52} (weeks)
-               or {.code Age / 365.25} (days).",
-        "i" = "Nothing is stopped and the scores are unaffected, but an age
-               acceleration taken against this column will not be meaningful."
+         {?is/are} above {.val {AGE_MAX_YEARS}}.",
+        "x" = "The largest is {.val {signif(age[[at]], 6)}}, for sample
+               {.val {ids[[at]]}}.",
+        "i" = "{.field Age} must be in years.",
+        "i" = "{.val {AGE_MAX_YEARS}} is the verified human maximum, so these
+               values are usually a units mistake.",
+        "i" = "Convert with {.code Age / 12} for months, {.code Age / 52} for
+               weeks, or {.code Age / 365.25} for days.",
+        "i" = "{.fn calc_accel} reads this column, so correct it before you
+               measure age acceleration."
       ),
       call = NULL
     )
@@ -266,12 +278,14 @@ warn_age_units <- function(pheno, ID, sample_id) {
     cli::cli_warn(
       c(
         "{sum(low)} of {length(age)} {.field Age} {cli::qty(sum(low))}value{?s}
-         {?is/are} below {.val {AGE_MIN_YEARS}}; the smallest is
-         {.val {signif(age[[at]], 6)}}, for sample {.val {ids[[at]]}}.",
-        "i" = "A small negative age is fine -- pre-birth as a fraction of a year
-               is a normal convention. This is past that, and is where
-               gestational age in weeks lives ({.val {-40}} to {.val {0}}).",
-        "i" = "If that is what these are, convert with {.code Age / 52}."
+         {?is/are} below {.val {AGE_MIN_YEARS}}.",
+        "x" = "The smallest is {.val {signif(age[[at]], 6)}}, for sample
+               {.val {ids[[at]]}}.",
+        "i" = "A small negative age is normal. Some cohorts code pre-birth as
+               a fraction of a year.",
+        "i" = "These values are lower than that. Gestational age in weeks runs
+               from {.val {-40}} to {.val {0}}.",
+        "i" = "Convert weeks with {.code Age / 52}."
       ),
       call = NULL
     )
@@ -303,17 +317,21 @@ warn_missing_covariates <- function(
 
   cli::cli_warn(
     c(
-      "Missing values in {length(n_na)} pheno covariate{?s}:",
-      bullets(vapply(
-        seq_along(n_na),
-        function(i) {
-          cli::format_inline(
-            "{.field {names(n_na)[[i]]}}: {n_na[[i]]} sample{?s}"
-          )
-        },
-        character(1L)
-      )),
-      "i" = "Those samples will score NA."
+      "{length(n_na)} {.arg pheno} covariate{?s} {?has/have} missing values.",
+      capped_bullets(seq_along(n_na), function(i) {
+        vapply(
+          i,
+          function(k) {
+            cli::format_inline(
+              "{.field {names(n_na)[[k]]}}: {n_na[[k]]} sample{?s}"
+            )
+          },
+          character(1L)
+        )
+      }),
+      "i" = "A sample with a missing covariate scores {.code NA}.",
+      "i" = "Fill the column in {.arg pheno}, or drop those samples before
+             you score."
     ),
     call = NULL
   )
@@ -331,9 +349,10 @@ resolve_pheno <- function(DNAm, pheno, pheno_id, keep) {
       cli::cli_abort(
         c(
           "{.arg pheno} is missing {length(missing)} sample id{?s} that appear
-           in DNAm:",
+           in {.arg DNAm}:",
           "x" = "{.val {capped_vals(missing)}}",
-          "i" = "Every DNAm row needs a matching id in the pheno id column."
+          "i" = "Every {.arg DNAm} row needs a matching id in the
+                 {.arg pheno_id} column."
         ),
         call = NULL
       )
