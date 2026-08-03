@@ -134,8 +134,8 @@ check_DNAm <- function(DNAm) {
   invisible(NULL)
 }
 
-# note when a clock scores against the whole matrix, not its panel.
-note_full_panel_clocks <- function(clock_ids) {
+# say_* emits to the user. note_* records into the block's collector.
+say_full_panel_clocks <- function(clock_ids) {
   full <- clock_ids[vapply(clock_ids, clock_needs_full_panel, logical(1))]
   if (!length(full)) {
     return(invisible(full))

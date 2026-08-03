@@ -146,7 +146,7 @@ mc_spec <- function(
     setdiff(clock_sequence, clock_ids)
   ))
   # tell the caller which clocks read every column, not just their panel
-  note_full_panel_clocks(clock_sequence)
+  say_full_panel_clocks(clock_sequence)
 
   # covariate union for pheno check, carried pheno, and provenance
   covariates <- unique(unlist(lapply(

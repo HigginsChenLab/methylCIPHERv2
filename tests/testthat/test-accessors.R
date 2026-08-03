@@ -95,9 +95,9 @@ test_that("an unresolvable shared name errors rather than searching", {
 })
 
 test_that("a full-panel clock still announces that it reads every column", {
-  expect_message(note_full_panel_clocks("Zhang2019EN"))
+  expect_message(say_full_panel_clocks("Zhang2019EN"))
   expect_equal(
-    suppressMessages(note_full_panel_clocks("Zhang2019EN")),
+    suppressMessages(say_full_panel_clocks("Zhang2019EN")),
     "Zhang2019EN"
   )
 })
