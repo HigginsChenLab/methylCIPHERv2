@@ -24,6 +24,11 @@ capped_bullets <- function(x, fmt = identity, n = MC_MSG_CAP) {
   bullets(fmt(utils::head(x, n)))
 }
 
+# per-element {.val} markup, for capped_bullets(x, val_lines)
+val_lines <- function(x) {
+  vapply(x, function(v) cli::format_inline("{.val {v}}"), character(1L))
+}
+
 # capped values for the inline "{.val {capped_vals(x)}}" form
 capped_vals <- function(x, n = MC_MSG_CAP) {
   utils::head(x, n)
