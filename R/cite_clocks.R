@@ -20,9 +20,9 @@ cite_clocks.mc_result <- function(x, ...) {
 cite_clocks.default <- function(x, ...) {
   cli::cli_abort(
     c(
-      "Don't know how to build citations from {.obj_type_friendly {x}}.",
-      "i" = "Pass clock or group ids, or an {.cls mc_result} from
-             {.fn calc_clocks}."
+      "{.obj_type_friendly {x}} has no {.fn cite_clocks} method.",
+      "i" = "Pass a character vector of clock ids or group ids.",
+      "i" = "Or pass an {.cls mc_result} from {.fn calc_clocks}."
     ),
     call = NULL
   )
@@ -45,11 +45,12 @@ print.mc_citation <- function(x, ...) {
   # template. writeLines reproduces what citation() prints.
   writeLines(x[["bibtex"]])
   cat("\n")
-  cli::cli_alert_info(
-    "{.code as.data.frame(x)} gives the clock-to-paper table. Export the
-     citations with {.code writeLines(toBibtex(x), \"refs.bib\")}; to cite the
-     package itself see {.code citation(\"methylCIPHERv2\")}."
-  )
+  cli::cli_bullets(c(
+    "i" = "{.code as.data.frame(x)} returns the clock-to-paper table.",
+    "i" = "{.code writeLines(toBibtex(x), \"refs.bib\")} writes the bibtex to
+           a file.",
+    "i" = "{.code citation(\"methylCIPHERv2\")} cites the package itself."
+  ))
   invisible(x)
 }
 

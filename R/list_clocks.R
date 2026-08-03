@@ -58,14 +58,15 @@ list_clocks <- function(group = NULL, tag = NULL, pattern = NULL) {
       pool <- suggestion_pools()[["groups"]]
       cli::cli_abort(
         c(
-          "Don't recognize group{cli::qty(length(unknown))}{?s}:
-           {.val {capped_vals(unknown)}}.",
+          "{length(unknown)} name{?s} in {.arg group} {cli::qty(unknown)}{?is/are}
+           not a group: {.val {capped_vals(unknown)}}.",
           capped_bullets(unknown, function(toks) {
             vapply(
               toks,
               function(tok) {
                 cli::format_inline(
-                  "did you mean {.or {.val {did_you_mean(tok, pool)}}}?"
+                  "{.val {tok}}. Did you mean
+                   {.or {.val {did_you_mean(tok, pool)}}}?"
                 )
               },
               character(1L)
