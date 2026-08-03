@@ -24,6 +24,89 @@ test_that("no `$` access anywhere in R/", {
   )
 })
 
+# cli calls that put their strings in front of a user
+MSG_CALLS <- c(
+  "cli_abort",
+  "cli_warn",
+  "cli_inform",
+  "cli_bullets",
+  "cli_alert_info",
+  "cli_verbatim",
+  "format_inline"
+)
+
+# every string literal inside a cli message call, however deeply nested
+msg_strings <- function(e) {
+  if (!is.call(e)) {
+    return(character(0))
+  }
+  fn <- e[[1L]]
+  # cli::cli_abort() parses as `::`(cli, cli_abort)
+  nm <- if (is.call(fn) && identical(as.character(fn[[1L]]), "::")) {
+    as.character(fn[[3L]])
+  } else if (is.name(fn)) {
+    as.character(fn)
+  } else {
+    ""
+  }
+  rest <- unlist(lapply(as.list(e)[-1L], msg_strings), use.names = FALSE)
+  if (nm %in% MSG_CALLS) {
+    return(c(all_strings(e), rest))
+  }
+  rest
+}
+
+all_strings <- function(e) {
+  if (is.character(e)) {
+    return(e)
+  }
+  if (!is.call(e)) {
+    return(character(0))
+  }
+  unlist(lapply(as.list(e), all_strings), use.names = FALSE)
+}
+
+# public message text carrying a banned character (R3)
+banned_msg_sites <- function(path) {
+  found <- unlist(
+    lapply(parse(path), msg_strings),
+    use.names = FALSE
+  )
+  bad <- found[grepl("--|;", found)]
+  if (!length(bad)) {
+    return(character(0))
+  }
+  paste0(basename(path), ": ", bad)
+}
+
+test_that("no `--` or `;` in public message text", {
+  files <- list.files(
+    testthat::test_path("..", "..", "R"),
+    pattern = "\\.R$",
+    full.names = TRUE
+  )
+  files <- files[basename(files) != "RcppExports.R"]
+  expect_equal(
+    unlist(lapply(files, banned_msg_sites), use.names = FALSE),
+    character(0)
+  )
+})
+
+test_that("the message-punctuation guard fires only on message text", {
+  bait <- withr::local_tempfile(fileext = ".R")
+  writeLines(
+    c(
+      '# a comment with -- and a ; in it',
+      'f <- function() stop("dev-facing -- still allowed", call. = FALSE)',
+      'g <- function() cli::cli_abort("a -- b", call = NULL)',
+      'h <- function() cli::cli_warn(c("ok", "i" = "x; y"), call = NULL)'
+    ),
+    bait
+  )
+  # the comment and the plain stop() must not count -- the two cli calls must
+  expect_equal(length(banned_msg_sites(bait)), 2L)
+})
+
 test_that("the `$` guard actually fires", {
   bait <- withr::local_tempfile(fileext = ".R")
   writeLines(

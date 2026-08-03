@@ -34,23 +34,24 @@ assoc_age <- function(x, age) {
   if (is.null(age)) {
     pheno <- x[["pheno"]]
     if (!("Age" %in% names(pheno))) {
-      stop(
-        "No age to correlate against. Pass age = <numeric vector>, or score ",
-        "with a pheno carrying an Age column.",
-        call. = FALSE
+      cli::cli_abort(
+        c(
+          "The record has no {.field Age} column, and {.arg age} is
+           {.code NULL}.",
+          "i" = "Pass a numeric vector to {.arg age}.",
+          "i" = "Or score with a {.arg pheno} that has an {.field Age}
+                 column."
+        ),
+        call = NULL
       )
     }
     age <- pheno[["Age"]]
   }
   age <- suppressWarnings(as.numeric(age))
   if (length(age) != n) {
-    stop(
-      sprintf(
-        "age has %d value(s); the record has %d sample(s).",
-        length(age),
-        n
-      ),
-      call. = FALSE
+    cli::cli_abort(
+      "{.arg age} has {length(age)} value{?s}. The record has {n} sample{?s}.",
+      call = NULL
     )
   }
   age
