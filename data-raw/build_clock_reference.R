@@ -51,7 +51,12 @@ re_meta <- function(y, se) {
 re_meta_cor <- function(r, n) {
   ok <- is.finite(r) & is.finite(n) & n > 3 & abs(r) < 1
   m <- re_meta(atanh(r[ok]), 1 / sqrt(n[ok] - 3))
-  c(pooled = tanh(m[["pooled"]]), lo = tanh(m[["lo"]]), hi = tanh(m[["hi"]]), k = m[["k"]])
+  c(
+    pooled = tanh(m[["pooled"]]),
+    lo = tanh(m[["lo"]]),
+    hi = tanh(m[["hi"]]),
+    k = m[["k"]]
+  )
 }
 
 rnd <- function(x, d) unname(round(as.numeric(x), d))
@@ -65,7 +70,9 @@ d <- d[d$clock %in% catalog & is.finite(d$n) & d$n >= MIN_N, , drop = FALSE]
 matched <- sort(unique(d$clock))
 cat(sprintf(
   "matched %d of %d catalog clocks; %d have no reference data\n",
-  length(matched), length(catalog), length(setdiff(catalog, matched))
+  length(matched),
+  length(catalog),
+  length(setdiff(catalog, matched))
 ))
 
 # --- per-clock summary ------------------------------------------------------

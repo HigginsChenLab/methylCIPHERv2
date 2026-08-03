@@ -46,6 +46,25 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   maintainer's call, not the agent's. Do not reach for it via `Rscript`, `pkgbuild`, or a background
   shell either; the prohibition is on the work, not on one entry point.
 
+- **One beta entry point, and therefore no pre-flight check.** `calc_clocks()` is the only public
+  surface that reads a beta matrix. Everything else reads the **catalog** (`list_clocks`,
+  `clock_cpgs`, `list_clock_tags`) or a **finished record** (`clocks_coverage`, `samples_coverage`,
+  `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Of the exports only
+  `calc_clocks` and `predict_sex` take a `DNAm` argument at all, and `predict_sex` touches it
+  exclusively *through* `calc_clocks`; `sim_DNAm` generates a matrix rather than reading one.
+  So a "dry run", a coverage preview, or a `report(DNAm)` arm is **a second beta reader**, and
+  that is the thing being refused: a second reader takes its own independently-supplied matrix, so
+  its verdict can be about a different object than the one that gets scored -- decoupling risk with
+  nothing bought, since scoring is a matmul over an already-resident matrix and **both coverage
+  gates are arguments**, so `min_clocks_coverage = 0, min_samples_coverage = 0` already yields the
+  full report with no refusal. The pre-flight habit is inherited from upstream and does not
+  transfer: an ENmix/minfi pipeline couples its steps through one shared object and caches an
+  expensive IDAT parse, so checking before computing is both safe and necessary there. We have no
+  pipeline object and no expensive parse. `predict_sex()` is **not** an exception -- it is a
+  `calc_clocks()` call whose output feeds a later call, which is composition, not a pre-check.
+  This rests on scoring staying cheap enough that running it is not a commitment; a streaming or
+  chunked path would weaken that premise and would need an explicit answer rather than an
+  inherited one (DECISIONS 2026-08-03).
 - **One engine + a finite, closed branch set.** Every work unit routes on the catalog pair
   `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
   family orchestrator, sex-routed alias, external, custom). There is **no** recipe
