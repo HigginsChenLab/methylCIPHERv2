@@ -84,18 +84,16 @@ values_agree <- function(a, b) {
 
 column_conflict <- function(a, b, nm) {
   if (type_family(a) != type_family(b)) {
-    return(sprintf(
-      "  %s: %s on the record, %s in `data`",
-      nm,
-      class(a)[[1L]],
-      class(b)[[1L]]
+    return(cli::format_inline(
+      "{.field {nm}}: {.cls {class(a)[[1L]]}} on the record,
+       {.cls {class(b)[[1L]]}} in {.arg data}"
     ))
   }
   n_off <- sum(!values_agree(a, b))
   if (n_off == 0L) {
     return(NULL)
   }
-  sprintf("  %s: %d sample(s) disagree", nm, n_off)
+  cli::format_inline("{.field {nm}}: {n_off} sample{?s} disagree")
 }
 
 merge_accel_data <- function(pheno, data, pheno_id) {
@@ -103,31 +101,35 @@ merge_accel_data <- function(pheno, data, pheno_id) {
     return(pheno)
   }
   if (MC_BATCH %in% names(data)) {
-    stop(
-      sprintf(
-        "`%s` is reserved for the run's batch label; rename your column.",
-        MC_BATCH
+    cli::cli_abort(
+      c(
+        "{.arg data} has a {.field {MC_BATCH}} column.",
+        "i" = "That name is reserved for the batch label of the run.",
+        "i" = "Rename the column in {.arg data}."
       ),
-      call. = FALSE
+      call = NULL
     )
   }
   if (!pheno_id %in% names(data)) {
-    stop(
-      sprintf("`data` needs the id column `%s`.", pheno_id),
-      call. = FALSE
+    cli::cli_abort(
+      c(
+        "{.arg data} has no {.field {pheno_id}} column.",
+        "i" = "{.arg data} joins on the sample id column of the record."
+      ),
+      call = NULL
     )
   }
   ids <- as.character(data[[pheno_id]])
   dup <- unique(ids[duplicated(ids)])
   if (length(dup)) {
-    stop(
-      sprintf(
-        "`data` has %d duplicate id(s) in `%s`: %s.",
-        length(dup),
-        pheno_id,
-        capped(dup)
+    cli::cli_abort(
+      c(
+        "{.arg data} has {length(dup)} duplicate id{?s} in
+         {.field {pheno_id}}:",
+        capped_bullets(dup, val_lines),
+        "i" = "One row of {.arg data} per sample id."
       ),
-      call. = FALSE
+      call = NULL
     )
   }
 
@@ -139,30 +141,28 @@ merge_accel_data <- function(pheno, data, pheno_id) {
     column_conflict(pheno[[cl]][seen], data[[cl]][idx[seen]], cl)
   }))
   if (length(bad)) {
-    stop(
-      paste(
-        c(
-          "`data` changes columns the scores were computed against:",
-          bad,
-          paste0(
-            "Re-run calc_clocks() with the pheno you want. `data` may add a ",
-            "column, never change one."
-          )
-        ),
-        collapse = "\n"
+    cli::cli_abort(
+      c(
+        "{.arg data} changes {length(bad)} column{?s} the scores were
+         computed from:",
+        capped_bullets(bad),
+        "i" = "{.arg data} may add a column. It may not change one.",
+        "i" = "Call {.fn calc_clocks} again with the pheno you want."
       ),
-      call. = FALSE
+      call = NULL
     )
   }
 
   if (any(!seen)) {
-    warning(
-      sprintf(
-        "`data` has no row for %d sample(s): %s. Added columns are NA there.",
-        sum(!seen),
-        capped(as.character(pheno[[pheno_id]])[!seen])
+    absent <- as.character(pheno[[pheno_id]])[!seen]
+    cli::cli_warn(
+      c(
+        "{.arg data} has no row for {sum(!seen)} sample{?s}:
+         {.val {capped_vals(absent)}}.",
+        "i" = "An added column is {.code NA} for
+               {cli::qty(absent)}{?that sample/those samples}."
       ),
-      call. = FALSE
+      call = NULL
     )
   }
 
@@ -233,13 +233,14 @@ residualize <- function(resp, ph, vars, formula) {
     out[ok, cols] <- got
   }
   if (length(dead)) {
-    warning(
-      sprintf(
-        "%d clock(s) had too few complete samples to fit: %s. They are all NA.",
-        length(dead),
-        capped(dead)
+    cli::cli_warn(
+      c(
+        "{length(dead)} clock{?s} had too few complete samples to fit:
+         {.val {capped_vals(dead)}}.",
+        "i" = "{cli::qty(dead)}{?That column is/Those columns are} all
+               {.code NA}."
       ),
-      call. = FALSE
+      call = NULL
     )
   }
   out
