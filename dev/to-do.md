@@ -10,33 +10,41 @@ There is no open code defect. Everything below is licensing, release plumbing, p
 
 ## Before public alpha
 
-### A1. Clock weight licensing
+### A1. Package license, forced by the clock weights
 
-The catalog carries a `license` field for every clock, populated for all 137. The package declares
-`BSD_3_clause + file LICENSE` with Yale University as copyright holder, and the bundled
-coefficients have to be compatible with that.
+The terms come from upstream: each clock's weights and paper carry their own license, recorded in
+the catalog's `license` field, which is populated for all 137. The package currently declares
+`BSD_3_clause + file LICENSE` with Yale University as copyright holder.
 
-Current distribution:
+**The likely outcome is GPL-2.** Copyleft terms on any bundled clock propagate to the distributed
+work, and 10 clocks declare GPL-2, GPL-2+, GPL-3 or GPL-3 / CC-BY-4.0. BSD-3 cannot carry them.
 
-| Declared terms | Clocks | Redistributable as declared |
+Distribution as declared upstream:
+
+| Declared terms | Clocks | Effect |
 | --- | --- | --- |
-| open-redistributable | 31 | yes |
-| MIT | 3 | yes |
-| CC BY, CC BY 2.0, CC BY 4.0 | 5 | yes, with attribution |
-| GPL-2, GPL-2+, GPL-3, GPL-3 / CC-BY-4.0 | 10 | review, copyleft against BSD-3 |
-| journal-supp | 33 | review, terms vary by journal |
-| public-github-unspecified | 26 | no, code with no license grants no rights |
+| open-redistributable | 31 | no constraint |
+| MIT | 3 | no constraint |
+| CC BY, CC BY 2.0, CC BY 4.0 | 5 | attribution required |
+| GPL-2, GPL-2+, GPL-3, GPL-3 / CC-BY-4.0 | 10 | copyleft, forces the package license |
+| journal-supp | 33 | varies by journal, unresolved |
+| public-github-unspecified | 26 | no rights granted by default |
 | unspecified | 15 | unknown |
-| non-commercial | 12 | no |
-| CC BY-NC-ND 4.0 | 1 | no |
-| research-use-only | 1 | no |
+| non-commercial | 12 | not redistributable under any OSI license |
+| CC BY-NC-ND 4.0 | 1 | not redistributable, also no derivatives |
+| research-use-only | 1 | not redistributable under any OSI license |
 
-39 of 137 are clear as declared. Decide per bucket: ship, ship with an attribution file, move behind
-the external asset split, or drop. Where the field is `unspecified` or `public-github-unspecified`
-the upstream terms have to be established before the bucket can be decided.
+**Two problems, and relicensing solves only the first.** GPL-2 resolves the 10 copyleft clocks. It
+does nothing for the 14 under non-commercial, CC BY-NC-ND 4.0 or research-use-only terms, which no
+OSI license absorbs and which CRAN's free-redistribution requirement does not permit. Those have to
+be dropped, moved behind the external asset split, or cleared with the rights holder. The 41 under
+`unspecified` or `public-github-unspecified` are unknown rather than permissive: code published
+without a license grants no redistribution right.
 
-`LICENSE`, `LICENSE.md` and the `^LICENSE\.md$` line in `.Rbuildignore` are already in the shape
-CRAN expects. This item is the coefficients, not the package license.
+**Upstream work first.** The field records what upstream has recorded, and it is not verified per
+clock. Nothing can be settled package-side until it is. `LICENSE`, `LICENSE.md` and the
+`^LICENSE\.md$` line in `.Rbuildignore` are already in the shape CRAN expects, whichever license
+lands.
 
 ### A2. `CLAUDE.md` is published on the pkgdown site
 
@@ -65,7 +73,18 @@ largest reduction, since anything parity covers should be a smoke here.
 `DESCRIPTION` is no longer part of this item. `Title:`, `Description:`, `URL:` and `BugReports:`
 were settled 2026-08-04.
 
-### A4. README, at submission
+### A4. `codebook()`. BLOCKED UPSTREAM
+
+`data.frame(clock_id, description)`, dispatching like `cite_clocks()`. `description` is a sentence
+per clock saying what the score means: the one column `list_clocks()` does not carry and that
+nothing in the package can derive. Reinstated 2026-08-04, reversing the 2026-07-31 decision that
+kept it out.
+
+The method is small. The work is upstream: `description` is not verified across the 137 clocks in
+`methylCIPHER-meta`. **Do not build it against a partially populated field** -- a `codebook()`
+returning `NA` for most of the catalog reads as a package defect.
+
+### A5. README, at submission
 
 Restore the CRAN install block, deliberately absent while the package is not on CRAN. The three
 counts quoted in the coverage prose follow the seed and the `remove = 100` argument, so a change to
@@ -110,11 +129,5 @@ to be decided together with what "the same sample" means across cohorts.
 
 ## Housekeeping
 
-- `dev/pr3-triage.md` says `clocks_accel()` in its header and in sections 4.4 and 5.4. The function
-  is `calc_accel()`.
-- PR #3 response (`dev/PR3-respond.md`): the four agreed edits landed 2026-08-03. Posting the
-  response and closing the PR are manual steps and are held. One open point: section 3.8 declines
-  per-clock score summary statistics outright, which is a one-paragraph change if it should stay an
-  open question instead.
-- `build_clock_reference.R` calls `sex_coef` "male vs female"; the estimated level is female.
-  Comment only, the numbers are correct.
+- [data-raw/build_clock_reference.R:98](data-raw/build_clock_reference.R:98) comments `sex_coef` as
+  "male vs female"; the estimated level is female. Comment only, the numbers are correct.

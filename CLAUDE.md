@@ -115,9 +115,11 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `samples_coverage()` (each sample's batch alongside its id), with `mc_batch_id` **last** in both
     -- it is the join key, but it is a hash, so it does not sit in front of `clock_id`. Citations
     dispatch as `cite_clocks()`, a **package-owned** generic, because `utils::citation` and
-    `utils::cite` both exist as plain functions and taking either name masks it. `[`, `cbind`,
-    `augment` and `codebook` are **unbuilt ideas, not contracts** (DECISIONS 2026-07-23/24/25,
-    2026-07-27).
+    `utils::cite` both exist as plain functions and taking either name masks it. `[`, `cbind` and
+    `augment` are **unbuilt ideas, not contracts** (DECISIONS 2026-07-23/24/25, 2026-07-27).
+    **`codebook()` is decided but unbuilt**: `data.frame(clock_id, description)` dispatching like
+    `cite_clocks()`, blocked until upstream verifies a `description` per clock. Do not build it
+    against a partly populated field (DECISIONS 2026-08-04).
   - **The batch column reaches an exit frame only when the record spans more than one batch** -- at
     one batch it is a repeated hash carrying no information. All four exits (`as.data.frame`,
     `calc_accel`, both coverage frames) share the **one** test in `is_multi_batch()`

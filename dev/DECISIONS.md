@@ -14,6 +14,24 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-04 -- `codebook()` is reinstated, and it is blocked upstream
+
+**Reverses the 2026-07-31 decision** that kept D3 out of the finalizer family. That entry rejected
+`codebook` on three grounds: it touches no result, it reads a `bib_key` that does not exist, and it
+is a third view of `list_clocks()` / `clock_cpgs()`. The first is true and is not disqualifying, the
+second named the wrong field, and the third is what changed.
+
+`codebook()` returns `data.frame(clock_id, description)` and dispatches like `cite_clocks()`. It is
+not a third view of the catalog: `description` is a sentence per clock saying what the score means,
+which is the one column `list_clocks()` does not carry and cannot be derived from anything the
+package holds. That is the whole justification, and it stands or falls on the column existing.
+
+**Blocked upstream, and that is where the work is.** `description` is not verified in
+`methylCIPHER-meta` across the 137 clocks. The method itself is small. Sourcing and checking one
+description per clock is not, and it is upstream work rather than package work. **Do not build
+against a partially populated field** -- a `codebook()` that returns `NA` for most of the catalog is
+worse than no method, because it looks like a defect in the package.
+
 ## 2026-08-04 -- `duckdb` and `DunedinPACE` leave Suggests: a dep is declared for code, not for tests
 
 Both were in `Suggests`, and `DunedinPACE` also needed `danbelsky/DunedinPACE` in `Remotes:`. Both
@@ -1704,9 +1722,9 @@ vacuously here before it was caught.
 reasoning should not be re-derived. Ideas were collected from PR #3 (`dev/pr3-triage.md` sec 4.4,
 D1-D3); **no code is being taken from it** -- this is a clean re-implementation, and the surface owes
 the PR about two things (the `na.exclude` hazard, and clash detection on a user covariate frame).
-This entry settles `dev/pr3-triage.md` sec 5.4: D1 and D2 are in, D3 (`codebook`) stays out --
-it touches no result, reads a `bib_key` that does not exist, and is a third view of `list_clocks()`
-/ `clock_cpgs()`.
+This entry settles `dev/pr3-triage.md` sec 5.4 for D1 and D2, which are in. D3 (`codebook`) was
+kept out here and that was **reversed on 2026-08-04** -- see the entry of that date; do not read
+this paragraph as the current position.
 
 **`mc_result` is the canonical class, so every data.frame-returning function is a *finalizer*** --
 a one-way exit. Past it you have no `rbind`, no `refinalize_clocks()`, no coverage, no provenance,
