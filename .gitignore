@@ -51,3 +51,4 @@ __MACOSX/
 /doc/
 /Meta/
 docs
+.Rprofile

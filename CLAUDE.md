@@ -636,11 +636,16 @@ Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratc
 
 Keep **this** file environment-agnostic -- it is shared across operating systems and shells.
 
-- The tracked `.Rprofile` attaches `devtools` + `testthat`, but **only under `interactive()` and
-  only if they are installed**. **Do not make those calls unconditional again**: R sources this file
-  for every `Rscript` started in the repo root, including the one CI runs to set up the library
-  before a single dependency exists, where a bare `library()` is a hard error that fails the job.
-  That is exactly how the pkgdown workflow died on its first run (2026-08-04). For a clean,
-  profile-free parse or check, use `Rscript --vanilla` or `R CMD check`.
+- **There is no tracked `.Rprofile`, and there must not be one again.** It attached `devtools` +
+  `testthat`, which is convenient locally and fatal everywhere else: R sources that file for every
+  `Rscript` started in the repo root, including the one CI runs to set the library path **before a
+  single dependency is installed**, where a bare `library()` is a hard error that fails the job.
+  That is exactly how the pkgdown workflow died on its first run (2026-08-04). Guarding it on
+  `interactive()` was the small fix and was rejected for the general one: a startup file that runs
+  before the environment exists is a hazard whatever it contains, and a repo-wide one makes every
+  contributor's R behave unlike a clean session. **A personal `.Rprofile` is gitignored** -- keep
+  machine-specific startup there, same as `CLAUDE.local.md` -- and `^\.Rprofile$` stays in
+  `.Rbuildignore` so a local one can never reach the tarball. Every R invocation in this repo now
+  starts profile-free with or without `--vanilla`.
 - Put machine-specific or personal notes (OS, shell, local paths, private scratch) in
   `CLAUDE.local.md` -- gitignored, loaded automatically, never reaches a collaborator.
