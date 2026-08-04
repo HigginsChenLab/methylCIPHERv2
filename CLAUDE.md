@@ -636,7 +636,11 @@ Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratc
 
 Keep **this** file environment-agnostic -- it is shared across operating systems and shells.
 
-- The tracked `.Rprofile` auto-attaches `devtools` + `testthat` in interactive sessions. For a
-  clean, profile-free parse or check, use `Rscript --vanilla` or `R CMD check`.
+- The tracked `.Rprofile` attaches `devtools` + `testthat`, but **only under `interactive()` and
+  only if they are installed**. **Do not make those calls unconditional again**: R sources this file
+  for every `Rscript` started in the repo root, including the one CI runs to set up the library
+  before a single dependency exists, where a bare `library()` is a hard error that fails the job.
+  That is exactly how the pkgdown workflow died on its first run (2026-08-04). For a clean,
+  profile-free parse or check, use `Rscript --vanilla` or `R CMD check`.
 - Put machine-specific or personal notes (OS, shell, local paths, private scratch) in
   `CLAUDE.local.md` -- gitignored, loaded automatically, never reaches a collaborator.
