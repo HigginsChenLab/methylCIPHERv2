@@ -15,8 +15,9 @@ main function, `calc_clocks()`, has 3 important inputs (see
   in the columns
 - `clocks`: A list of clocks (e.g., Horvath1), clock "group" (e.g.,
   GrimAge), or tags ("mitotic").
-- `pheno`: A data.frame that contains Age and Female (1/0), and an ID
-  column that links to the sample names of the DNAm beta matrix.
+- `pheno`: A data.frame that contains Age (Years) and Female (1/0) for
+  only certain clocks, and an ID column that links to the sample names
+  of the DNAm beta matrix.
 
 ## Installation
 
