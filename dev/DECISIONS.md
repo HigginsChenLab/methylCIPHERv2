@@ -178,18 +178,12 @@ Nothing moves, no user's assets go invisible, and no detection-or-migrate code g
 cost of a default path that differs by OS for reasons the user cannot see, plus a branch in code
 that has none, to protect 43 MB that re-downloads on request.
 
-**`piggyback` was evaluated here and is orthogonal.** It says nothing about which directory --
-`pb_download(dest = ".")` writes to the working directory and takes the destination as an argument.
-It is also rejected for the runtime download path in `R/`, on four counts: it adds `gh`, `httr`
-(superseded), `jsonlite`, `glue`, `lubridate` and `memoise` to a package pitched as a closed
-self-contained contract; it replaces an unauthenticated CDN GET with a **GitHub API** call, and the
-anonymous API allows 60 requests/hour **per IP**, which is shared across an institutional NAT or an
-HPC login node; its model is list-the-release-then-find-the-file, a search where `mc_asset_url()`
-resolves a declared `release_tag` + `file` pointer, against the standing accessor rule; and its
-`overwrite = TRUE` / `use_timestamps` defaults are built for mutable filenames, while it offers no
-checksum, so it would cost the staged `.part` download, `validate_checksum` and atomic rename that
-`mc_fetch()` already has. Where it may still pay off is the maintainer-side upload half -- see the
-to-do item.
+**The runtime download path stays as it is**, and the properties it already has are the reason: an
+unauthenticated CDN GET rather than a **GitHub API** call, whose anonymous limit of 60 requests/hour
+**per IP** is shared across an institutional NAT or an HPC login node; a declared `release_tag` +
+`file` pointer resolved by `mc_asset_url()` rather than a list-the-release-then-find-the-file
+search, per the standing accessor rule; and `mc_fetch()`'s staged `.part` download,
+`validate_checksum` and atomic rename. Any replacement has to keep all four.
 
 ---
 

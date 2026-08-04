@@ -598,7 +598,7 @@ than prose: tests assert *that* a message errors and never its wording (see "Tes
 
 ## Source-of-truth docs (`dev/`)
 
-The `dev/` folder is local-only **except** these three, which are tracked:
+The `dev/` folder is local-only **except** these four, which are tracked:
 
 - `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals (2026-07-30
   and later). Add an entry when a decision reverses a prior approach or is likely second-guessed; do
@@ -607,6 +607,10 @@ The `dev/` folder is local-only **except** these three, which are tracked:
   cut resolve here; do not restate that archive in the live log.
 - `dev/WRITING.md` -- the single source for how user-facing text is written. See "CLI messages"
   above; this file points there and does not restate it.
+- `dev/to-do.md` -- queued work, tracked since 2026-08-04. A **staging area, not a record**: an item
+  that becomes a design commitment gets a DECISIONS entry when it lands, an item that becomes a rule
+  moves here, and a shipped item is deleted rather than marked done. Read it before starting new
+  work; the pre-alpha section is what blocks a public release.
 
 **There is no live design doc, and that is deliberate.** `migration-plan.md` and `detail-plan.md`
 were retired on 2026-07-28, and `id-streaming-plan.md` (the chunking / binding / `prep()` design) was

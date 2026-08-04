@@ -12,13 +12,14 @@
 # Personal, machine-specific Claude overrides (never shared with collaborators)
 CLAUDE.local.md
 
-# dev folder: local-only, except the three canonical docs
+# dev folder: local-only, except the four canonical docs
 # (tracked so CLAUDE.md's pointers resolve in a fresh clone).
 # Everything else -- legacy/, scratch.R, clock_tracker.csv, build scripts -- stays local.
 dev/*
 !dev/DECISIONS.md
 !dev/DECISIONS.old.md
 !dev/WRITING.md
+!dev/to-do.md
 
 # Python / uv
 .venv/
