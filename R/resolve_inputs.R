@@ -15,8 +15,7 @@ did_you_mean <- function(tok, pool, n = 5L) {
   utils::head(unique(unname(pool[order(d, nchar(names(pool)))])), n)
 }
 
-# nearest-match bullets for unmatched tokens. the cap is on the token count,
-# because adist() runs per token and is the cost, not the render.
+# nearest-match bullets for unmatched tokens. cap is on token count.
 suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
   cli_escape(unlist(lapply(capped_vals(toks), function(tok) {
     hits <- lapply(pools, function(pool) did_you_mean(tok, pool, n))
@@ -301,8 +300,10 @@ panels_union <- function(panels, roles = c("score", "norm")) {
 }
 
 # per-clock present/absent CpG sets over usable_cols
+# usable_cols is unique by construction (setdiff in scan_missing_cpgs), and
+# present_idx below indexes it, so mc_block() must key on the same vector.
 resolve_cpgs <- function(usable_cols, panels) {
-  usable <- unique(usable_cols)
+  usable <- usable_cols
   clock_sequence <- panels[["clock_id"]]
 
   # split each distinct panel once (factor keeps empty norm panels)
@@ -312,14 +313,21 @@ resolve_cpgs <- function(usable_cols, panels) {
       rep(seq_along(panels), lengths(panels)),
       levels = seq_along(panels)
     )
+    # one hash of usable for every panel. the position is what block_cols wants.
     hits <- split(
-      match(unlist(panels, use.names = FALSE), usable, 0L) > 0L,
+      match(unlist(panels, use.names = FALSE), usable, 0L),
       grp
     )
     lapply(seq_along(panels), function(i) {
       p <- panels[[i]]
       hit <- hits[[i]]
-      list(needed = p, present = p[hit], absent = p[!hit])
+      ok <- hit > 0L
+      list(
+        needed = p,
+        present = p[ok],
+        present_idx = hit[ok],
+        absent = p[!ok]
+      )
     })
   }
   score_parts <- split_panels(panels[["score"]])
@@ -332,9 +340,12 @@ resolve_cpgs <- function(usable_cols, panels) {
       clock_id = clock_sequence[[i]],
       score_needed = s[["needed"]],
       score_present = s[["present"]],
+      # positions of score_present in usable_cols
+      score_present_idx = s[["present_idx"]],
       score_absent = s[["absent"]],
       norm_needed = nm[["needed"]],
       norm_present = nm[["present"]],
+      norm_present_idx = nm[["present_idx"]],
       norm_absent = nm[["absent"]],
       # does this clock count over a norm panel?
       normalizes = length(nm[["needed"]]) > 0L
@@ -348,5 +359,10 @@ resolve_cpgs <- function(usable_cols, panels) {
     norm = list(parts = norm_parts, idx = panels[["norm"]][["idx"]])
   )
 
-  list(per_clock = per_clock, panel_index = panel_index)
+  list(
+    # the axis every present_idx above indexes
+    usable_cols = usable,
+    per_clock = per_clock,
+    panel_index = panel_index
+  )
 }

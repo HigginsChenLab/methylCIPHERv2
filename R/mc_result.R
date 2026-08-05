@@ -20,10 +20,7 @@ is_multi_batch <- function(batch) {
   length(unique(batch)) > 1L
 }
 
-# how many batches the record spans. the per-sample provenance vector is
-# authoritative -- it is the vector that fills mc_batch_id -- and per_clock
-# must agree with it. a disagreement means the record was assembled wrong, so
-# it stops rather than silently picking one of the two counts.
+# batch count from provenance. stop if per_clock disagrees.
 n_batches <- function(x) {
   n <- length(unique(x[["provenance"]][[MC_BATCH]]))
   n_cov <- length(x[["coverage"]][["per_clock"]])
@@ -156,8 +153,7 @@ construct_mc_result <- function(
 #' @param ... Not used.
 #'
 #' @details
-#' The output lists batch labels only when `x` spans more than one
-#' `mc_batch_id`.
+#' The output lists the batch labels only when `x` holds more than one batch.
 #'
 #' @returns An `mc_result` object. Returns `x`, invisibly, after printing it.
 #'
@@ -218,11 +214,7 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
 #' @inheritParams mc-params
 #' @param ... Not used.
 #'
-#' @details
-#' This function recalculates any clock that depends on sample-wise
-#' information, such as a z-score, from all the available samples when `x`
-#' holds more than one batch. This is the same calculation as
-#' [refinalize_clocks()].
+#' @inheritSection mc-params Clocks that use all the samples
 #'
 #' @returns A numeric matrix. The scores, with samples in the rows and
 #'   clocks in the columns.

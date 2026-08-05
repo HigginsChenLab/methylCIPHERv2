@@ -247,8 +247,7 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         dependencies = setdiff(clocks, requested),
         covariates_used = ref[["covariates_used"]],
         normalized = ref[["normalized"]],
-        # kept per batch and never reconciled -- a differing gate is not a gate.
-        # the exits finalize by taking the most restrictive.
+        # kept per batch. never reconciled.
         min_clocks_coverage = prov(args, "min_clocks_coverage"),
         min_samples_coverage = prov(args, "min_samples_coverage"),
         # clock -> the sample ids it failed on anywhere
@@ -324,7 +323,12 @@ refinalize_clocks <- function(x) {
   for (id in ids) {
     col <- done[[id]]
     # match by name, not row order
-    x[["scores"]][, id] <- col[rownames(x[["scores"]]), 1L]
+    rows <- id_index(
+      rownames(x[["scores"]]),
+      rownames(col),
+      "refinalize_clocks"
+    )
+    x[["scores"]][, id] <- col[rows, 1L]
   }
   cli::cli_inform(c(
     "v" = "{cli::qty(ids)}{?Column/Columns} {.val {ids}}
