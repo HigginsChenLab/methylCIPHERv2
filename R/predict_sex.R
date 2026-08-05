@@ -7,9 +7,7 @@ SEX_GROUP <- "DNAmSex_Wang"
 RECORDED_SEX <- "recorded_sex"
 SEX_MISMATCH <- "sex_mismatch"
 
-# the two non-aneuploid calls the rule table emits, and the labels a recorded
-# binary Female maps onto. 47,XXY and 45,XO are biology, not a pheno error, so
-# they are shown against the record and never flagged.
+# non-aneuploid calls the rule table emits, and binary Female labels. aneuploid calls are shown, not flagged.
 BINARY_CALLS <- c(female = "Female", male = "Male")
 
 # declared karyotype_call block for SEX_GROUP.
@@ -99,8 +97,7 @@ karyotype_calls <- function(kc) {
   ))
 }
 
-# pheno Female (1/0) -> the rule table's own labels, so the two columns compare
-# directly. anything that is not a 0/1 record is refused rather than guessed at.
+# map pheno Female (1/0) onto the rule table labels. refuse non-0/1 values.
 recorded_from_female <- function(female) {
   checkmate::assert_integerish(
     female,
@@ -118,9 +115,7 @@ recorded_from_female <- function(female) {
   )
 }
 
-# left join the recorded sex onto the calls, by id and never by row order.
-# calc_clocks() has already refused a pheno whose id column is duplicated or
-# does not cover every DNAm row, so this match is total and one-to-one.
+# left join recorded sex onto calls by id, never by row order.
 attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
   if (is.null(pheno) || !"Female" %in% names(pheno)) {
     return(out)
@@ -134,15 +129,11 @@ attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
     )
   }
 
-  idx <- match(out[[pheno_id]], as.character(pheno[[pheno_id]]))
-  if (anyNA(idx)) {
-    stop(
-      "predict_sex: a scored sample has no pheno row. This is a package bug --
-       please report it.",
-      call. = FALSE
-    )
-  }
-
+  idx <- id_index(
+    out[[pheno_id]],
+    as.character(pheno[[pheno_id]]),
+    "attach_recorded"
+  )
   recorded <- recorded_from_female(pheno[["Female"]][idx])
   out[[RECORDED_SEX]] <- recorded
   # an aneuploid or unscored call is never a disagreement
@@ -185,10 +176,8 @@ say_mismatch <- function(out) {
 #' This is a re-implementation of the sex prediction algorithm of the
 #' wateRmelon package.
 #'
-#' The returned data.frame has one row for each sample, with the two
-#' `DNAmSex_Wang` scores and a `predicted_sex` column. `predicted_sex` is
-#' one of `"Male"`, `"Female"`, `"47,XXY"`, or `"45,XO"`. A sample missing
-#' either score gets `NA`, not a default call.
+#' `predicted_sex` is one of `"Male"`, `"Female"`, `"47,XXY"`, or `"45,XO"`.
+#' A sample missing either score gets `NA`, not a default call.
 #'
 #' When `pheno` has a `Female` column, coded `0` or `1`, the result also
 #' carries `recorded_sex` and `sex_mismatch`. `sex_mismatch` is `TRUE` only
@@ -196,13 +185,13 @@ say_mismatch <- function(out) {
 #' `"47,XXY"` or `"45,XO"` call is never flagged, because a binary `Female`
 #' column cannot record it.
 #'
-#' @returns A data.frame. One row for each sample, with the two
-#'   `DNAmSex_Wang` scores, `predicted_sex`, and, when `pheno` has a
-#'   `Female` column, `recorded_sex` and `sex_mismatch`.
+#' @returns A data.frame. One row for each sample, with the
+#'   `DNAmSex_Wang_ChrX` and `DNAmSex_Wang_ChrY` scores, `predicted_sex`,
+#'   and, when `pheno` has a `Female` column, `recorded_sex` and
+#'   `sex_mismatch`.
 #'
 #' @examples
-#' ids <- c("DNAmSex_Wang_ChrX", "DNAmSex_Wang_ChrY")
-#' sim <- sim_DNAm(ids, n = 6, Female = TRUE)
+#' sim <- sim_DNAm("DNAmSex_Wang", n = 6, Female = TRUE)
 #' predict_sex(sim[["DNAm"]], sim[["pheno"]])
 #'
 #' @export
@@ -218,8 +207,7 @@ predict_sex <- function(DNAm, pheno = NULL, ...) {
   pred <- apply_karyotype(scores, kc)
   out[[as.character(kc[["output_column"]])]] <- pred
 
-  # Female is never a required covariate here, so it does not reach the record
-  # -- the comparison reads the caller's own pheno.
+  # the Female covariate is not required. comparison reads the caller's pheno.
   out <- attach_recorded(
     out,
     pheno,

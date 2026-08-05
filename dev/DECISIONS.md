@@ -14,6 +14,500 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-05 -- `id_index()`: one id join, and the survey that shrank the site list
+
+The last open half of the `collapse` audit below. It asked for "one helper carrying key uniqueness,
+an explicit unmatched policy and a row-count check, applied at all ten". The survey found a
+different set than the one the to-do listed, and a different shape of helper.
+
+**Seven of the ten listed sites are id joins, not ten, and there is an eighth the list missed.**
+`assoc_report()` is a scalar one-row lookup inside a per-clock `lapply`, and `new_mc_citation()` /
+`bind_by_key()` are list-name lookups (`entries[[k]]`, `e[[id]]`). None of the three takes an index
+without being contorted, and none of them can silently misalign a sample. Unlisted and genuine:
+`refinalize_clocks()` (`R/bind.R`), where `col[rownames(x[["scores"]]), 1L]` yields a silent `NA`
+score for an id the pending block does not carry.
+
+**An index, not a join.** The to-do's name was `left_join_by_id()`, returning a reindexed table.
+That fits four of the eight; the rest index a plain vector (`mc_batch_id[...]`,
+`pheno[["Female"]][idx]`) or need the index for something else (`merge_accel_data()` reuses it for
+its column-conflict check). So the primitive is `id_index(key, id, what, unmatched)`, returning an
+integer, and `R/utils.R` is where it lives. There is no row-count check to write: `match()` returns
+`length(key)` by construction, and the one policy that does not (`"drop"`) is the one that means it.
+
+**The unmatched policy is the point, not the uniqueness check.** Taking only `anyDuplicated()` was
+considered and rejected: three sites -- `calc_accel()`'s batch column, `block_rows()` and
+`refinalize_clocks()` -- turn an unmatched id into a **silent NA**, which is the failure the audit
+actually names, and a duplicate check does nothing about it. So `unmatched` is explicit at every
+call site: `"stop"` at six, `"drop"` at `joined_rows()` (which runs inside `check_pheno()`, before
+`resolve_pheno()` raises the user-facing refusal), `"na"` at the two that raise their own cli
+message about the user's own input (`resolve_pheno()`, `merge_accel_data()`).
+
+**Each `"stop"` was justified before it was written, and none of them is `check_pheno()`.**
+`check_pheno()` asserts the id column is unique but never refuses a `sample_id` with no pheno row,
+so the reasoning for `calc_accel()`'s two sites is different and is now in a comment there:
+`merge_accel_data()` only ever **adds columns** to `x[["pheno"]]`, which `resolve_pheno()` already
+aligned one row per sample, so its id column still is `sample_id`. `block_rows()` takes a row subset
+of the cohort its facts were built from. `attach_recorded()` was already a hand-written defect stop.
+Verified by tracing a live run: all eight sites are reached, and no `"stop"` branch fires.
+
+**`resolve_pheno()` got shorter, not just guarded.** It hashed the same key set twice --
+`setdiff(sample_id, pheno[[pheno_id]])` to build the refusal, then `match()` to build the index. It
+now reads the missing ids off the index, so the cli message is unchanged and there is one lookup.
+
+The tests are four expectations on the helper's own branches, which nothing else reaches: a repeated
+right key, an unmatched key under `"stop"`, and the two return shapes under `"drop"` and `"na"`.
+
+**Parity passed** (maintainer run, 2026-08-05). `R CMD check` was not run. No roxygen or exports
+changed.
+
+---
+
+## 2026-08-05 -- the positional axis is guarded with `identical()`, and `scan_missing_cpgs()` was measured before it was changed
+
+Follow-on to the positions entry below, closing the session hand-off it left behind. One item was
+taken as recommended, one was reversed by measurement, and one was declined.
+
+**Why a guard and not a test.** The positions change bought 1.25s by trusting a bare integer. Its
+worst failure mode is code that has not been written yet: anything that sorts, uniques or subsets
+`usable_cols` between `resolve_cpgs()` and `mc_block()` leaves every position in range,
+`block_cols()`'s bounds guard passes, and the run scores **the wrong CpGs and returns a number**.
+The parked chunked front end is exactly that shape, since a per-chunk `usable` is a different
+axis from the cohort-wide one the panels were resolved against. No test can cover future code; a
+runtime check can, and the package already prefers a cheap greppable `stop()` for a defect class.
+
+**`identical()`, not a hash.** The hand-off recommended hashing `usable_cols`, with the note that
+`batch_hash()`'s canonical form is wrong here because order is exactly what must be preserved.
+Reversed on measurement. `digest(algo = "xxhash64")` over the 414k vector is 1.5ms, so cost was
+never the objection -- but `identical()` is **0.000ms per call at 200 reps** in every case measured
+(same object, equal-content rebuild, differs only at the last element, one element shorter),
+because R interns strings and compares `CHARSXP`s by pointer. So `resolve_cpgs()` returns the
+vector it resolved against and `mc_block()` refuses anything not `identical()` to it. That is exact
+rather than probabilistic, needs no `digest` round-trip, and stores a reference rather than a copy.
+Verified it fires on a reordered axis and on a filtered one, and passes an equal-content rebuild.
+
+**Three tests, nine expectations, 803 -> 812.** The alignment invariant stated directly
+(`usable[present_idx] == present`, one assertion per panel role over the whole request rather than a
+loop per clock, on a request carrying a real 20k norm panel). The guards: `block_cols()` on a `0`
+and on an out-of-range position, plus `mc_block()` on a reordered axis. And the end of the chain,
+which is what a wrong position actually corrupts -- `colnames(observed_panel(...)$values)` equals
+the panel, so the positions handed to the matrix resolve to the CpGs the coefficients are named
+for, plus `cached_cols()`'s pair on a cohort carrying partial NA. All confirmed non-vacuous by
+mutation: shifting one position breaks the first, the guard message is the one that fires in the
+second, and a one-element rotation of `usable_idx` breaks the third.
+
+**The third proposed test is declined as covered.** "Two clocks whose panels overlap partially"
+would catch a `dedup_panels()` or `panel_index` change fanning the wrong panel's positions to the
+wrong clock -- which is what `test-score-wang.R`'s mixed-request golden already does: two clocks in
+one call, each score compared against its single-clock value. `dedup_panels()` compares panels with
+`identical()`, so a partial overlap and a disjoint pair take the same path and the overlap adds no
+distinct failure mode.
+
+**`scan_missing_cpgs()` did not cost what the hand-off said.** The claim was 0.59s of a 1.75s run,
+"mostly the `intersect()` calls". Measured on the real 413k-column request: the whole function is
+**78ms of a 1.85s run**, and `intersect()` is 40ms of that. The change is still worth taking, for a
+reason that is not speed. `present_needed` and `needed_idx` were two separate lookups of the same
+key set, which is failure mode 2 (one panel, two masks) waiting to be introduced. One
+`match(needed_cpgs, cn, 0L)` now yields both, the score panel resolves the same way, and
+`row_observed()` takes those positions instead of re-resolving names. 78ms -> 52ms, and the output
+is `identical()` to the old formulation across four shapes, including the `score != needed` branch
+that a norm panel triggers.
+
+**`setdiff(present_needed, all_na)` stays**, though `present_needed[n_obs > 0]` would be equivalent
+and save another 10ms. It is the one thing that makes `usable_cols` unique whatever upstream does,
+and `resolve_cpgs()`'s comment cites it by name. Trading the sole enforcement of the axis's
+uniqueness for 0.5% of a run is the wrong side of this change.
+
+**Parity passed on the change** (maintainer run, 2026-08-05), alongside the `identical()`
+equivalence check above. `R CMD check` was not run. No roxygen or exports changed.
+
+---
+
+## 2026-08-05 -- a resolved panel carries positions, not names, and `collapse` is declined
+
+Two halves of one audit. The question was whether to take `collapse` as a hard dependency for its
+join verb and its set operations. The measurement said the cost it was meant to fix was
+not a set-operation cost at all.
+
+**What the profile found.** 32 requested clocks (SystemsAge, Zhang2019, PCClocks, PCBrainAge plus
+the 25 smallest bundled clocks), `sim_DNAm(n = 30)`, DNAm 30 x 414110, packs warm. `Rprof` is
+useless here -- it sampled 0.35s of a 3.2s run -- so these are wrapper timers around the internals.
+`block_cols()` was **1.15s of a 3.0s run** across 82 calls. The line was
+`block[["usable_idx"]][cols]`, and its cost is flat in the number of keys: 14ms for 1000 names,
+17ms for 20000. What is being paid 82 times is R hashing the **414k names of the table**, not the
+lookup. `match(cols, usable)` costs the same, for the same reason.
+
+**Why positions and not a faster match.** Three alternatives were measured against the same 82
+panels (1.46M keys total):
+
+| | cost |
+| --- | --- |
+| 82 x `idx[names]` (what shipped) | 1687 ms |
+| environment table, build + 82 x `mget()` | 690 + 1777 ms |
+| 82 x `match(panel, usable)` up front | 1720 ms |
+| **one `match()` over the concatenated panels** | **130 ms** |
+| then 82 x `idx[pos]` | 47 ms |
+
+An environment is worse than the named vector, and resolving each panel separately just moves the
+same 82 hashes earlier. The only thing that helps is hashing `usable` **once** for every panel at
+the same time -- which `resolve_cpgs()`'s `split_panels()` already did, at
+`match(unlist(panels), usable, 0L) > 0L`, and then threw the positions away to keep a logical.
+
+**So the change is to keep what was already computed.** `split_panels()` retains the integer, every
+clock's entry gains `score_present_idx` / `norm_present_idx` (positions in `usable_cols`), and
+`block_cols()` / `observed_panel()` take positions. `usable_idx` loses its names. Measured after:
+`block_cols()` 1.15s -> 0.01s, the whole call 3.00s -> 1.75s; on a 138k-column panel set,
+1.11s -> 0.67s at n = 30 and 2.53s -> 1.87s at n = 300.
+
+**The axis is `facts[["usable_cols"]]`, and it has one owner.** `resolve_cpgs()` used to take
+`unique(usable_cols)` while `mc_block()` keyed on the raw vector. That was a no-op only because
+`scan_missing_cpgs()` builds it with `setdiff()`, and once positions cross between them a silent
+re-`unique()` would shift every index. The `unique()` is gone and the coupling is stated at
+`resolve_cpgs()`.
+
+**Parity passed on the change** (2026-08-05), which is what makes the swap safe to keep: a desync
+between the two consumers of the axis would surface there as a wrong score, not as an error.
+
+**Two guards changed shape rather than going away.** `block_cols()` used to catch a name outside
+`usable`, where the symptom was an NA column. The positional failures are different and worse: a
+`0` **silently drops** an element and shrinks the panel, so the guard now tests the positions
+themselves (`is.na | < 1 | > length(usable_idx)`) before indexing. `mc_block()` gained the matching
+check for the cohort-mean columns, which is where the one remaining name lookup lives, paid once.
+
+**`cached_cols()` stopped searching too.** It was `intersect(present, colnames(partial_cache))`,
+i.e. a second name hash per panel, invisible in the profile only because simulated betas have no
+NAs. It now reads a logical mask over `usable`, built once in `mc_block()`. The mask is `NULL`
+when nothing was partly missing, which keeps the old short-circuit -- without it, `compute_coverage`
+went from 0.04s to 0.17s paying mask lookups on cohorts that have no cache at all.
+
+**`component_present()` returns a pair now**, `list(cols, idx)`, and selects with
+`score_present %in% names(coef)` instead of `intersect(names(coef), score_present)`. Same set, but
+it hashes the **component** (hundreds of coefficients) rather than the panel, and it keeps the
+panel's own order so the positions stay aligned. The order of `obs[["cols"]]` therefore follows the
+panel rather than the coefficient vector. Nothing downstream depends on it: every consumer indexes
+by name off `obs[["cols"]]`.
+
+**Why `collapse` is declined.** Its `join()` defaults are exactly the silence the dependency was
+meant to remove -- `validate = "m:m"` performs no check and `multiple = FALSE` takes the first
+match in `y` -- so every site would carry `validate = "1:1"` plus a `require` list, and would be
+wrapped anyway to raise the package's own cli text. Its `pivot()` has nothing to accelerate: no
+exit here reshapes, `shape_scores()` builds the long frame with `rep()` and `as.vector()` straight
+off the score matrix, and `samples_coverage()` is 0.10s at n = 300. And `fmatch` would at best
+shave a constant off the line that positions delete outright. The install weight, the GPL-2 | GPL-3
+terms and a second Rcpp-linking dependency buy nothing measured.
+
+**`merge(sort = FALSE)` was the other candidate and is also declined.** It does fail loudly on a
+duplicated right key, because the result gains rows and an `nrow()` check catches it. But at
+10k x 10k it costs 6.5ms against 0.5ms for `right[match(...), ]`, its row order under
+`sort = FALSE` is documented as unspecified, and `anyDuplicated()` on the key is free. The
+guarantee is worth having; `merge` is not how to buy it. The remaining work is one internal
+`left_join_by_id()`, which shipped as `id_index()` in the entry above.
+
+---
+
+## 2026-08-05 -- two settled word choices in user-facing text: "confirm", and how a clock is named
+
+Both are vocabulary, so neither can be linted and both drift silently. They are written into
+`dev/WRITING.md` section 2 rather than left as a preference.
+
+**"confirmation" / "confirm", not "consent".** Four doc sites used "consent" for what a yes-or-no
+prompt does. `consent` reads as a legal term and overstates it. The replacement was scoped to text
+a user can see: the `ask` donor param and the `@details` on `download_mc_assets()`,
+`load_mc_assets()` and `clear_mc_assets()`. **The internal `mc_consent()` and
+`mc_consent_delete()` keep their names**, along with the code comments and the two test names, on
+the same line CLAUDE.md already draws between an audience and an implementation. Renaming them
+buys nothing a reader can see and touches a mocked binding in the suite. No cli message used the
+word, so the string surface was already clean, and `README.Rmd` had independently written
+"downloading requires confirmation".
+
+**A clock id in prose follows the reader, and the reader meets it in two different places.** The
+docs spelled the sex classifier both ways with no rule: `predict_sex()`'s example requested
+`c("DNAmSex_Wang_ChrX", "DNAmSex_Wang_ChrY")` while its `@returns` described the output as "the
+two `DNAmSex_Wang` scores". Both were backwards. Verified: `resolve_clocks("DNAmSex_Wang")` gives
+both members, and `predict_sex()` returns columns named `DNAmSex_Wang_ChrX` and
+`DNAmSex_Wang_ChrY`. So a **request** takes the shortest token that resolves, which is the group
+id, and a **returned column** is named in full, because `DNAmSex_Wang` is not a column anyone will
+find in their frame. The README example now shows both at once: a one-token request producing two
+long column names.
+
+`README.md` was regenerated with `devtools::build_readme()` rather than hand-edited. The diff came
+back as exactly the two intended edits with no churn, which is the check that the seeded chunks and
+the staged assets still render faithfully.
+
+---
+
+## 2026-08-05 -- repeated roxygen prose is hoisted to the donor, and donor text names effects
+
+An audit of every `@details` block found ten defects. Two of them were the same defect: text
+copied between topics, drifting or over-specific at one call site and correct at another. So the
+fix is structural, not per-topic.
+
+**What moved to `R/mc-params.R`.** The cross-sample paragraph, verbatim on `as.data.frame`,
+`as.matrix`, `calc_accel` and `score_associations`, is now the `Clocks that use all the samples`
+section, pulled in with `@inheritSection`. `long`, identical on two topics, is a donor param. That
+is the second `@section` on the donor and confirms the mechanism generalises past
+`The assets directory`: a `@section` renders after `\value`, which is the right place for a
+caveat about the returned value, and one edit now reaches four pages.
+
+**Donor text names the effect, not the operations.** `ask` read "Asks for consent before a
+download or a delete". Five of the six recipients cannot delete anything. An enumeration in shared
+text is the worst kind of duplication, because it is one list that has to stay true of N call
+sites and nothing checks it. It now reads "before the assets directory changes", which is true
+everywhere and stays true when a seventh topic takes `ask`. This also fixed the `load_mc_assets()`
+`@details`, which read as though the function refuses outright in a non-interactive session when
+it refuses only a download of a missing asset.
+
+**Three things were deliberately left duplicated**, all for the same reason: hoisting would
+replace visible duplication with an invisible wrong default. `...` is identical on 9 of 11 topics,
+but its three sentences mean opposite things and a wrong "Not used." on a topic that really passes
+`...` through is invisible in the rendered page. `n` and `p` differ between the two print methods,
+and `n` collides with `sim_DNAm()`'s different default. `optional` and `row.names` sit on two
+topics of which only one may inherit, because the donor's `x` is an `mc_result` -- so the saving is
+zero. Moving `x` out of the donor to close that footgun was costed and rejected: about ten topics
+inherit it.
+
+**The audit's own headline finding was unrelated to hoisting and worth recording.**
+`samples_coverage()`'s `@details` said "Only the clocks in the returned scores of `x` get a row. A
+clock that scores as part of another clock gets none." Both sentences were the exact inverse of
+`covered_ids(per_clock)`, and they contradicted the paragraph's own fourth sentence. Measured on
+`c("DNAmFitAge", "Horvath1")`: 12 rows are not score columns and 8 score columns have no row. The
+`#` comment above the function had drifted the same way and was corrected with it.
+
+---
+
+## 2026-08-05 -- `load_mc_assets()` returns a classed `mc_assets`, so it has a printer
+
+`load_mc_assets()` returned a bare named list of packs, and printing one dumped every coefficient
+matrix in it. The four packs are the heaviest objects the package hands back, so the default
+printer is the worst one it could have.
+
+**The fix is a class, not a wrapper.** `new_mc_assets()` is `setNames()` plus
+`class = c("mc_assets", "list")`, applied at both exits (the empty one included, so the shape is
+uniform). Nothing else changes: `ext_data` still reaches `mc_canonicalize_ext_data()` through the
+`is.list()` arm, `packs[[gid]]` still resolves in `clock_pack()`, and the existing tests that read
+the value by name pass untouched.
+
+**What it prints is `n_clocks` and `n_cpgs`, per group, because the reader has already met those
+two.** They are the columns of `list_mc_assets()`. Both come off the pack itself (`clocks`,
+`cpgs`), which every one of the four encoders in `sync.R` sets, rather than off the declared
+registry -- a pack handed in through `ext_data` need not be a group the registry knows.
+
+**The one departure from the shared grammar (`R/print.R`) is deliberate:** no blank line between
+the `$group [...]` lines. In `mc_result` and `mc_sim` a `$name` section is a distinct component
+with a data block under it. Here the sections are elements of one homogeneous axis and there is no
+block, so they read as a list. Header, `fmt_section()` and `plural_count()` are the shared ones.
+
+`mc_assets` also joins `DOC_TYPES` in `R/dev-utils.R` and the type table in `dev/WRITING.md`, and
+`print.mc_assets` joins the list of topics whose `x` **must not** inherit from the `mc-params`
+donor.
+
+---
+
+## 2026-08-04 -- source-tree-only tests are build-ignored, not CRAN-skipped
+
+The first `devtools::check()` after the trim came back `1 error | 1 warning | 0 notes` in 51s (it
+did not hang -- see the tier entry below for why). Both findings had the same root cause and the
+same fix, and both falsify something asserted earlier the same day.
+
+**The error.** `test-source-hygiene.R` failed twice in the installed package. The prediction was
+that its scans would "pass vacuously over an empty file list" and that `skip_on_cran()` made that
+an honest skip. **Both halves were wrong.** `scan_sources()` is `unlist(Map(f, R_PARSED, ...))`,
+and `unlist(list())` is `NULL`, not `character(0)` -- so `expect_equal(NULL, character(0))` is a
+*failure*, not a vacuous pass. And the gate never fired, because **`devtools::check()` sets
+`NOT_CRAN=true`**. A `skip_on_cran()` is inert in exactly the check most likely to be run locally.
+
+**The warning.** `checking for unstated dependencies in 'tests'` flagged `duckdb`, from
+`test-fixtures-parity.R`. This one **cannot be fixed by any runtime skip**: the check is a *static
+scan of the shipped sources*, so a `duckdb::` behind `if (parity_on)` still counts. `duckdb` and
+`DunedinPACE` are deliberately undeclared -- the parity tier is maintainer-gated and CI installs
+them itself -- so the only way to satisfy the scan without declaring a dependency the package does
+not have is for the file not to be in the tarball. (`DBI` is in `Suggests` and was never at issue.)
+
+**The rule that falls out.** A test whose subject is the **source tree** rather than the package's
+behaviour does not ship. `test-fixtures-parity.R` reads `data-raw/methylCIPHER-meta/` (already
+build-ignored) and `test-source-hygiene.R` reads `R/*.R` (an installed package ships `R/*.rdb`);
+neither can ever work from a tarball, under any `NOT_CRAN` value. Both are now in `.Rbuildignore`,
+joining the existing `^R/dev-utils\.R$` -- which is where `test_parity()` lives, so the precedent
+was already set and simply had not been followed through to the test files.
+
+Verified by building the tarball and listing it: 28 test files ship, neither of these two among
+them. `skip_on_cran()` was then **removed** from the hygiene tests -- with the file build-ignored
+the gate is dead weight, and worse, it implies the file ships. They now run on every
+`devtools::test()`, which is the dev loop they exist for.
+
+**What this does not change:** `skip_on_cran()` stays the right tool for the ~86 internal tests that
+*do* ship and *can* run installed. The distinction is whether the test can execute at all outside
+the source tree, not whether it is internal.
+
+---
+
+## 2026-08-04 -- Horvath1 is admitted to parity under a measured BMIQ snapshot
+
+The third tolerance regime that 2026-07-29 declined to decide. Deciding it retires the last
+hand-authored clock golden in the always-on tier.
+
+**The reading being tested.** The `horvath` block is skipped wholesale because the oracle filled
+completely-absent probes server-side with an unpublished constant, so the residual tracks the
+absent-probe count. `Horvath1` was flagged as the exception -- the one clock the oracle BMIQ'd --
+whose gap should therefore be a *normalization* gap, fixable by turning normalization on rather
+than by widening a tolerance. That was an argument, never a measurement. It is now measured, and
+it holds:
+
+| cohort | scoring panel | `normalize` off | `normalize` on |
+|---|---|---|---|
+| `cohort_450K` | 353/353, zero absent | max_abs **7.72** | max_abs **0.114**, max_rel 1.93e-03 |
+| `cohort_EPICv1` | 334/353, 19 absent | max_abs 6.53 | max_abs **3.96**, max_rel 1.71e-01 |
+
+So on the complete panel, normalizing closes 98.5% of the gap and what is left is a
+BMIQ-implementation difference. On the 19-probe-short panel it closes almost nothing, because
+there the *fill* gap dominates -- exactly the original diagnosis, now with the two effects
+separated by data rather than asserted.
+
+**Why the split is a guard, not a second tolerance.** Admitting `cohort_EPICv1` at 4.0 years would
+be the vacuous bound 2026-07-25 warned about. The test instead **skips unless the cohort leaves
+zero scoring probes absent**, which is the precise condition under which the oracle's undisclosed
+input cannot contaminate the comparison. That predicate is computed from the loaded matrix, so no
+cohort is named anywhere and a restaged or extended cohort re-decides itself.
+
+**Why a snapshot rather than an agreement target.** 1.9e-03 relative is far too loose to be an
+agreement claim and is not offered as one; `PARITY_REL_TOL` stays 1e-10 for everything that is a
+real gate. What this pins is *that the residual does not move*, which is the only thing worth
+asserting against an oracle whose own pipeline we cannot reproduce. Verified deterministic --
+bit-identical `max_abs`, `max_rel` and score checksum across three runs -- so the ceiling sits just
+above the measurement instead of being padded, and drift will actually trip it. A pair that clears
+the absent-probe guard with no entry in `HORVATH_NORM_TOL` **fails**: a newly admissible pair needs
+its residual measured, never defaulted to a neighbour's.
+
+**Membership is derived.** `is_normalized_horvath()` is horvath-online **and**
+`clock_norm_scheme() %in% NORM_SCHEMES`. Today that is `Horvath1` alone -- of the 15 horvath-online
+clocks, 13 declare `none` and `Horvath2` declares `noob`, which is not expressible here. (CLAUDE.md
+previously said "14 of the 15 declare `scheme = none`"; corrected in the same pass.)
+
+**What it replaced.** The `test-normalize.R` BMIQ golden, which composed
+`betanorm::bmiq_calibration()` with the linear score by hand. **This is a real trade and worth
+naming**: the deleted test was exact and ran on any machine with `betanorm`; the new one is
+maintainer-gated and bounded at 1e-03. What is bought is that the gate is now against the
+**oracle** rather than against the same library we call, so it can catch a wiring error the
+hand-composed golden shared. The *record* half of the old block did not move -- `provenance$
+normalized`, `cov$normalizes`, the `sample_miss$norm` column are things parity never looks at, so
+they stay in `test-normalize.R` under a name that says so.
+
+Standing parity state goes 264 -> 266 blocks.
+
+---
+
+## 2026-08-04 -- the always-on suite is cut to ~800, and CRAN sees only the exported surface
+
+The suite had reached ~1284 expectations across 27 always-on files and was no longer maintainable:
+a routine change touched a dozen files, and the cost of that was not buying proportional safety
+because **the parity tier already proves the arithmetic**. Trimmed to 801 local / 391 under
+`NOT_CRAN=false`, 0 failures either way, with the parity file untouched.
+
+**The two cuts, and why they are different.** Deletion was applied to tests that could not fail
+for a reason anyone would act on: goldens parity already owns (every catalog clock declares a
+fixture, so a broken scoring branch fails parity before it fails a unit test), assertions about
+maintainer-side plumbing that "Test altitude" already banned, message-wording pins, and loops
+restating one invariant over many clocks. Gating with `skip_on_cran()` was applied to what
+survives but is **internal** -- the kernel contracts, the catalog accessors, the chunking path,
+the asset transfer mechanics. Those still run in dev and CI; they just stop being CRAN's problem.
+
+**What CRAN actually runs now, stated plainly so nobody misreads a green check:** the smoke tier
+in the default configuration, the front-door refusals, and the record contract. **No numeric
+gate.** That is not a regression -- parity was already `MC_PARITY`-gated and CRAN-skipped, so CRAN
+never proved a score. The change is that this is now visible instead of implied by a suite that
+looked comprehensive. A CRAN green says the package loads, refuses correctly, and returns a
+well-formed `mc_result`; it says nothing about the numbers.
+
+**But `skip_on_cran()` is narrower than it sounds, and the trim should not be read as "these tests
+now only run locally".** `NOT_CRAN` is unset on r-hub and on a GitHub Actions `R-CMD-check`, so the
+gated tier runs on both -- across platforms, which is where a Windows-encoding or a long-double
+difference would actually surface. What the flag buys is CRAN's own machines not paying for a tier
+that cannot tell them anything. `devtools::check()` is the opposite case: it sets `NOT_CRAN=true`
+and runs the whole suite, so a local check and a tarball check are not the same run.
+
+**Addendum, same day, from the first `devtools::check()` after the trim.** Two files needed
+`.Rbuildignore`, not `skip_on_cran()` -- see the entry below.
+
+**Four goldens were kept against the "parity owns it" rule**, because parity is structurally blind
+to them and the blindness is not incidental:
+
+- **Alias routing** (`test-score-fitage.R`, `DNAmGrip_wAge`). Fixtures are declared on the 14
+  routed *members*, never on the 7 aliases -- so *which sex's model scored which sample* has no
+  parity coverage at all.
+- **DunedinPACE quantile normalization** (`test-score-dunedin.R`). Since the reference golden moved
+  to the parity tier earlier today, this is the only always-on proof normalization is applied.
+- **PhysAge mean-divisor fill offset** (`test-score-physage.R`). Fill landing inside vs outside the
+  divisor is a silently wrong number on a degraded panel; parity scores clean panels.
+- **Wang mixed-request domain isolation** (`test-score-wang.R`). Parity scores one clock per call,
+  so `sample_scale` contamination between two clocks in one request cannot appear there.
+
+The BMIQ golden in `test-normalize.R` was kept for the same class of reason, and then **superseded
+within the day** -- see the next entry.
+
+**`test-sim-smoke.R` is untouched and ungated.** It is the only tier running `calc_clocks()` in the
+default configuration and the only caller of `sim_DNAm()`, which is exactly what a CRAN machine
+should be exercising. **`test-source-hygiene.R` is gated, and not because it is internal**: an
+installed package ships `R/*.rdb`, not `R/*.R`, so `list.files(..., "\\.R$")` returns nothing there
+and both scans would pass vacuously over an empty file list. `skip_on_cran()` converts a fake pass
+into an honest skip.
+
+**The gate goes inside the block, never at file level.** testthat runs top-level code at collection,
+so a file-level `skip_on_cran()` reads as one skipped file rather than N skipped tests and hides how
+much is off. One call, first line of each gated `test_that`; there is no top-level `skip_on_cran()`
+in any file. Under `NOT_CRAN=false` the suite reports **89 skipped blocks** spread across 24 files
+(the parity tier being one of them), which is how to check the gating is per-block rather than
+per-file: a file-level gate would have shown 24.
+
+---
+
+## 2026-08-04 -- the parity tier gates its generator, and the suite runs silent
+
+Two separate complaints about the same thing: the default `devtools::test()` was unreadable.
+
+**The parity wall.** `run_parity_target()` opened with `skip_if_no_cohort()`, so with the tier off
+all 263 generated targets ran far enough to skip. testthat prints skips grouped by reason **with a
+location per skip**, so one sentence came back as ~90 wrapped lines of
+`test-fixtures-parity.R:339:9`, repeated. The reason is identical every time and the locations are
+all the same line, so the block carried exactly one bit of information and buried the run summary
+under it.
+
+The fix is to gate the **generator** rather than the generated test: `staged_cohorts` (the flag AND
+a live duckdb connection) drives `parity_targets()`, the PhysAge loop, the census test and the
+Dunedin golden, and a tier that cannot run emits **one** `test_that` saying so, plus one per
+unstaged cohort. Verified generation is otherwise untouched -- with both cohorts staged the file
+still produces 264 blocks, the same 146/28/30/56 split across `core`/`fitage`/`horvath`/`packs`.
+
+**Why not just quieten the reporter.** Because the skips were never informative individually. The
+counterpressure is real and was weighed: the block count is how a parity run is read (CLAUDE.md's
+"264 blocks / 32 skip", checked against each other before the pass number), and a generator gate
+makes that count depend on what is staged. That is the right dependency -- a test that had no cohort
+to read was never a test -- but it means the standing figure is now "with both cohorts staged", and
+the guard against a *dropped fixture* has to be the census test, which is already there and already
+ungated by cohort. `skip_if_parity_off()` and `skip_if_no_cohort()` are gone; nothing else used them.
+
+**The message noise.** Unrelated in mechanism, same symptom. Three sources, all of them the package
+working correctly:
+
+- `mc_spec()`'s full-panel note (`say_full_panel_clocks()`) fires once per spec build, so any test
+  touching `Zhang2019EN` printed three lines. It is emitted from `mc_spec()`, **not** only from
+  `score_cohort()` -- a test that never calls `calc_clocks()` still triggers it.
+- `say_pending()` on a multi-batch `rbind` in `test-bind.R`, at two sites that were not asserting on
+  it (the one that asserts uses `expect_message()` and stays).
+- `utils::download.file(quiet = FALSE)` in `mc_fetch()`. This one is environment-dependent and was
+  the confusing one: with `method = "auto"` a `file://` URL takes the `internal` method and says
+  nothing, but an interactive session with `options(download.file.method = "libcurl")` -- what
+  RStudio/Positron set -- prints `trying URL` / `Content type` / a progress bar. Those go to
+  **stderr as raw text, not as conditions**, so `suppressMessages()` cannot touch them; only
+  `capture.output(type = "message")` can. `test-mc_data.R` has a local `quietly()` that does both.
+  The package side is unchanged: a progress bar on a 300 MB pack download is worth having.
+
+Same file's one warning came from `download.file()` warning on its way to the failed status that
+`mc_fetch()` turns into the abort under test; the test now suppresses it, because it restates the
+abort in worse words and is not a second assertion.
+
+**Result: 0 fail, 0 warn, 2 skip on a default run, with no stray output.** Parity was not run.
+
+---
+
 ## 2026-08-04 -- `codebook()` is reinstated, and it is blocked upstream
 
 **Reverses the 2026-07-31 decision** that kept D3 out of the finalizer family. That entry rejected

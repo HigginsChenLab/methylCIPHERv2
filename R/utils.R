@@ -1,13 +1,9 @@
 # shared cross-cutting helpers
 
-# cli renders one line per element, so a list the user can grow is capped
-# before it reaches cli. one cap for every message in the package.
+# cap lists before they reach cli. one cap for every message.
 MC_MSG_CAP <- 10L
 
-# cli parses every bullet it is handed as a template, so a bullet built from
-# data (or already rendered by format_inline) has its braces escaped on the way
-# in. without this a "{" in a sample id or a file name replaces the diagnostic
-# with a cli parse error.
+# escape braces in cli bullets so data cannot become a template.
 cli_escape <- function(x) {
   out <- gsub("}", "}}", gsub("{", "{{", x, fixed = TRUE), fixed = TRUE)
   stats::setNames(out, names(x))
@@ -18,8 +14,7 @@ bullets <- function(x) {
   stats::setNames(cli_escape(x), rep("*", length(x)))
 }
 
-# cli "*" bullets. cap first, then format, so per-line markup only ever runs
-# on the lines that survive the cap.
+# cli "*" bullets. cap first, then format.
 capped_bullets <- function(x, fmt = identity, n = MC_MSG_CAP) {
   bullets(fmt(utils::head(x, n)))
 }
@@ -37,6 +32,43 @@ capped_vals <- function(x, n = MC_MSG_CAP) {
 # comma-joined head, for a plain stop()/warning() that is not a cli template
 capped <- function(x, n = MC_MSG_CAP) {
   paste(utils::head(x, n), collapse = ", ")
+}
+
+# index that reindexes an id-keyed right side into `key`'s order. `what` names
+# the call site for the defect message.
+# unmatched: "stop" a package bug, "drop" keep the matches, "na" caller's own.
+id_index <- function(key, id, what, unmatched = c("stop", "drop", "na")) {
+  unmatched <- match.arg(unmatched)
+  bug <- function(fmt, ...) {
+    stop(
+      sprintf(
+        paste0(
+          "id_index(%s): ",
+          fmt,
+          " This is a package bug -- please report it."
+        ),
+        what,
+        ...
+      ),
+      call. = FALSE
+    )
+  }
+
+  dup <- anyDuplicated(id)
+  if (dup) {
+    bug("the join key repeats id %s.", id[[dup]])
+  }
+  idx <- match(key, id)
+  miss <- is.na(idx)
+  if (!any(miss)) {
+    return(idx)
+  }
+  switch(
+    unmatched,
+    stop = bug("%d id(s) have no row: %s.", sum(miss), capped(key[miss])),
+    drop = idx[!miss],
+    na = idx
+  )
 }
 
 # polynomial eval, lowest degree first (horner-style, 1-row safe)
