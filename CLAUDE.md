@@ -54,14 +54,15 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 - **One beta entry point, and therefore no pre-flight check.** `calc_clocks()` is the only public
   surface that reads a beta matrix; everything else reads the **catalog** (`list_clocks`,
   `clock_cpgs`, `list_clock_tags`) or a **finished record** (`clocks_coverage`, `samples_coverage`,
-  `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Only `calc_clocks` and
-  `predict_sex` take a `DNAm` argument, and `predict_sex` touches it exclusively *through*
+  `score_gaps`, `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Only
+  `calc_clocks` and `predict_sex` take a `DNAm` argument, and `predict_sex` touches it *through*
   `calc_clocks`; `sim_DNAm` generates a matrix rather than reading one. A "dry run", a coverage
   preview, or a `report(DNAm)` arm is **a second beta reader**, and that is what is refused: it
   takes its own independently-supplied matrix, so its verdict can be about a different object than
   the one that gets scored, and it buys nothing -- scoring is a matmul over an already-resident
-  matrix and **both coverage gates are arguments**, so `min_clocks_coverage = 0,
-  min_samples_coverage = 0` already yields the full report with no refusal. The pre-flight habit is
+  matrix and **both coverage gates are arguments that refuse nothing** -- since 2026-08-06 neither
+  floor aborts, so any run returns a record and `min_clocks_coverage = 0, min_samples_coverage = 0`
+  scores everything a fill policy can reach. The pre-flight habit is
   inherited from ENmix/minfi, which couple their steps through one shared object and cache an
   expensive IDAT parse; we have neither. `predict_sex()` is composition, not a pre-check. This rests
   on scoring staying cheap; a streaming or chunked path would need an explicit answer rather than an
@@ -112,13 +113,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   reconciles nothing; `samples_coverage()` finalizes them by taking the **most restrictive** (`max`)
   and re-warning, which is the only thing that makes a post-bind `coverage < threshold` filter well
   defined. There is no `below_min` column -- it would mean different things per row after a bind.
-  `min_clocks_coverage` is recorded but read by nothing: it aborts, so a record's existence proves
-  it passed (DECISIONS 2026-08-03).
+  **Both floors are read, and `score_gaps()` is what reads them**: neither aborts any more, so a
+  record can hold a clock the column gate refused and a cell the row gate refused, and only the
+  floor that batch ran under says which (DECISIONS 2026-08-06, superseding the 2026-08-03 reading
+  that `min_clocks_coverage` was recorded but read by nothing).
   - **Where a verb exists it is a method**, and the built surface is exactly `print`, `as.matrix`,
-    `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()`. Coverage is
-    deliberately not `summary()`: it is `clocks_coverage()` (one row per **(clock, batch)**) and
-    `samples_coverage()` (each sample's batch alongside its id), with `mc_batch_id` **last** in both
-    -- it is the join key, but it is a hash, so it does not sit in front of `clock_id`. Citations
+    `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()` and `score_gaps()`.
+    Coverage is deliberately not `summary()`: it is `clocks_coverage()` (one row per
+    **(clock, batch)**) and `samples_coverage()` (each sample's batch alongside its id), with
+    `mc_batch_id` **last** in both -- it is the join key, but it is a hash, so it does not sit in
+    front of `clock_id`. `score_gaps()` is the third frame and takes the same shape, one row per
+    NA score, with the reason derived and never stored. Citations
     dispatch as `cite_clocks()`, a **package-owned** generic, because `utils::citation` and
     `utils::cite` both exist as plain functions and taking either name masks it. `[`, `cbind` and
     `augment` are **unbuilt ideas, not contracts** (DECISIONS 2026-07-23/24/25, 2026-07-27).
@@ -126,16 +131,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `cite_clocks()`, blocked until upstream verifies a `description` per clock. Do not build it
     against a partly populated field (DECISIONS 2026-08-04).
   - **The batch column reaches an exit frame only when the record spans more than one batch** -- at
-    one batch it is a repeated hash carrying no information. All four exits (`as.data.frame`,
-    `calc_accel`, both coverage frames) share the **one** test in `is_multi_batch()`
+    one batch it is a repeated hash carrying no information. All five exits (`as.data.frame`,
+    `calc_accel`, both coverage frames, `score_gaps`) share the **one** test in `is_multi_batch()`
     (`R/mc_result.R`), keyed on `length(unique(provenance[[mc_batch_id]]))`, the vector that fills
     the column and never `per_clock`'s names. Each **declines to build the column** rather than
-    building one it will lose; `drop_single_batch()` still runs at all four as the gate, now a
+    building one it will lose; `drop_single_batch()` still runs at all five as the gate, now a
     no-op, and the two forms produce `identical()` frames. The coverage frames thread the decision
-    down to `panel_rows()` / `batch_coverage()`, which assemble by `rbind` and cannot add the column
-    after the fact. The conditional schema is a real cost, accepted knowingly: the four exits must
-    appear and vanish **together** or the two coverage frames disagree about whether the join key
-    exists. Nothing internal is conditional (DECISIONS 2026-07-31, 2026-08-01).
+    down to `panel_rows()` / `batch_coverage()`, and `score_gaps()` to `batch_gaps()`, all of which
+    assemble by `rbind` and cannot add the column after the fact. The conditional schema is a real
+    cost, accepted knowingly: the five exits must appear and vanish **together** or two frames
+    disagree about whether the join key exists. Nothing internal is conditional (DECISIONS
+    2026-07-31, 2026-08-01, 2026-08-06).
   - **The label is `mc_batch_id` everywhere the user can touch it** -- both coverage frames, both
     finalizer frames, `$provenance`, and the `calc_accel()` formula namespace, where it is always
     present and always reserved against `data =` (supplying it there is an error, not a precedence
@@ -167,7 +173,9 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     re-association exact: `rbind(rbind(r1, r2), r3)` and `rbind(r1, r2, r3)` are `identical()`.
   - **A finalizer is any exit that takes an `mc_result` and returns something that is not one.** The
     test is mechanical, so the set is derived rather than listed and cannot go stale:
-    `as.data.frame()`, `as.matrix()`, `calc_accel()`, `score_associations()`. All four re-finalize
+    `as.data.frame()`, `as.matrix()`, `calc_accel()`, `score_associations()`, and `score_gaps()`,
+    which joined by that test and not by an edit -- it reads the NA pattern of `$scores`, and an
+    unfinalized cross-sample column is entirely NA until its reduction runs. All five re-finalize
     on the way out and say so, under `say_pending()`'s exact guard (non-empty `pending` **and** more
     than one batch); `rbind` is the only verb that leaves `pending` unresolved. It must **not**
     become a finalizer: `do.call(rbind, ...)` recurses and would re-finalize at every intermediate
@@ -279,6 +287,15 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   is already counted on a descendant that does. Do not "fill in" a `NULL` record with a merged
   figure and do not restore a stitched per-sample count for an alias -- read the descendants' rows
   for the denominators (DECISIONS 2026-07-29).
+  - **`clock_reads_cpgs()` bounds all three, not just the record.** The column gate
+    (`check_coverage()`), the row gate (`row_gate()` via `covered_ids()`) and the coverage record
+    now span one set of clocks. The column gate used to grade every entry in `cpg_list`, which
+    includes three clocks that declare a panel and get no record -- `GrimAgeV1` at 1030 CpGs and the
+    two `DNAmFitAge_{Sex}` members -- so it could NA a clock on a panel this invariant says is not
+    its own coverage, and nothing in the record could then explain the cell. **Do not widen it back
+    to `cpg_list`**: the union of panels that each cleared the floor clears it too, so what is lost
+    cannot happen, and what is gained is that `score_gaps()` has a record to read for every clock it
+    must explain (DECISIONS 2026-08-06).
   - **`samples_coverage()` drops NA-coverage rows**, which has exactly one source: a routed member
     masked on a row its sex did not score. So the long frame carries one row per sample per family,
     under the model that scored it, and a sample no model scored (unknown sex) has no row at all --
@@ -582,9 +599,12 @@ output**, not implementation detail (see "Test altitude").
     0-or-bust (DECISIONS 2026-08-02, 2026-08-04).
   - `KNOWN_PARITY_GAPS` (clock- or `clock@cohort`-keyed) holds only genuine skips -- **two** today,
     both `DNAmSex_Wang_*@cohort_450K`, whose deposited matrix carries no sex-chromosome probes, so
-    the panel is 0% present and the fixture is the oracle's empty-panel `0`. **Do not relax
-    `check_coverage()`'s `ratio == 0` stop to make them pass**: a 0 there is the `Female` quadrant
-    of the sign map, not a small number. `KNOWN_PARITY_GAP_GROUPS` (group-keyed) is empty but stays
+    the panel is 0% present and the fixture is the oracle's empty-panel `0`. **Do not relax the
+    `present == 0` clause in `clock_gate_verdict()` to make them pass**: a 0 there is the `Female`
+    quadrant of the sign map, not a small number. The clause used to abort and now scores `NA`
+    (DECISIONS 2026-08-06), which changes what a relaxation would produce and not why it is wrong --
+    parity runs both floors at 0, so `ratio < threshold` cannot catch this and the clause is the
+    only thing that does. `KNOWN_PARITY_GAP_GROUPS` (group-keyed) is empty but stays
     a **separate** map, because group ids and clock ids share a namespace (`DNAmFitAge` is both) and
     one flat map could not say which a key meant.
 
