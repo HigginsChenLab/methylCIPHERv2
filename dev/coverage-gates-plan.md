@@ -190,7 +190,8 @@ every surviving sample keeps a real score.
   `okm <- !is.na(resp) & keep`, splits columns by missingness pattern, subsets rows before the fit,
   and already warns for a column with too few complete samples. **`calc_accel()` needs no change**,
   and after steps 1 to 3 this was confirmed against a real all-NA column: it warns "1 clock had too
-  few complete samples to fit" and returns the other clock's rows.
+  few complete samples to fit". It **keeps** that clock's rows with `NA` in `accel`, and does not
+  drop them, which an earlier draft of this line said (corrected in step 6).
 - `assoc_row()` (`R/score_associations.R:60`) filters on `is.finite(v)` and returns NULL below
   `MIN_ASSOC_N`, so an NA-heavy or all-NA clock drops out of the report.
   **`score_associations()` needs no change**, also confirmed against a real all-NA column.
@@ -198,7 +199,9 @@ every surviving sample keeps a real score.
   That is correct and not a defect: the clock read CpGs, so it is in the span the invariant defines,
   and its coverage really is low.
 - `apply_karyotype()` (`R/predict_sex.R:64`) handles NA (`hit[is.na(hit)] <- FALSE`) but routes the
-  sample to `kc[["default"]]`. **Open risk, see step 6.**
+  sample to `kc[["default"]]`. **Closed in step 6: not a risk.** The earlier reading stopped at that
+  line. The line after the rule loop blanks any sample missing an operand score, so the declared
+  default is only ever reached by a sample with two real scores that match no rule.
 - `output_ids` derives from the request, not from coverage, so score columns are identical across
   batches even when one batch NA'd a clock. `rbind` and `refinalize_clocks()` need no change.
 
@@ -361,13 +364,21 @@ fragment containing backticks. `dev/WRITING.md` section 7 prescribed exactly tha
 prescribes two sessions and records the measurement. The bug in `lint_roxygen()` itself is unfixed
 and is not this branch's work.
 
-### Step 6. Verify downstream
+### Step 6. Verify downstream. DONE 2026-08-06
 
-- [ ] Check the catalog's declared karyotype `default`. If it is a real karyotype rather than an
-      unknown marker, an unscoreable sample is silently called, and that needs fixing here.
-- [ ] One test each pinning that `calc_accel()` and `score_associations()` survive an all-NA
-      column. Both are safe today (section 4), but it is now a reachable state, not a theoretical
-      one.
+- [x] The declared karyotype `default` **is** a real call, `"Female"`. No fix needed anyway:
+      `apply_karyotype()` blanks any sample missing an operand score after the rule loop runs, so a
+      gap never reaches the default. Confirmed at the console on both new paths, a column-gated arm
+      (every sample `NA`) and a single dead row (that sample `NA`, the rest called).
+- [x] `test-predict-sex.R`: a sample without both scores is `NA`, not the default, and a call that
+      never happened is never a `sex_mismatch`.
+- [x] `test-coverage-gate.R`: a gated clock does not break the clocks scored beside it.
+
+**The two analysis verbs answer an all-NA column differently, and both are right.** `calc_accel()`
+keeps its rows (one per sample and clock) with `NA` in `accel`; `score_associations()` drops the
+clock entirely, because a row of its report would have nothing in it. Section 4 recorded both as
+"needs no change", which was true, but recorded `calc_accel()` as dropping the column, which it does
+not. The test now pins the shapes rather than the column sets.
 
 ### Step 7. Docs and invariants
 

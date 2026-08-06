@@ -22,6 +22,27 @@ test_that("predict_sex returns both PCs, a call per sample, and no more", {
   expect_false("recorded_sex" %in% names(predict_sex(sim$DNAm)))
 })
 
+test_that("a sample without both scores is called NA, not the default", {
+  # the declared default is a real karyotype, so a gap must not reach it
+  sim <- sim_DNAm(ids, n = 6L, Female = TRUE)
+  DNAm <- sim$DNAm
+
+  # one arm under the clock floor: no sample can be called
+  hole <- clock_scoring_cpgs(ids[[1L]])
+  gated <- DNAm[, setdiff(colnames(DNAm), hole[seq_len(round(0.8 *
+    length(hole)))]), drop = FALSE]
+  out <- suppressWarnings(predict_sex(gated, sim$pheno))
+  expect_true(all(is.na(out$predicted_sex)))
+  # a call that never happened is never a disagreement
+  expect_false(any(out$sex_mismatch))
+
+  # one sample under the sample floor: only that sample loses its call
+  DNAm[2L, ] <- NA
+  out <- suppressWarnings(predict_sex(DNAm, sim$pheno))
+  expect_true(is.na(out$predicted_sex[[2L]]))
+  expect_false(any(is.na(out$predicted_sex[-2L])))
+})
+
 test_that("a recorded Female is joined by id and compared", {
   sim <- sim_DNAm(ids, n = 8L, Female = TRUE)
   out <- suppressMessages(predict_sex(sim$DNAm, sim$pheno))
