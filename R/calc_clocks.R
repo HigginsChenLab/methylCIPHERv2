@@ -11,8 +11,8 @@
 #'   of a clock's CpGs that must be present for that clock to score. Default is
 #'   `0.75`.
 #' @param min_samples_coverage A number between 0 and 1. The smallest fraction
-#'   of a clock's CpGs that must be present for a sample to score without a
-#'   warning. Default is `0.75`.
+#'   of a clock's CpGs that must be present for a sample to score that clock.
+#'   Default is `0.75`.
 #'
 #' @inheritSection mc-params The assets directory
 #'
@@ -23,13 +23,16 @@
 #' cannot turn off a scheme that is part of the clock. The `normalize` column
 #' of `list_clocks(all_columns = TRUE)` gives the scheme each clock uses.
 #'
-#' The two coverage arguments differ. `calc_clocks()` stops when a clock has
-#' too few CpGs present, so every clock in the returned scores passed
-#' `min_clocks_coverage`. A clock just above that floor, and a clock whose
-#' normalization panel falls below it, each raise a warning and still score.
-#' A sample with too few CpGs present raises a warning and still scores. Pass
-#' the returned value to [clocks_coverage()] or [samples_coverage()] to see
-#' the counts.
+#' The two coverage arguments decide what does not get a number, and neither
+#' one stops the call. A clock under `min_clocks_coverage` scores `NA` for
+#' every sample. A sample under `min_samples_coverage` scores `NA` for that
+#' clock alone. A clock with none of its CpGs present scores `NA` whatever
+#' the two values are. Each case raises a warning that names the clocks.
+#'
+#' A clock just above either floor, and a clock whose normalization panel
+#' falls below `min_clocks_coverage`, each raise a warning and still score.
+#' Pass the returned value to [clocks_coverage()] or [samples_coverage()] to
+#' see the counts, and to [score_gaps()] to see why each `NA` is missing.
 #'
 #' `calc_clocks()` narrows `pheno` before it stores it. The returned value
 #' keeps the id column and the covariates that the clocks need, and drops the

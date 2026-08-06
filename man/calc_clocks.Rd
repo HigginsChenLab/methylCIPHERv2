@@ -34,8 +34,8 @@ of a clock's CpGs that must be present for that clock to score. Default is
 \code{0.75}.}
 
 \item{min_samples_coverage}{A number between 0 and 1. The smallest fraction
-of a clock's CpGs that must be present for a sample to score without a
-warning. Default is \code{0.75}.}
+of a clock's CpGs that must be present for a sample to score that clock.
+Default is \code{0.75}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
 for the clocks that support it. Default is \code{NULL}, which leaves the
@@ -62,13 +62,16 @@ Scores CpG-based epigenetic clocks on a matrix of methylation beta values.
 cannot turn off a scheme that is part of the clock. The \code{normalize} column
 of \code{list_clocks(all_columns = TRUE)} gives the scheme each clock uses.
 
-The two coverage arguments differ. \code{calc_clocks()} stops when a clock has
-too few CpGs present, so every clock in the returned scores passed
-\code{min_clocks_coverage}. A clock just above that floor, and a clock whose
-normalization panel falls below it, each raise a warning and still score.
-A sample with too few CpGs present raises a warning and still scores. Pass
-the returned value to \code{\link[=clocks_coverage]{clocks_coverage()}} or \code{\link[=samples_coverage]{samples_coverage()}} to see
-the counts.
+The two coverage arguments decide what does not get a number, and neither
+one stops the call. A clock under \code{min_clocks_coverage} scores \code{NA} for
+every sample. A sample under \code{min_samples_coverage} scores \code{NA} for that
+clock alone. A clock with none of its CpGs present scores \code{NA} whatever
+the two values are. Each case raises a warning that names the clocks.
+
+A clock just above either floor, and a clock whose normalization panel
+falls below \code{min_clocks_coverage}, each raise a warning and still score.
+Pass the returned value to \code{\link[=clocks_coverage]{clocks_coverage()}} or \code{\link[=samples_coverage]{samples_coverage()}} to
+see the counts, and to \code{\link[=score_gaps]{score_gaps()}} to see why each \code{NA} is missing.
 
 \code{calc_clocks()} narrows \code{pheno} before it stores it. The returned value
 keeps the id column and the covariates that the clocks need, and drops the

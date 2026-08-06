@@ -380,29 +380,34 @@ clock entirely, because a row of its report would have nothing in it. Section 4 
 "needs no change", which was true, but recorded `calc_accel()` as dropping the column, which it does
 not. The test now pins the shapes rather than the column sets.
 
-### Step 7. Docs and invariants
+### Step 7. Docs and invariants. DONE 2026-08-06
 
-**Fix what is factually wrong, do not polish.** Every roxygen item below describes an abort that no
-longer happens, so it is a stale claim about behaviour, not a style problem. Correct the claim and
-leave the wording to step 9.
+**Fixed what was factually wrong, did not polish.** Every roxygen item here described an abort that
+no longer happens, so it was a stale claim about behaviour. Wording is step 9's.
 
-- [ ] `calc_clocks()`: the `@details` coverage paragraph and both `@param` texts.
-- [ ] `clocks_coverage()` / `samples_coverage()` details where they describe the gates.
-- [ ] `CLAUDE.md`: the "recorded but read by nothing / it aborts, so a record's existence proves it
-      passed" line; the parity note on the `ratio == 0` stop (the rule survives, the verdict
-      changes); the `KNOWN_PARITY_GAPS` reasoning; the finalizer set gains `score_gaps()` by
-      derivation, so check the wording still reads correctly.
-- [ ] `CLAUDE.md` says **"All four exits"** share `is_multi_batch()` and names them. `score_gaps()`
-      is a fifth. The count is stated twice in the batch-column paragraph, and the sentence about
-      the four appearing and vanishing together has to keep meaning what it says.
-- [ ] `CLAUDE.md`'s coverage invariant says a clock that reads no CpGs gets a `NULL` record and an
-      all-`NA` `clocks_coverage()` row. Step 5 made the **column gate** honour the same span. Say so
-      where that invariant is stated, since it now binds three things rather than two.
-- [ ] `dev/DECISIONS.md` entry: the gate reversal, the one-pass rule with its accepted cost, the
-      floor-independent zero rule, the closed reason set, derive-not-store.
+- [x] `calc_clocks()`: the `@details` coverage paragraph rewritten around "neither one stops the
+      call", and `min_samples_coverage`'s `@param` no longer says "without a warning".
+- [x] Swept the whole roxygen surface for the two floor names and for `stops` / `aborts` /
+      `refuses`. **The coverage frames needed nothing** -- neither describes a gate as fatal, and
+      `samples_coverage()`'s "warns when a row is under the strictest value" is still exactly true.
+- [x] `CLAUDE.md`, six places: the "read by nothing / it aborts" line, the pre-flight paragraph's
+      "no refusal" clause, the record-verb surface, "all four exits" (now five, stated twice), the
+      finalizer set, the `clock_reads_cpgs()` invariant (now bounding three things), and the
+      `KNOWN_PARITY_GAPS` note.
+- [x] `dev/DECISIONS.md` entry, dated 2026-08-06.
+
+**One edit was considered and rejected as a falsehood.** `say_low_samples()` re-warns on the
+assembled `samples_coverage()` frame, and the obvious step-7 edit is to add "those samples scored
+`NA`". It would be wrong: that warning uses the reconciled `max` floor across batches, so a row
+under it may well have scored under its own batch's floor. `score_gaps()` is the exact answer and
+that message must not pretend to be. Leave it alone.
 
 `CLAUDE.md` and `DECISIONS.md` are `dev`-facing, so R1 to R8 do not bind them and step 9 does not
-re-read them. They are done when step 7 is done.
+re-read them. They are done.
+
+**Left for step 9, deliberately:** neither coverage frame points at `score_gaps()`. Discoverability
+of the new export is a `@seealso` question about a closed group, which is step 9's to decide, and an
+inline `[score_gaps()]` in `@details` would pre-empt it.
 
 ### Step 8. Test sweep
 

@@ -14,6 +14,76 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-06 -- Neither coverage floor aborts. A floor decides what does not get a number.
+
+`min_clocks_coverage` aborted the call and `min_samples_coverage` warned and scored. They are the
+same kind of statement about the same kind of evidence, and the split had no stated reason. Both now
+score `NA`: a clock under the clock floor is `NA` for every sample in that batch, a sample under the
+sample floor is `NA` for that clock alone, and every case still warns.
+
+Aborting was wrong on its merits, not merely inconsistent. One under-covered clock in a request for
+forty killed the other thirty-nine, and the caller could not read the coverage report that would
+have told them what to drop, because no record was returned. The package already shipped the target
+behaviour on a third axis: `warn_missing_covariates()` warns and says a sample with a missing
+covariate scores `NA`. This brings two axes into line with an existing one.
+
+**Zero observed CpGs is `NA` at every floor, under every imputation policy.** The verdict is not
+special, the *test* is: `ratio < threshold` is `0 < 0` at a floor of 0, which is `FALSE`, so a fully
+absent panel would run. A `mean` reduction then returns `NaN`, and a `sum` reduction returns the
+bare intercept, which is a plausible-looking number computed from none of the caller's data. Parity
+runs both floors at 0, and the `DNAmSex_Wang_*@cohort_450K` gaps are exactly this shape. The clause
+drops the `clock_impute()` policy lookup the old test carried, so a `vendor_mean` clock with a fully
+absent panel no longer returns one constant for every sample.
+
+**One pass, column stat then column gate then sample stat then sample gate, and it never runs
+backwards.** Accepted cost, stated rather than hidden: a sample that gets `NA`'d still contributes
+to the cohort mean that fills every other sample's partial CpGs, and a column ratio is never
+recomputed after samples are gated. No recursion means no re-derivation.
+
+**On the column axis, skip the branch and seed an n x 1 `NA` matrix. On the sample axis, mask after
+the branch returns.** Not "run the branch on an empty panel and let `NA` fall out", which yields a
+wrong number rather than `NA`. The seed is mandatory: a `NULL` entry makes `as.numeric(results[[nm]])`
+return `numeric(0)` and silently shrinks a dependent's score vector. Rows cannot be skipped, because
+one matmul scores the cohort, so the mask goes in the dispatch loop where dependents have not yet
+read `results`, and cross-sample clocks are masked in their raws before those enter `pending`.
+
+**The ratio and the zero rule read different panels, and that asymmetry is deliberate.**
+`row_coverage()` measures on the normalization panel where a clock declares one, so a `DunedinPACE`
+sample dead on all 173 scoring CpGs still reads about 99% covered against the roughly 20k
+gold-standard background. `row_gate_one()` therefore takes the ratio on the gate panel and the zero
+rule on the scoring panel, the one the arithmetic reads. Without the split, removing the dead-sample
+abort in `scan_missing_cpgs()` would have silently lost that catch.
+
+**The NA reason set is closed, and derived rather than stored** -- `score_gaps()`, one row per `NA`
+score, reasons `covariate`, `clock_coverage`, `sample_coverage`, `fit`, `dependency`, in that
+precedence. Storing an n x k reason matrix would duplicate facts the record already holds per batch
+and could drift from the gate that made the decision; deriving through the *same* helpers the gates
+use makes drift impossible by construction and stays exact under `rbind`. Each floor is read for the
+sample's own batch, never the reconciled `max`, because a cell's NA-ness was decided under the floor
+its batch ran with. The unexplained bucket is a `stop()` inside the function, so a call that returns
+is the proof that it is empty.
+
+Two things fell out of building it that the design did not anticipate.
+
+- **`clock_reads_cpgs()` had to bound the column gate too.** It graded every entry in `cpg_list`,
+  which includes `GrimAgeV1` and the two `DNAmFitAge_{Sex}` members: clocks that declare a panel and
+  get no coverage record. So a run could `NA` a clock on a panel `CLAUDE.md` says is not its own
+  coverage, and `score_gaps()` then had nothing to read. Nothing is lost, because the union of
+  panels that each cleared the floor clears it too.
+- **The returned frame has to be self-contained.** Every `dependency` row must name a clock the
+  reader can find rows for. The 14 sex-routed members never are one and cannot even be requested by
+  name, so an alias inherits its member's reason instead. It is the only special case in the walk,
+  and it reuses `sex_routed_members()` and `sex_rows()` rather than re-deriving the routing.
+
+Two messages were also giving advice that cannot work, both found by rendering rather than reading:
+"lower the floor to score them" is false for a panel at 0%, and the row gate reported a gate-panel
+percentage that contradicted a verdict made on the scoring panel. Both are now conditional on the
+case that is actually true.
+
+**The tiers stay as separate warnings.** A warning is a catchable condition, so merging two
+independent findings takes away a caller's ability to handle them apart, and the two tiers have
+different next steps. Folding them would also put two quantities in one cli template.
+
 ## 2026-08-05 -- `id_index()`: one id join, and the survey that shrank the site list
 
 The last open half of the `collapse` audit below. It asked for "one helper carrying key uniqueness,
