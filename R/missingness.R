@@ -229,12 +229,7 @@ split_moments <- function(scan, sets) {
 }
 
 # one col_stats() sweep: columns, means, value gates, row_obs, moment domains.
-scan_missing_cpgs <- function(
-  DNAm,
-  needed_cpgs,
-  score_cpgs,
-  moment_domains = NULL
-) {
+scan_missing_cpgs <- function(DNAm, needed_cpgs, moment_domains = NULL) {
   cn <- colnames(DNAm)
   # one hash of the column names, and the positions it found are kept
   hit <- match(needed_cpgs, cn, 0L)
@@ -251,34 +246,8 @@ scan_missing_cpgs <- function(
   scan <- col_stats(DNAm, needed_idx, sets)
   check_col_values(scan, present_needed)
 
-  # dead samples checked on scoring panels only.
-  score_idx <- if (identical(score_cpgs, needed_cpgs)) {
-    needed_idx
-  } else {
-    s <- match(score_cpgs, cn, 0L)
-    s[s > 0L]
-  }
-  if (length(score_idx)) {
-    obs <- if (identical(score_idx, needed_idx)) {
-      scan[["row_obs"]]
-    } else {
-      row_observed(DNAm, score_idx)
-    }
-    dead <- rownames(DNAm)[obs == 0L]
-    if (length(dead)) {
-      cli::cli_abort(
-        c(
-          "{length(dead)} sample{?s} {?has/have} no observed CpGs on any
-           scoring panel: {.val {capped_vals(dead)}}.",
-          "i" = "Remove or repair {cli::qty(dead)}{?it/them} before you
-                 score.",
-          "i" = "{.code rowSums(!is.na(DNAm))} counts the observed values per
-                 sample."
-        ),
-        call = NULL
-      )
-    }
-  }
+  # a sample with no observed CpG is not checked here. the row gate blanks it
+  # per clock, on the panel that clock actually reads.
 
   # past the overflow gate, stats is populated -- and it is the panel's alone
   st <- scan[["stats"]]

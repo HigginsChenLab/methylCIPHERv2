@@ -69,12 +69,13 @@ calc_clocks <- function(
 
   spec <- mc_spec(clocks, pheno_id, normalize, ext_data, ask)
   facts <- mc_cohort(DNAm, spec, pheno, min_clocks_coverage)
-  scored <- score_cohort(DNAm, spec, facts)
+  scored <- score_cohort(DNAm, spec, facts, min_samples_coverage)
   # shared with refinalize_clocks() -- a no-op when pending is empty
-  scores <- finalize_cross_sample(scored[["scores"]], scored[["pending"]])
+  final <- finalize_cross_sample(scored[["scores"]], scored[["pending"]])
+  scores <- final[["scores"]]
 
-  # per-sample coverage gate (warn only, after scoring)
-  check_row_coverage(scored[["coverage"]], min_samples_coverage)
+  # the row gate already blanked its cells. this reports them.
+  check_row_coverage(scored[["gate"]], min_samples_coverage)
   # value gate on output columns. nan/inf land here.
   check_score_values(scores[spec[["output_ids"]]])
 
@@ -90,7 +91,7 @@ calc_clocks <- function(
     normalized = names(spec[["normalize"]])[spec[["normalize"]]],
     min_clocks_coverage = min_clocks_coverage,
     min_samples_coverage = min_samples_coverage,
-    scoring_failures = scored[["notes"]],
+    scoring_failures = merge_notes(scored[["notes"]], final[["notes"]]),
     # kept, not discarded, so a bound record can re-finalize exactly
     pending = scored[["pending"]]
   )

@@ -169,7 +169,6 @@ mc_spec <- function(
     panels = panels,
     # panel unions are functions of `panels` alone -- resolved here, not per block
     needed_union = panels_union(panels),
-    score_union = panels_union(panels, "score"),
     # clocks whose reduction is still inside the branch (catalog-declared)
     cross_sample = split_cross_sample(clock_sequence)[["cross_sample"]],
     # per-sample moment domains mc_cohort banks, keyed (catalog-declared)
@@ -213,17 +212,17 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
   mna <- scan_missing_cpgs(
     DNAm,
     spec[["needed_union"]],
-    spec[["score_union"]],
     moment_domains = spec[["moment_domains"]]
   )
   cpg_list <- resolve_cpgs(mna[["usable_cols"]], spec[["panels"]])
-  check_coverage(cpg_list, min_clocks_coverage)
 
   list(
     sample_id = sample_id,
     pheno = pheno,
     usable_cols = mna[["usable_cols"]],
     cpg_list = cpg_list,
+    # below min_clocks_coverage: scored NA, never dispatched
+    na_clocks = check_coverage(cpg_list, min_clocks_coverage),
     # partial_fill names are the column classification.
     partial_fill = mna[["col_mean"]],
     # null unless a sample_scale clock declared a domain for the sweep to count
@@ -291,6 +290,17 @@ collect_notes <- function(notes) {
     return(list())
   }
   stats::setNames(lapply(ids, function(id) notes[[id]]), ids)
+}
+
+# union two clock-keyed note lists. the cohort reduction adds its own.
+merge_notes <- function(a, b) {
+  if (!length(b)) {
+    return(a)
+  }
+  for (id in names(b)) {
+    a[[id]] <- union(a[[id]], b[[id]])
+  }
+  a[sort(names(a))]
 }
 
 # per-block view: DNAm + its usable column index, partial cache, pheno, notes
@@ -366,8 +376,17 @@ mc_block <- function(DNAm, spec, facts) {
   block
 }
 
-# score one block: scores, coverage, pending intermediates, notes
-score_cohort <- function(DNAm, spec, facts) {
+# blank the rows the sample gate refused. one matmul scored them all.
+mask_gated_rows <- function(out, low) {
+  if (is.null(low) || !any(low)) {
+    return(out)
+  }
+  out[low, ] <- NA_real_
+  out
+}
+
+# score one block: scores, coverage, row-gate verdicts, pending, notes
+score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
   clock_sequence <- spec[["sequence"]]
   cpg_list <- facts[["cpg_list"]]
   block <- mc_block(DNAm, spec, facts)
@@ -380,20 +399,34 @@ score_cohort <- function(DNAm, spec, facts) {
   # per-sample intermediates for cohort-reducing clocks
   pending <- list()
 
+  # gated columns are seeded, not scored. a null entry would shrink a dependent
+  # to numeric(0) instead of carrying the NA into it.
+  na_clocks <- intersect(clock_sequence, facts[["na_clocks"]])
+  for (p in na_clocks) {
+    results[[p]] <- score_matrix(NA_real_, block[["sample_id"]], p)
+  }
+  scoreable <- setdiff(clock_sequence, na_clocks)
+
+  # one pass: the column gate decided above, the row stat follows it and
+  # nothing is re-derived from the cells this blanks.
+  gate <- row_gate(coverage, min_samples_coverage, skip = na_clocks)
+
   # resolved once here, shared by the pack filter and the dispatch below
-  types <- vapply(clock_sequence, score_type, character(1))
+  types <- vapply(scoreable, score_type, character(1))
   is_pack <- types %in% PACK_SCORE_TYPES
 
-  pack_ids <- clock_sequence[is_pack]
+  pack_ids <- scoreable[is_pack]
   pgroups <- vapply(pack_ids, clock_group_id, character(1), USE.NAMES = FALSE)
   # empty when nothing is pack-scored. one declared panel per group.
   for (gids in split(pack_ids, pgroups)) {
     grp <- score_pack_group(gids, cpg_list[["per_clock"]][[gids[[1]]]], block)
-    results[names(grp)] <- grp
+    for (id in names(grp)) {
+      results[[id]] <- mask_gated_rows(grp[[id]], gate[[id]][["na"]])
+    }
   }
 
   # branch dispatch: every scorer takes (id, cpgs, block, results)
-  for (p in clock_sequence[!is_pack]) {
+  for (p in scoreable[!is_pack]) {
     cpgs <- cpg_list[["per_clock"]][[p]]
     ty <- types[[p]]
     out <- switch(
@@ -414,6 +447,8 @@ score_cohort <- function(DNAm, spec, facts) {
         call. = FALSE
       )
     )
+    # masked here, so dependents read the NA and the raws carry it into pending
+    out <- mask_gated_rows(out, gate[[p]][["na"]])
     # cohort-reducing clocks yield intermediates into pending
     if (p %in% spec[["cross_sample"]]) {
       pending[[p]] <- out
@@ -425,6 +460,8 @@ score_cohort <- function(DNAm, spec, facts) {
   list(
     scores = results,
     coverage = coverage,
+    # per-sample verdicts, for the front door to warn from
+    gate = gate,
     pending = pending,
     # per-clock sample ids the branch could not score
     notes = collect_notes(block[["notes"]])
@@ -433,16 +470,25 @@ score_cohort <- function(DNAm, spec, facts) {
 
 # cohort reduction after assembly (no-op when pending is empty)
 finalize_cross_sample <- function(scores, pending) {
+  notes <- list()
   for (p in names(pending)) {
     ty <- score_type(p)
-    scores[[p]] <- switch(
+    raws <- pending[[p]]
+    col <- switch(
       ty,
-      PhysAge = finalize_PhysAge(p, pending[[p]]),
+      PhysAge = finalize_PhysAge(p, raws),
       stop(
         sprintf("No finalize branch for score_type %s (clock %s).", ty, p),
         call. = FALSE
       )
     )
+    scores[[p]] <- col
+    # a sample with intermediates but no score lost it in the reduction. one
+    # with none was already blanked upstream, and needs no second reason.
+    lost <- rownames(raws)[rowSums(!is.na(raws)) > 0L & is.na(col[, 1L])]
+    if (length(lost)) {
+      notes[[p]] <- lost
+    }
   }
-  scores
+  list(scores = scores, notes = notes)
 }
