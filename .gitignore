@@ -20,6 +20,8 @@ dev/*
 !dev/DECISIONS.old.md
 !dev/WRITING.md
 !dev/to-do.md
+# temporary: a branch-scoped work plan, deleted when the work ships
+!dev/coverage-gates-plan.md
 
 # Python / uv
 .venv/
