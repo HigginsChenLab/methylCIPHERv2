@@ -162,6 +162,8 @@ mc_spec <- function(
     clock_ids = clock_ids,
     sequence = clock_sequence,
     output_ids = output_ids,
+    # the requested pair. mc_cohort()'s norm gate can decline a scheme the data
+    # cannot support, so read facts[["normalize"]] for what a run did.
     normalize = normalize,
     covariates = covariates,
     pheno_id = pheno_id,
@@ -218,10 +220,20 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
   # background panel and every downstream fact reads the resolved panel.
   normalize <- spec[["normalize"]]
   panels <- spec[["panels"]]
-  declined <- norm_gate(spec, mna[["usable_cols"]], min_clocks_coverage)
+  declined <- norm_gate(panels, mna[["usable_cols"]], min_clocks_coverage)
   if (length(declined)) {
     normalize[declined] <- FALSE
-    panels <- clock_panels(spec[["sequence"]], spec[["packs"]], normalize)
+    # only the norm half can move: declining empties a background panel and
+    # leaves every scoring panel exactly as mc_spec() resolved it
+    panels[["norm"]] <- dedup_panels(lapply(
+      spec[["sequence"]],
+      function(cid) clock_norm_cpgs(cid, normalize[[cid]])
+    ))
+    # a declined background is read by nothing now, so it leaves the position
+    # axis and the cohort-mean cache instead of being carried at cohort height
+    keep <- panels_union(panels)
+    mna[["usable_cols"]] <- intersect(mna[["usable_cols"]], keep)
+    mna[["col_mean"]] <- mna[["col_mean"]][names(mna[["col_mean"]]) %in% keep]
   }
   cpg_list <- resolve_cpgs(mna[["usable_cols"]], panels)
 

@@ -11,8 +11,19 @@ gate_label <- function(id, routed = sex_routed_members()) {
 }
 
 # the band just above a floor, where a clock still scores but only barely.
-# both gates read it, so the two tiers cannot drift apart.
+# the column gate and the row gate both read it, so their tiers cannot drift.
 warn_band <- function(threshold) min(1, threshold * 1.1)
+
+# one gate bullet. interpolated labels, so braces cannot become a cli template,
+# and gate_label() so a sex-routed model prints as the alias the caller may ask
+# for. counts are scalars: every gate has them, the resolved panels are one
+# caller's shape.
+panel_line <- function(id, present, needed, label, routed) {
+  cli::format_inline(
+    "{gate_label(id, routed)}: {present}/{needed}
+     {label} CpGs ({round(100 * present / needed, 1)}%)"
+  )
+}
 
 # verdicts that blank a column. "dead" is the floor-independent one.
 GATE_NA <- c("na", "dead")
@@ -51,19 +62,18 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     logical(1L)
   )]
 
-  # interpolated labels. braces cannot become a cli template.
-  panel_line <- function(id, present, needed, label) {
-    cli::format_inline(
-      "{gate_label(id, routed)}: {length(present)}/{length(needed)}
-       {label} CpGs ({round(100 * length(present) / length(needed), 1)}%)"
-    )
-  }
   score_lines <- function(ids) {
     vapply(
       ids,
       function(id) {
         x <- per_clock[[id]]
-        panel_line(id, x[["score_present"]], x[["score_needed"]], "scoring")
+        panel_line(
+          id,
+          length(x[["score_present"]]),
+          length(x[["score_needed"]]),
+          "scoring",
+          routed
+        )
       },
       character(1L)
     )
@@ -125,32 +135,33 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
 # normalization gate: the clocks whose background is too thin to normalize
 # against. it declines the scheme, it never blanks a score -- the clock is
 # still scored, from its raw betas. run before the panels are resolved.
-norm_gate <- function(spec, usable, threshold = 0.75) {
-  on <- names(spec[["normalize"]])[spec[["normalize"]]]
-  if (!length(on)) {
+norm_gate <- function(panels, usable, threshold = 0.75) {
+  routed <- sex_routed_members()
+  ids <- panels[["clock_id"]]
+  # graded once per distinct background, then mapped back through the panel
+  # index. a clock that does not normalize has an empty panel, which
+  # clock_gate_verdict() grades "" -- so declining needs no separate test.
+  uniq <- panels[["norm"]][["uniq"]]
+  at <- panels[["norm"]][["idx"]]
+  needed <- lengths(uniq)
+  present <- vapply(uniq, function(p) sum(p %in% usable), integer(1L))
+  verdict <- vapply(
+    seq_along(uniq),
+    function(i) clock_gate_verdict(present[[i]], needed[[i]], threshold),
+    character(1L)
+  )
+
+  drop <- ids[verdict[at] %in% GATE_NA]
+  if (!length(drop)) {
     return(character(0))
   }
-  # one ratio per distinct background, not one per clock
-  panel <- lapply(on, function(id) clock_norm_cpgs(id, TRUE))
-  present <- vapply(panel, function(p) sum(p %in% usable), integer(1L))
-  needed <- lengths(panel)
-  ratio <- ifelse(needed > 0L, present / needed, NA_real_)
 
-  low <- !is.na(ratio) & (present == 0L | ratio < threshold)
-  if (!any(low)) {
-    return(character(0))
-  }
-
-  drop <- on[low]
-  lines <- function(ids) {
+  lines <- function(these) {
     vapply(
-      ids,
+      these,
       function(id) {
-        at <- match(id, on)
-        cli::format_inline(
-          "{.val {id}}: {present[[at]]}/{needed[[at]]} normalization CpGs
-           ({round(100 * ratio[[at]], 1)}%)"
-        )
+        i <- at[[match(id, ids)]]
+        panel_line(id, present[[i]], needed[[i]], "normalization", routed)
       },
       character(1L)
     )
@@ -162,7 +173,7 @@ norm_gate <- function(spec, usable, threshold = 0.75) {
        {format(threshold)}):",
       capped_bullets(drop, lines),
       "i" = "{cli::qty(length(drop))}{?That clock is/Those clocks are} scored
-             without normalization.",
+             from the raw betas instead.",
       "i" = "Supply the background CpGs, or lower {.arg min_clocks_coverage},
              to normalize {cli::qty(length(drop))}{?it/them}.",
       "i" = "Call {.fn clock_cpgs} with {.code normalize = TRUE} to list the
@@ -209,7 +220,8 @@ row_gate_one <- function(cov_rec, score_miss, threshold) {
     cov = cov,
     scored = sum(seen),
     na = na,
-    # a subset of na, kept apart because cov does not explain it
+    # a subset of na, kept apart because it survives a floor of 0, where
+    # `cov < threshold` cannot fire, and reads as a count rather than a percent
     dead = dead,
     near = near,
     needed = rc[["needed"]]
@@ -250,8 +262,8 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         function(id) {
           s <- hit[[id]]
           low <- s[[field]]
-          # a dead sample failed on the scoring panel, so its gate-panel
-          # figure does not explain the verdict. count it apart.
+          # a dead sample has nothing to report a percentage of, so it is
+          # counted apart and named rather than given a figure of 0%.
           gone <- low & s[["dead"]]
           thin <- low & !gone
           paste(

@@ -125,7 +125,7 @@ test_that("a normalized run says on the record that it normalized", {
   expect_true(cov$normalizes)
   expect_true("Horvath1" %in% colnames(res$coverage$sample_miss$norm))
 
-  # constitutive normalization is recorded even though nobody asked for it
+  # on by default is recorded even though nobody asked for it
   pace <- calc_clocks(
     random_betas(names(clock_norm_target("DunedinPACE")), n = 3L),
     "DunedinPACE",

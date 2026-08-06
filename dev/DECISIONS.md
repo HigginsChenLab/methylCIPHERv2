@@ -52,9 +52,19 @@ subsetting to the scoring panel is a normal way to use the package, not a misuse
 Declining a scheme empties that clock's background panel, and every downstream fact already reads
 the resolved panel: `normalizes` is `length(norm_needed) > 0`, the record's `norm_*` counts, the
 `sample_miss$norm` columns, and both scoring branches, which already fall back to `linear_score()`
-when `normalizes` is `FALSE`. So the gate flips one flag and rebuilds `panels`; **no branch
-changed**. The scan still runs against the wider pre-gate union, which costs a few columns of
-cohort-mean cache that nothing reads and buys not scanning twice.
+when `normalizes` is `FALSE`. So the gate flips one flag and rebuilds the **norm half** of
+`panels`; **no branch changed**, and no scoring panel moves.
+
+**The declined background then leaves the position axis, and that is not a tidiness point.** The
+scan runs before the gate, so `usable_cols` and `col_mean` initially span a background nothing will
+read. Measured on `DunedinPACE` + `Horvath1` + `Knight` at n = 500 with the gate firing: leaving it
+in carries **30215 usable columns and a 117 MB `partial_cache`** where narrowing gives 668 columns
+and 2.6 MB. An earlier draft of this entry called that "a few columns", which was wrong by three
+orders of magnitude in exactly the case the gate exists for. So `mc_cohort()` intersects both down
+to `panels_union()` after the gate, before `resolve_cpgs()`, which keeps `usable_cols` order and so
+keeps the position axis and `mc_block()`'s identity check intact. Gating *ahead* of the scan would
+also drop the 98 ms `col_stats` read, but it would have to grade against `colnames(DNAm)`, where an
+all-NA background column counts as present -- a verdict change, not a refactor.
 
 **A simplification fell out, superseding the asymmetry recorded below.** The entry below defends
 `row_gate_one()` taking its ratio on the gate panel and its zero rule on the scoring panel. That

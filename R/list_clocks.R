@@ -42,10 +42,10 @@ request_token <- function(clock_id, alias) {
 #' - `group_size` counts the callable clocks a group token expands to.
 #' - `batch_dependent` is `TRUE` for a clock whose score depends on the other
 #'   samples scored with it.
-#' - `normalize` names the background normalization a clock gets, and is
-#'   empty for a clock that gets none. `"bmiq"` is optional, and you turn it
-#'   on with the `normalize` argument of [calc_clocks()]. `"quantile"` is
-#'   part of the clock's definition and is always applied.
+#' - `normalize` names the background normalization scheme a clock declares,
+#'   and is empty for a clock that declares none. `"quantile"` is on by
+#'   default and `"bmiq"` is off, and the `normalize` argument of
+#'   [calc_clocks()] moves either one.
 #'
 #' @returns A data.frame. One row for each clock in the catalog, including a
 #'   clock that scores only as part of another clock.
