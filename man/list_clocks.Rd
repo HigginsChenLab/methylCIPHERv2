@@ -41,10 +41,10 @@ differs from \code{clock_id} for a clock that only another clock can request.
 \item \code{group_size} counts the callable clocks a group token expands to.
 \item \code{batch_dependent} is \code{TRUE} for a clock whose score depends on the other
 samples scored with it.
-\item \code{normalize} names the background normalization a clock gets, and is
-empty for a clock that gets none. \code{"bmiq"} is optional, and you turn it
-on with the \code{normalize} argument of \code{\link[=calc_clocks]{calc_clocks()}}. \code{"quantile"} is
-part of the clock's definition and is always applied.
+\item \code{normalize} names the background normalization scheme a clock declares,
+and is empty for a clock that declares none. \code{"quantile"} is on by
+default and \code{"bmiq"} is off, and the \code{normalize} argument of
+\code{\link[=calc_clocks]{calc_clocks()}} moves either one.
 }
 }
 \examples{
