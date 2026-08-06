@@ -6,7 +6,8 @@ the work can be checkpointed across sessions. When the work ships, the decisions
 design doc for shipped behavior; the repo deliberately has none (see CLAUDE.md, "Source-of-truth
 docs").
 
-Started 2026-08-06.
+Started 2026-08-06. **Steps 1 to 3 have landed** (commit `19376b9`), so the behavior below is the
+behavior on this branch. Steps 4 to 8 are open.
 
 ---
 
@@ -14,7 +15,7 @@ Started 2026-08-06.
 
 **Neither coverage floor aborts. A floor decides what does not get a number.**
 
-| condition | today | after |
+| condition | before the branch | now |
 | --- | --- | --- |
 | clock below `min_clocks_coverage` | `cli_abort`, whole call dies | warn, that clock's column is `NA` for the batch |
 | clock within 1.1x of the floor | warn, scores | unchanged |
@@ -26,6 +27,19 @@ Started 2026-08-06.
 | PhysAge surrogate flat across the cohort | abort | `NA` plus a recorded reason |
 
 `calc_clocks()` gains no arguments and the record gains no fields.
+
+### Where the code is, after steps 1 to 3
+
+A fresh session should not have to rediscover these.
+
+- `R/coverage_gates.R` -- `check_coverage()` (column gate, warns and **returns** the NA'd ids),
+  `row_gate()` / `row_gate_one()` (per-sample verdicts, `na` and `near` masks per clock),
+  `check_row_coverage()` (warns from those verdicts, two tiers), `gate_label()`, `row_coverage()`.
+- `R/score_cohort.R` -- `mc_cohort()` stores `facts[["na_clocks"]]`; `score_cohort()` takes
+  `min_samples_coverage`, seeds the gated columns, builds `gate` and returns it, and applies
+  `mask_gated_rows()`; `finalize_cross_sample()` returns `list(scores, notes)`; `merge_notes()`.
+- `R/calc_clocks.R` -- threads `min_samples_coverage` into `score_cohort()`, reads
+  `scored[["gate"]]`, merges the two note sources into `scoring_failures`.
 
 ## 2. Why
 
@@ -56,10 +70,10 @@ user's data. Parity runs both gates at 0, and CLAUDE.md already forbids exactly 
 `DNAmSex_Wang_*@cohort_450K` ("a 0 there is the Female quadrant of the sign map, not a small
 number").
 
-The clause **drops the `clock_impute()` policy lookup** that today's `undefined` test carries. Cost
+The clause **drops the `clock_impute()` policy lookup** that the old `undefined` test carried. Cost
 accepted: a `vendor_mean` clock with a fully absent panel no longer scores at threshold 0. It
-returned an identical constant for every sample, which is not a score anyone should act on.
-`test-coverage-gate.R:46` pins that behavior today and inverts.
+returned an identical constant for every sample, which is not a score anyone should act on. The
+test that pinned the old behavior now pins this one, over both policies at once.
 
 **The gate reads observed presence, never `score_used`.** For a `vendor_mean` clock
 `score_used / score_needed` is always 1, so gating on it would mean the floor has no effect on
@@ -67,8 +81,15 @@ vendor-filled clocks at all. The two features do different jobs: the floor decid
 is scored, and the vendored fill patches absent probes for clocks that already cleared the floor.
 Below the floor a `vendor_mean` clock is NA and unfilled, like any other.
 
-The same rule is what makes the dead-sample abort removable (step 3): a sample with zero observed
-CpGs has every value filled from the cohort mean, so its score equals the mean sample's score.
+The same rule is what makes the dead-sample abort removable (step 3). A sample with zero observed
+CpGs has every value filled from the cohort mean, so its score is the mean sample's score, which is
+the same worthless number the column-axis clause exists to refuse.
+
+**On the sample axis the rule is measured on the scoring panel, and that is not the panel the ratio
+uses.** `row_coverage()` reads the normalization panel where a clock declares one, so a
+`DunedinPACE` sample dead on all 173 scoring CpGs still reads about 99% covered against the roughly
+20k gold-standard background. Ratio and zero rule therefore read different panels, by design. This
+was found while building step 2 and is the one place the two axes are not symmetric.
 
 ### D2. One pass, column stat then sample stat, no feedback
 
@@ -106,25 +127,34 @@ propagation. The closed set, in precedence order:
 | R1 | covariate missing in `pheno` (includes unknown `Female`, which is what NAs a sex-routed alias) | cell | derived from `$pheno` |
 | R2 | clock below `min_clocks_coverage` | column, per batch | derived from `$coverage$per_clock` + that batch's floor |
 | R3 | sample below `min_samples_coverage` | cell | derived from `$coverage$sample_miss` + that batch's floor |
-| R4 | branch could not fit the sample (BMIQ calibration failure, Wang moments with n < 2, flat PhysAge surrogate) | cell | recorded at score time in `$provenance$scoring_failures` |
+| R4 | branch could not fit the sample (BMIQ calibration failure, Wang moments with n < 2, flat PhysAge surrogate) | cell | read from `$provenance$scoring_failures` |
 | R5 | a dependency was NA | cell | derived from `clock_depends_on()` + the dependency's NA cells |
 | - | unexplained | cell | must always be empty; if it fires it is a package defect |
 
 **Derive, do not store.** Both gates are pure functions of facts the record already holds per
 batch, and R4 already has a channel. Storing an n x k reason matrix would duplicate them and could
 drift from the gate that made the decision. Deriving R2 and R3 through the *same* helpers the gates
-use (`panel_ratio()`, `row_coverage()`) makes drift impossible by construction, keeps the record
-small, and stays exact under `rbind`.
+use makes drift impossible by construction, keeps the record small, and stays exact under `rbind`.
 
-Two rules that fall out:
+Three rules that fall out:
 
 1. **The derivation reads each batch's own floor, never the reconciled `max`.** `samples_coverage()`
    takes the most restrictive floor across batches so its warning has one meaning, but a cell's
    NA-ness was decided under the floor its own batch ran with. Using the max post-bind would label
    cells "below the floor" that hold a real score.
-2. **The accessor is a finalizer** and falls into that derived set by CLAUDE.md's mechanical test
+2. **R3 is derived by calling `row_gate()`, not by re-comparing a ratio to the floor.** After step 2
+   the row gate is a ratio on the gate panel **plus** a zero rule on the scoring panel (see D1), so
+   a hand-rolled `panel_ratio() < floor` misses the dead-on-scoring-panel case and leaves that cell
+   in the unexplained bucket. `row_gate()` takes the coverage structure and a threshold and returns
+   the `na` mask per clock, which is exactly what R3 needs.
+3. **The accessor is a finalizer** and falls into that derived set by CLAUDE.md's mechanical test
    without an edit, because it reads the NA pattern of `$scores` and an unfinalized cross-sample
-   column is entirely NA until `finalize_cross_sample()` runs. So it calls `finalized()`.
+   column is entirely NA until `finalize_cross_sample()` runs. So it calls `finalized()`
+   (`R/calc_accel.R:3`).
+
+**R4 now has two producers, not one.** `note_scoring_failure()` writes into the block collector at
+score time, and `finalize_cross_sample()` returns its own notes at reduce time, which
+`merge_notes()` folds in. Read `$provenance$scoring_failures` and do not re-derive either.
 
 Consequence: `clocks_coverage()` does **not** need a `scored` column, and the "no `below_min`
 column" invariant stays as written.
@@ -158,10 +188,15 @@ every surviving sample keeps a real score.
 - `qr.resid()` **errors** on an NA in `y` (`NA/NaN/Inf in foreign function call`), confirmed at the
   console. It is not reached: `residualize()` (`R/calc_accel.R:254`) builds
   `okm <- !is.na(resp) & keep`, splits columns by missingness pattern, subsets rows before the fit,
-  and already warns for a column with too few complete samples. **`calc_accel()` needs no change.**
+  and already warns for a column with too few complete samples. **`calc_accel()` needs no change**,
+  and after steps 1 to 3 this was confirmed against a real all-NA column: it warns "1 clock had too
+  few complete samples to fit" and returns the other clock's rows.
 - `assoc_row()` (`R/score_associations.R:60`) filters on `is.finite(v)` and returns NULL below
   `MIN_ASSOC_N`, so an NA-heavy or all-NA clock drops out of the report.
-  **`score_associations()` needs no change.**
+  **`score_associations()` needs no change**, also confirmed against a real all-NA column.
+- Both coverage frames build over a gated clock, and `samples_coverage()` still carries its rows.
+  That is correct and not a defect: the clock read CpGs, so it is in the span the invariant defines,
+  and its coverage really is low.
 - `apply_karyotype()` (`R/predict_sex.R:64`) handles NA (`hit[is.na(hit)] <- FALSE`) but routes the
   sample to `kc[["default"]]`. **Open risk, see step 6.**
 - `output_ids` derives from the request, not from coverage, so score columns are identical across
@@ -174,15 +209,18 @@ every surviving sample keeps a real score.
   default: a sample whose panel is 26% cohort-mean-filled goes from a degraded number to `NA`.
 - The accessor is `score_gaps()`. It fits the `<verb>_<noun>` shape of `clocks_coverage()` and
   `samples_coverage()` better than `na_reasons()`.
-- Each gate emits one `cli_warn` covering both its tiers as separate bullet groups, so the worst
-  case drops from five warnings in a call to three.
+- **Warning consolidation is still undecided, and steps 1 to 3 did not pre-empt it.** Each gate
+  emits **two** `cli_warn` calls today, one per tier, mirroring the shape `check_coverage()` already
+  had. That is four in the worst case, plus the thin-normalization warning. Step 4 decides whether
+  to fold each gate's two tiers into one warning with two bullet groups. Nothing depends on the
+  answer, so it stayed as written rather than being changed on the way past.
 
 ---
 
 ## 6. Steps
 
-Steps 1 to 3 are one coherent behavior change and can land as one commit. 4 to 7 can trail.
-Roughly eight files in `R/`, one new export, two or three test files.
+Steps 1 to 3 landed together as commit `19376b9`, plus `1b2b10d` for this file. 4 to 7 can trail.
+What remains: roughly four files in `R/`, one new export, the roxygen pass, and `CLAUDE.md`.
 
 Standing constraints: never run `R CMD check` or `devtools::check()`; never run the parity tier
 unless the maintainer asks; read `dev/WRITING.md` before writing any user-facing text.
@@ -245,11 +283,18 @@ batch gated the clock and the other did not.
 
 ### Step 4. Messages
 
+The text written in steps 1 to 3 is provisional and has not had a `dev/WRITING.md` pass. Four
+warnings exist now: `check_coverage()`'s NA tier and near-miss tier, and `check_row_coverage()`'s
+two.
+
 - [ ] Read `dev/WRITING.md` first.
-- [ ] One `cli_warn` per gate, two bullet groups each, carrying the NA fact and the "lower the
-      floor" hint.
+- [ ] Decide the consolidation question in section 5, then make all four consistent.
+- [ ] Audit the four against R1 to R8. The row gate's NA tier is the newest text and the least
+      reviewed.
 - [ ] Keep `gate_label()` so routed member ids never leak into user-facing text.
-- [ ] Tests assert *that* it warns, never the wording.
+- [ ] Tests assert *that* it warns, never the wording. `test-coverage-gate.R` currently greps the
+      column gate's message for `min_clocks_coverage` and for the alias id, which is the one
+      deliberate exception: it exists to prove a routed member id does **not** appear.
 
 ### Step 5. `score_gaps()`
 
@@ -284,8 +329,16 @@ batch gated the clock and the other did not.
 
 ### Step 8. Test sweep
 
+The inversion already happened in steps 1 to 3: every `expect_error` that pinned a gate abort is
+now a warn plus an `is.na` assertion, across `test-coverage-gate.R`, `test-value-gates.R`,
+`test-score-physage.R` and `test-chunk-invariance.R`. What is left is the budget question.
+
+- [ ] The suite went 799 -> 825 expectations. Decide whether the +26 stays (CLAUDE.md, "Test
+      altitude"). The likeliest trims are the per-policy loop in the zero-CpG block and the second
+      half of the two-band block.
 - [ ] `devtools::test()`, reported honestly, saying plainly that check was not run.
-- [ ] `test-coverage-gate.R` inverts rather than grows. Most of its `expect_error` blocks become
-      warn plus an `is.na` assertion. The suite has a budget (CLAUDE.md, "Test altitude").
 - [ ] Parity only if the maintainer asks. Expected to be unaffected: it runs both gates at 0, and
-      the only zero-panel targets are already `KNOWN_PARITY_GAPS` skips.
+      the only zero-panel targets are already `KNOWN_PARITY_GAPS` skips. **One thing to re-read
+      before believing that:** D1 now blanks a zero-panel clock even at floor 0, so a parity target
+      that previously scored an empty panel would change. The two `DNAmSex_Wang_*@cohort_450K`
+      targets are exactly that shape and are already skips, which is why the expectation holds.
