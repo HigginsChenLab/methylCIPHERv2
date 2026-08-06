@@ -222,8 +222,14 @@ every surviving sample keeps a real score.
 
 ## 6. Steps
 
-Steps 1 to 3 landed together as commit `19376b9`, plus `1b2b10d` for this file. 4 to 7 can trail.
-What remains: roughly four files in `R/`, one new export, the roxygen pass, and `CLAUDE.md`.
+Steps 1 to 4 have landed. What remains: `score_gaps()`, the downstream check, the prose edits,
+`CLAUDE.md`, and then one final pass over everything.
+
+**The roxygen audit is deferred to step 9, deliberately.** Steps 5 to 8 write roxygen tags where a
+new or changed topic needs them, because `document()` generates `NAMESPACE` from tags and an export
+does not exist without one. They do **not** audit that text against `dev/WRITING.md`. Auditing prose
+that a later step may rewrite is work done twice, and the manual only reads correctly when the whole
+changed surface is read together. Step 9 does that read once, over everything.
 
 Standing constraints: never run `R CMD check` or `devtools::check()`; never run the parity tier
 unless the maintainer asks; read `dev/WRITING.md` before writing any user-facing text.
@@ -320,8 +326,9 @@ All eight reachable message shapes were rendered and read, not just inspected in
 - [ ] Per-batch floors, not the reconciled max. Calls `finalized()`.
 - [ ] Long frame: `id`, `clock_id`, `reason`, plus `mc_batch_id` only when multi-batch, through the
       shared `drop_single_batch()` / `is_multi_batch()` path.
-- [ ] Roxygen to `dev/WRITING.md`, close the `@seealso` groups across the neighbouring topics,
-      `devtools::document()`, then `lint_roxygen()` and `lint_seealso()` both empty.
+- [ ] Write the roxygen block and run `devtools::document()`, so the export exists. **Do not audit
+      the prose here** -- step 9 owns that, including the `@seealso` question, which is a decision
+      about the closed groups and not a per-topic call.
 - [ ] Say in the summary which `export()` entry this implies.
 
 ### Step 6. Verify downstream
@@ -334,6 +341,10 @@ All eight reachable message shapes were rendered and read, not just inspected in
 
 ### Step 7. Docs and invariants
 
+**Fix what is factually wrong, do not polish.** Every roxygen item below describes an abort that no
+longer happens, so it is a stale claim about behaviour, not a style problem. Correct the claim and
+leave the wording to step 9.
+
 - [ ] `calc_clocks()`: the `@details` coverage paragraph and both `@param` texts.
 - [ ] `clocks_coverage()` / `samples_coverage()` details where they describe the gates.
 - [ ] `CLAUDE.md`: the "recorded but read by nothing / it aborts, so a record's existence proves it
@@ -342,7 +353,9 @@ All eight reachable message shapes were rendered and read, not just inspected in
       derivation, so check the wording still reads correctly.
 - [ ] `dev/DECISIONS.md` entry: the gate reversal, the one-pass rule with its accepted cost, the
       floor-independent zero rule, the closed reason set, derive-not-store.
-- [ ] Delete this file and its `dev/to-do.md` pointer.
+
+`CLAUDE.md` and `DECISIONS.md` are `dev`-facing, so R1 to R8 do not bind them and step 9 does not
+re-read them. They are done when step 7 is done.
 
 ### Step 8. Test sweep
 
@@ -359,3 +372,32 @@ now a warn plus an `is.na` assertion, across `test-coverage-gate.R`, `test-value
       before believing that:** D1 now blanks a zero-panel clock even at floor 0, so a parity target
       that previously scored an empty panel would change. The two `DNAmSex_Wang_*@cohort_450K`
       targets are exactly that shape and are already skips, which is why the expectation holds.
+
+### Step 9. Final audit and simplify pass
+
+**Last, and over the whole branch at once.** Nothing above audits prose or reworks code for shape,
+so this step is where both happen. It reads the branch as a finished thing rather than as a series
+of edits, which is the only way to catch a seam between two steps that are each fine alone.
+
+Simplify:
+
+- [ ] Read the branch diff end to end. Steps 1 to 8 optimise for landing correct behaviour, so the
+      shape is whatever fell out. Look for a helper that earns no name, a conditional that a caller
+      already decided, a note channel with one producer, and any pair of functions that now say the
+      same thing.
+- [ ] Specific candidates, to confirm or reject rather than assume: whether `row_gate_one()` still
+      needs to return five fields; whether `merge_notes()` and `collect_notes()` should be one; and
+      whether `check_row_coverage()`'s `tier()` closure is worth its indirection at two call sites.
+- [ ] Whatever survives must still pass the suite unchanged. A simplification that moves a number
+      is not a simplification.
+
+Prose, over every topic this branch touched plus `score_gaps()`:
+
+- [ ] Re-read `dev/WRITING.md`, then audit against R1 to R8. This is the pass steps 5 and 7 defer.
+- [ ] `@seealso`: decide once, with the whole changed surface in view, whether `score_gaps()` joins
+      the coverage group. **The groups are closed, so this is the maintainer's call, not an agent's**
+      -- state the recommendation and the symmetry it would imply, and do not edit a tag without it.
+- [ ] `devtools::document()`, then `lint_roxygen()` and `lint_seealso()` both empty.
+- [ ] `dump_roxygen()` and read the rendered manual as a document. `dev/WRITING.md` section 2 is
+      explicit that wordiness is invisible in the source and obvious in the render.
+- [ ] Delete this file and its `dev/to-do.md` pointer, and drop the `.gitignore` exception.
