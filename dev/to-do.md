@@ -8,6 +8,16 @@ There is no open code defect. Everything below is licensing, release plumbing, p
 
 ---
 
+## In progress
+
+### P1. Harmonize the two coverage gates on NA
+
+Branch `coverage-gate-na`. Neither floor aborts; both decide what does not get a number. Steps,
+reasoning and checkpoints are in [dev/coverage-gates-plan.md](coverage-gates-plan.md), which is
+tracked only for the life of the branch and is deleted when the work lands.
+
+---
+
 ## Before public alpha
 
 ### A1. Package license, forced by the clock weights
