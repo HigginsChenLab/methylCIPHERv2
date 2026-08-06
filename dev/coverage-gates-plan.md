@@ -22,7 +22,7 @@ Started 2026-08-06.
 | sample below `min_samples_coverage` | warn, scores | warn, that cell is `NA` |
 | sample within 1.1x of the floor | (no band) | warn, scores |
 | zero observed CpGs, either axis | abort | `NA`, at any floor, under any policy |
-| sample with no observed CpG on any panel | abort | `NA` row |
+| sample with no observed CpG on its scoring panel | abort | `NA` cell, per clock |
 | PhysAge surrogate flat across the cohort | abort | `NA` plus a recorded reason |
 
 `calc_clocks()` gains no arguments and the record gains no fields.
@@ -187,38 +187,61 @@ Roughly eight files in `R/`, one new export, two or three test files.
 Standing constraints: never run `R CMD check` or `devtools::check()`; never run the parity tier
 unless the maintainer asks; read `dev/WRITING.md` before writing any user-facing text.
 
-### Step 1. Column gate stops aborting
+### Step 1. Column gate stops aborting. DONE 2026-08-06, commit `19376b9`
 
-- [ ] `classify()` in `R/coverage_gates.R` returns `na` / `warn` / `""`, drops the
+- [x] `classify()` in `R/coverage_gates.R` returns `na` / `warn` / `""`, drops the
       `clock_impute()` policy lookup, gains the D1 zero clause.
-- [ ] `check_coverage()` warns instead of aborting and **returns** the NA'd ids.
-- [ ] `mc_cohort()` (`R/score_cohort.R:181`) carries them in `facts`.
-- [ ] `score_cohort()` seeds those ids with an n x 1 NA matrix, filters both the pack-group loop
+- [x] `check_coverage()` warns instead of aborting and **returns** the NA'd ids.
+- [x] `mc_cohort()` carries them in `facts[["na_clocks"]]`.
+- [x] `score_cohort()` seeds those ids with an n x 1 NA matrix, filters both the pack-group loop
       and the dispatch loop, and never lets them reach `pending`.
-- [ ] Tests: the gated clock is NA while its neighbours score; a composite inherits NA from a gated
+- [x] Tests: the gated clock is NA while its neighbours score; a composite inherits NA from a gated
       dependency; an alias inherits per sex.
 
-Done when: `calc_clocks()` returns a record for a request holding one under-covered clock.
+Not in the plan, found while building it: **a partial `pending` after a bind is now reachable**,
+because one batch may gate a cross-sample clock while another scores it. `refinalize_clocks()` read
+a missing row through `id_index()`'s default `unmatched = "stop"`, which is a package-defect
+message. It now passes `unmatched = "na"`, so those rows stay NA.
 
-### Step 2. Sample gate NAs its cells
+### Step 2. Sample gate NAs its cells. DONE 2026-08-06, commit `19376b9`
 
-- [ ] Build the per-clock sample mask from `row_coverage()`, once, after `compute_coverage()` and
-      before the dispatch loop. That placement is what enforces D2 structurally.
-- [ ] Apply it in the loop immediately after each branch returns, to the pack-group outputs too,
-      and to the cross-sample raws before they enter `pending`.
-- [ ] `check_row_coverage()` becomes the near-miss warning only, and excludes gated clocks: "scored
-      some samples below" is false for a clock that was not scored.
-- [ ] Tests: cell-level NA; PhysAge survivors still score with a masked sample present;
+- [x] `row_gate()` classifies every sample once, after `compute_coverage()` and before the dispatch
+      loop. That placement is what enforces D2 structurally.
+- [x] `mask_gated_rows()` applies it in the loop immediately after each branch returns, to the
+      pack-group outputs too, and to the cross-sample raws before they enter `pending`.
+- [x] `check_row_coverage()` reads the verdicts `row_gate()` already built, warns in two tiers, and
+      excludes column-gated clocks: "scored some samples below" is false for a clock not scored.
+- [x] Tests: cell-level NA; PhysAge survivors still score with a masked sample present;
       `refinalize_clocks()` still exact after a bind.
 
-Done when: a low-coverage sample yields `NA` for that clock and a real score for its neighbours.
+**The zero rule needed a second panel, which the plan did not anticipate.** `row_coverage()`
+measures its ratio on the **normalization** panel where a clock has one, so a `DunedinPACE` sample
+dead on all 173 scoring CpGs still reads about 99% covered against the roughly 20k gold-standard
+background. `row_gate_one()` therefore measures the ratio on the gate panel and the **zero rule on
+the scoring panel**, which is the one the arithmetic reads. Without the split, removing
+`scan_missing_cpgs()`'s dead-sample abort in step 3 would have silently lost that catch.
 
-### Step 3. The last two coverage aborts
+### Step 3. The last two coverage aborts. DONE 2026-08-06, commit `19376b9`
 
-- [ ] `scan_missing_cpgs()` (`R/missingness.R:267`): drop the dead-sample abort. D1's zero rule
-      catches the row on the sample axis at any floor.
-- [ ] `zscore_raws()` (`R/score_PhysAge.R:74`): NA those samples and record an R4 note instead of
-      stopping.
+- [x] `scan_missing_cpgs()`: drop the dead-sample abort. The row gate catches the row per clock, on
+      the panel that clock reads. This retires the function's `score_cpgs` argument and
+      `spec[["score_union"]]`, both of which existed only for that check.
+- [x] `zscore_raws()`: blank a surrogate that is constant across the cohort rather than stopping.
+      One rule now covers a single sample and a surrogate that observed none of its CpGs, so the
+      `n < 2` branch is gone too.
+- [x] The R4 note. `finalize_cross_sample()` returns `list(scores, notes)` and derives the note
+      **without knowing what PhysAge is**: a sample with intermediates but no score lost it in the
+      reduction, and a sample with none was blanked upstream and needs no second reason.
+      `merge_notes()` folds it into `scoring_failures` at both call sites.
+
+**State after steps 1 to 3:** `devtools::test()` is 825 pass / 0 fail / 0 error / 0 warning / 2
+skip, up from 799 expectations before the branch. Step 8 owns whether that growth stays. `R CMD
+check` was not run, and neither was the parity tier.
+
+Verified at the console, beyond the suite: `calc_accel()` warns and drops an all-NA column,
+`score_associations()` drops it, both coverage frames build, a wholly dead sample scores `NA`
+instead of aborting, and `rbind(rbind(r1, r2))` is still `identical()` to `rbind(r1, r2)` when one
+batch gated the clock and the other did not.
 
 ### Step 4. Messages
 
