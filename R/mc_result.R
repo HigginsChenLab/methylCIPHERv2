@@ -78,6 +78,7 @@ construct_mc_result <- function(
   pheno_id,
   covariates_used,
   normalized,
+  normalize_requested,
   min_clocks_coverage,
   min_samples_coverage,
   scoring_failures = list(),
@@ -127,6 +128,10 @@ construct_mc_result <- function(
         covariates_used = covariates_used,
         # which clocks were actually normalized
         normalized = normalized,
+        # what the caller asked for, keyed by batch like the floors. the norm
+        # gate can decline a scheme this batch's background could not support,
+        # so two batches may differ here honestly and nothing reconciles it.
+        normalize_requested = stats::setNames(list(normalize_requested), batch),
         # the gates this batch was scored under, keyed by batch like per_clock
         min_clocks_coverage = stats::setNames(min_clocks_coverage, batch),
         min_samples_coverage = stats::setNames(min_samples_coverage, batch),

@@ -14,6 +14,29 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-06 -- The record keeps the normalization request beside the result, because `rbind` could not otherwise say who caused a mismatch
+
+Making the norm gate able to decline a scheme (entry below) put a machine decision into
+`provenance$normalized`, which `rbind` gates on. Two batches given the *same* `normalize` argument,
+differing only in how much background the array carried, then aborted the bind with
+"Use one `normalize` setting for every batch" -- advice the caller had already followed, about an
+argument they could not change to fix it.
+
+**Refusing was still right; only the attribution was wrong.** A column normalized in one batch and
+raw in another is two different columns, and binding them would put two meanings in one vector. So
+the gate stays on `normalized`. What was missing was the second fact needed to explain it, so
+`provenance$normalize_requested` now records what was asked for, and the gate reads the pair:
+requests agree and results differ means coverage, so it names `clocks_coverage()` and
+`min_clocks_coverage`; requests differ means the caller, so it keeps the old advice.
+
+**The request is keyed by batch and the result is not, and that asymmetry is the point.**
+`normalized` is gated equal across batches, so one flat vector is honest. A request is a per-batch
+input that two batches may legitimately disagree on -- the same shape as the two coverage floors,
+and stored the same way, `stats::setNames(list(...), batch)` merged by `rbind` without
+reconciliation. **`normalize_requested` is deliberately not gated**: differing requests with
+matching results is a legal bind, and the case that makes it legal is real -- a batch that asked
+for bmiq and was declined holds the same raw column as a batch that never asked.
+
 ## 2026-08-06 -- `min_clocks_coverage` reads both panels, and a thin background declines the scheme rather than blanking the clock. Normalization is no longer constitutive.
 
 `min_clocks_coverage` now grades the scoring panel **and** the normalization background, and what

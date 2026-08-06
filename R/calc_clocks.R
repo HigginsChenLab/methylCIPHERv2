@@ -98,9 +98,11 @@ calc_clocks <- function(
     pheno = facts[["pheno"]],
     pheno_id = spec[["pheno_id"]],
     covariates_used = spec[["covariates"]],
-    # what the run normalized, not what was asked for -- the norm gate may
-    # have declined a scheme whose background was too thin to use
+    # both facts. `normalized` is what the run did, and the norm gate may have
+    # declined a scheme whose background was too thin; the request says whether
+    # a difference between two batches was the caller's or the data's.
     normalized = names(facts[["normalize"]])[facts[["normalize"]]],
+    normalize_requested = names(spec[["normalize"]])[spec[["normalize"]]],
     min_clocks_coverage = min_clocks_coverage,
     min_samples_coverage = min_samples_coverage,
     scoring_failures = merge_notes(scored[["notes"]], final[["notes"]]),

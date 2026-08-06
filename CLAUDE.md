@@ -117,6 +117,15 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   record can hold a clock the column gate refused and a cell the row gate refused, and only the
   floor that batch ran under says which (DECISIONS 2026-08-06, superseding the 2026-08-03 reading
   that `min_clocks_coverage` was recorded but read by nothing).
+  - **Normalization is two facts, and the record keeps both.** `normalized` is what a run *did* --
+    flat, and `rbind` gates on it, because a normalized column and a raw one are two different
+    columns. `normalize_requested` is what the caller *asked for*, **keyed by batch** like the
+    floors, because the norm gate can decline a scheme one batch's background could not support and
+    two batches may then differ honestly. Keeping only the effective set made the bind refusal
+    unactionable: it blamed the `normalize` argument for a decision the data made. The gate still
+    refuses on `normalized` and now reads the pair to say which of the two caused it. Do not
+    reconcile `normalize_requested` on bind, and do not gate on it -- differing requests with
+    matching results is a legal bind (DECISIONS 2026-08-06).
   - **Where a verb exists it is a method**, and the built surface is exactly `print`, `as.matrix`,
     `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()` and `score_gaps()`.
     Coverage is deliberately not `summary()`: it is `clocks_coverage()` (one row per

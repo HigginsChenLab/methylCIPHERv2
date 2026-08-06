@@ -22,8 +22,14 @@ multiple batches.
 }
 \details{
 Each input must use disjoint sample ids, the same scored clocks, the
-same \code{pheno_id}, and the same \code{normalize} setting. \code{rbind()} stops when
-any of those differ between inputs.
+same \code{pheno_id}, and the same normalized clocks. \code{rbind()} stops when any
+of those differ between inputs.
+
+The normalized clocks are the ones a run actually normalized, which is
+not always the ones it was asked to. A batch whose background panel was
+too thin is scored without the scheme, so two inputs given the same
+\code{normalize} setting can still differ here. \code{rbind()} says which of the
+two caused it.
 
 The combined value gets one \code{mc_batch_id} label for each input. A clock
 that depends on sample-wise information, such as a z-score, keeps the
