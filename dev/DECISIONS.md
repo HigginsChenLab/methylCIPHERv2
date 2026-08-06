@@ -14,6 +14,55 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-06 -- `min_clocks_coverage` reads both panels, and a thin background declines the scheme rather than blanking the clock. Normalization is no longer constitutive.
+
+`min_clocks_coverage` now grades the scoring panel **and** the normalization background, and what
+it decides differs by panel because the two shortfalls are different failures. Too little of the
+scoring panel and there is nothing to compute from, so the clock scores `NA`. Too little of the
+background and only the *scheme* is impossible; the raw betas are all still there, so the clock is
+scored without normalization. Neither stops the call, and both warn.
+
+That second half **reverses `NORM_CONSTITUTIVE`**. `resolve_normalize()` used to refuse
+`normalize = c(DunedinPACE = FALSE)` outright, on the ground that quantile normalization "is part
+of the clock definition, not preprocessing". Auto-declining a thin background would have done
+silently exactly what that refusal forbade, so the refusal had to go rather than acquire an
+exception. The constant is now `NORM_DEFAULT_ON`: quantile is **on by default**, bmiq is **off by
+default**, and either can be declined -- by the caller, or by the gate on the caller's behalf.
+The cost is real and accepted: a column labelled `DunedinPACE` can now hold an unnormalized score.
+That is why the gate warns naming the clock, and why `provenance$normalized` records what the run
+actually normalized rather than what was asked for.
+
+**What forced it was a shape the old rule could not see.** `row_coverage()` measured a normalizing
+clock's per-sample ratio on its *background* panel. Feed `calc_clocks()` a matrix cut down to the
+scoring CpGs -- which is what `sim_DNAm()` returns, and what any caller who subsets to
+`clock_cpgs()` to save memory supplies -- and every sample reads about 1.7% against Horvath1's
+21368-CpG background, so a clock with a **complete** scoring panel was blanked for every sample,
+under a message about `min_samples_coverage`. The column axis, on the same run, called the same
+evidence benign and said so ("the absent CpGs are dropped from the BMIQ fit"). One axis cannot
+treat a thin BMIQ background as documented-and-fine while the other treats it as fatal.
+
+**Measured before deciding, and it is not a real-data failure.** The whole normalizing surface is
+three clocks: `DunedinPACE` (quantile, 20000), `Horvath1` and `Knight` (bmiq, sharing one
+21368-CpG gold standard). Against the staged cohorts every background is 95% to 100% present
+(EPICv1: 99.99 / 95.03 / 95.03; 450K: 99.92 / 100 / 100), so a real array never approaches the
+floor -- you would need over 5342 background CpGs absent. This is a **panel-subset** failure, and
+subsetting to the scoring panel is a normal way to use the package, not a misuse.
+
+**The gate runs before `resolve_cpgs()`, and that is what keeps it from being a special case.**
+Declining a scheme empties that clock's background panel, and every downstream fact already reads
+the resolved panel: `normalizes` is `length(norm_needed) > 0`, the record's `norm_*` counts, the
+`sample_miss$norm` columns, and both scoring branches, which already fall back to `linear_score()`
+when `normalizes` is `FALSE`. So the gate flips one flag and rebuilds `panels`; **no branch
+changed**. The scan still runs against the wider pre-gate union, which costs a few columns of
+cohort-mean cache that nothing reads and buys not scanning twice.
+
+**A simplification fell out, superseding the asymmetry recorded below.** The entry below defends
+`row_gate_one()` taking its ratio on the gate panel and its zero rule on the scoring panel. That
+split existed only to patch the consequence of gating rows on the background. With the background
+now a cohort-wide column decision, the row gate reads the scoring panel for both, and `dead`
+collapses from a two-panel comparison to `cov == 0`. `score_gaps()` stops reading the norm panel
+entirely.
+
 ## 2026-08-06 -- Neither coverage floor aborts. A floor decides what does not get a number.
 
 `min_clocks_coverage` aborted the call and `min_samples_coverage` warned and scored. They are the

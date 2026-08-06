@@ -87,7 +87,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     real axis -- `score_imputed_partial` counts *that run's* partial cache, so two bound batches
     almost never agree (DECISIONS 2026-07-30).
   - Per-sample miss is counted **once per distinct panel** (FitAge/GrimAge reuse panels) and kept
-    **per panel role**: every clock has a score panel, a normalizing clock (only DunedinPACE) also
+    **per panel role**: every clock has a score panel, a clock that normalizes *on this run* also
     has a norm panel. The score panel follows the policy uniformly -- `vendor_mean` fills every
     absent CpG (`used = present + imputed_full`), anything else drops them (`used = present`,
     `dropped = absent`). **The norm panel fills or drops on the declared scheme, not on that
@@ -296,6 +296,19 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     to `cpg_list`**: the union of panels that each cleared the floor clears it too, so what is lost
     cannot happen, and what is gained is that `score_gaps()` has a record to read for every clock it
     must explain (DECISIONS 2026-08-06).
+  - **`min_clocks_coverage` grades two panels and decides differently on each; `min_samples_coverage`
+    grades one.** Too little of the **scoring** panel and the clock is `NA` for the batch, because
+    there is nothing to compute from. Too little of the **background** and only the scheme is
+    impossible, so `norm_gate()` declines it and the clock is scored from raw betas. The row gate
+    reads the **scoring panel alone** -- a background is a cohort-wide fact, so it can never be a
+    per-sample verdict, and `dead` is therefore just `cov == 0` on the one panel. **Normalization is
+    not constitutive**: `NORM_DEFAULT_ON` says quantile is on by default and bmiq off, and either can
+    be declined, by the caller or by the gate. So a `DunedinPACE` column can hold an unnormalized
+    score, and `provenance$normalized` -- built from `facts[["normalize"]]`, never
+    `spec[["normalize"]]` -- is the only record of which it is. `norm_gate()` runs **before**
+    `resolve_cpgs()`, because declining a scheme empties the background panel and every downstream
+    fact reads the resolved panel; that is what keeps it a flag flip instead of a branch
+    (DECISIONS 2026-08-06).
   - **`samples_coverage()` drops NA-coverage rows**, which has exactly one source: a routed member
     masked on a row its sex did not score. So the long frame carries one row per sample per family,
     under the model that scored it, and a sample no model scored (unknown sex) has no row at all --

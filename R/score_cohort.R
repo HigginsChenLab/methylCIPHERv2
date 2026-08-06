@@ -214,13 +214,24 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
     spec[["needed_union"]],
     moment_domains = spec[["moment_domains"]]
   )
-  cpg_list <- resolve_cpgs(mna[["usable_cols"]], spec[["panels"]])
+  # the norm gate runs first, because declining a scheme empties that clock's
+  # background panel and every downstream fact reads the resolved panel.
+  normalize <- spec[["normalize"]]
+  panels <- spec[["panels"]]
+  declined <- norm_gate(spec, mna[["usable_cols"]], min_clocks_coverage)
+  if (length(declined)) {
+    normalize[declined] <- FALSE
+    panels <- clock_panels(spec[["sequence"]], spec[["packs"]], normalize)
+  }
+  cpg_list <- resolve_cpgs(mna[["usable_cols"]], panels)
 
   list(
     sample_id = sample_id,
     pheno = pheno,
     usable_cols = mna[["usable_cols"]],
     cpg_list = cpg_list,
+    # what the run normalized, after the gate declined what it could not
+    normalize = normalize,
     # below min_clocks_coverage: scored NA, never dispatched
     na_clocks = check_coverage(cpg_list, min_clocks_coverage),
     # partial_fill names are the column classification.

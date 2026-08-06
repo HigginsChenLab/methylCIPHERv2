@@ -76,29 +76,30 @@ test_that("the gate names a clock the caller is allowed to request", {
   }
 })
 
-test_that("a sparse normalization panel warns but still scores", {
+test_that("a sparse normalization panel declines the scheme, it does not blank", {
   skip_if_not_installed("betanorm")
   gold <- names(clock_norm_target("DunedinPACE"))
   model <- clock_scoring_cpgs("DunedinPACE")
 
   keep <- union(model, thin_panel(gold, 0.5))
-  # two distinct warnings: thin background (column) and the row gate below it
-  expect_warning(
-    expect_warning(
-      res <- calc_clocks(random_betas(keep, n = 4L), "DunedinPACE")
-    )
-  )
-  # the score panel is whole, so the clock itself is not gated out
-  expect_true(all(is.na(res$scores[, "DunedinPACE"])))
+  DNAm <- random_betas(keep, n = 4L)
+
+  # the background is near half, under the default floor. the scoring panel is
+  # whole, so the clock still scores -- from raw betas, and the record says so.
+  expect_warning(raw <- calc_clocks(DNAm, "DunedinPACE"))
+  expect_true(all(is.finite(raw$scores[, "DunedinPACE"])))
+  expect_equal(raw$provenance$normalized, character(0))
+
+  # the same background clears a lower floor, and is then actually used
   expect_no_warning(
-    res <- calc_clocks(
-      random_betas(keep, n = 4L),
-      "DunedinPACE",
-      min_clocks_coverage = 0.4,
-      min_samples_coverage = 0.4
-    )
+    norm <- calc_clocks(DNAm, "DunedinPACE", min_clocks_coverage = 0.4)
   )
-  expect_true(all(is.finite(res$scores[, "DunedinPACE"])))
+  expect_true(all(is.finite(norm$scores[, "DunedinPACE"])))
+  expect_equal(norm$provenance$normalized, "DunedinPACE")
+  expect_false(isTRUE(all.equal(
+    unname(raw$scores[, "DunedinPACE"]),
+    unname(norm$scores[, "DunedinPACE"])
+  )))
 })
 
 test_that("a warn band sits above each floor, and both are silent at full", {

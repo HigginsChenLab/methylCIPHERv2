@@ -11,8 +11,10 @@ clock_cpgs(clocks, normalize = NULL, ext_data = NULL, ask = TRUE)
 group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
-for the clocks that support it. Default is \code{NULL}, which leaves the
-optional schemes off.}
+or off for the clocks that support it. Default is \code{NULL}, which leaves
+each clock at its own default: on for \code{quantile}, off for \code{bmiq}. A
+single unnamed \code{TRUE} or \code{FALSE} applies to every clock that supports a
+scheme.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}

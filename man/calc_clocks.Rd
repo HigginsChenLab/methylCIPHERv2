@@ -38,8 +38,10 @@ of a clock's CpGs that must be present for a sample to score that clock.
 Default is \code{0.75}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
-for the clocks that support it. Default is \code{NULL}, which leaves the
-optional schemes off.}
+or off for the clocks that support it. Default is \code{NULL}, which leaves
+each clock at its own default: on for \code{quantile}, off for \code{bmiq}. A
+single unnamed \code{TRUE} or \code{FALSE} applies to every clock that supports a
+scheme.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}
@@ -58,20 +60,27 @@ Scores CpG-based epigenetic clocks on a matrix of methylation beta values.
 \details{
 \code{\link[=list_clocks]{list_clocks()}} and \code{\link[=list_clock_tags]{list_clock_tags()}} show every value \code{clocks} accepts.
 
-\code{normalize} turns on the schemes that a clock declares as optional. It
-cannot turn off a scheme that is part of the clock. The \code{normalize} column
-of \code{list_clocks(all_columns = TRUE)} gives the scheme each clock uses.
+\code{normalize} turns a clock's declared scheme on or off. Each clock has its
+own default, which the \code{normalize} column of
+\code{list_clocks(all_columns = TRUE)} gives along with the scheme itself.
+Normalization needs a background panel that is much larger than the
+scoring panel, so a matrix cut down to the scoring CpGs cannot supply it.
 
-The two coverage arguments decide what does not get a number, and neither
-one stops the call. A clock under \code{min_clocks_coverage} scores \code{NA} for
-every sample. A sample under \code{min_samples_coverage} scores \code{NA} for that
-clock alone. A clock with none of its CpGs present scores \code{NA} whatever
-the two values are. Each case raises a warning that names the clocks.
+\code{min_clocks_coverage} is read against both panels, and what it decides
+differs by panel. Too little of the scoring panel and the clock scores
+\code{NA} for every sample, because there is nothing to score from. Too little
+of the background panel and the clock is scored without normalization,
+because the raw betas are still there. Either way the call does not stop,
+and each case raises a warning that names the clocks.
 
-A clock just above either floor, and a clock whose normalization panel
-falls below \code{min_clocks_coverage}, each raise a warning and still score.
-Pass the returned value to \code{\link[=clocks_coverage]{clocks_coverage()}} or \code{\link[=samples_coverage]{samples_coverage()}} to
-see the counts, and to \code{\link[=score_gaps]{score_gaps()}} to see why each \code{NA} is missing.
+\code{min_samples_coverage} is read against the scoring panel alone. A sample
+under it scores \code{NA} for that clock, and for that clock only.
+
+A clock with none of its scoring CpGs present scores \code{NA} whatever the two
+values are. A clock just above either floor raises a warning and still
+scores. Pass the returned value to \code{\link[=clocks_coverage]{clocks_coverage()}} or
+\code{\link[=samples_coverage]{samples_coverage()}} to see the counts, and to \code{\link[=score_gaps]{score_gaps()}} to see why
+each \code{NA} is missing.
 
 \code{calc_clocks()} narrows \code{pheno} before it stores it. The returned value
 keeps the id column and the covariates that the clocks need, and drops the

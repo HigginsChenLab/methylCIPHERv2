@@ -13,8 +13,10 @@
 #' @param pheno A data.frame. The sample metadata, with one row for each
 #'   sample. Default is `NULL`.
 #' @param normalize A named logical vector. Turns background normalization on
-#'   for the clocks that support it. Default is `NULL`, which leaves the
-#'   optional schemes off.
+#'   or off for the clocks that support it. Default is `NULL`, which leaves
+#'   each clock at its own default: on for `quantile`, off for `bmiq`. A
+#'   single unnamed `TRUE` or `FALSE` applies to every clock that supports a
+#'   scheme.
 #' @param ext_data A string. The path to the directory that holds the clock
 #'   assets. Default is `NULL`, which uses the assets directory.
 #' @param ask A boolean. Asks for confirmation before the assets directory

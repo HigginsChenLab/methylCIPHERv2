@@ -202,8 +202,8 @@ dedup_panels <- function(panels) {
 resolve_normalize <- function(normalize, clock_sequence) {
   schemes <- vapply(clock_sequence, clock_norm_scheme, character(1))
   names(schemes) <- clock_sequence
-  # constitutive normalization is on by default, everything else is opt-in
-  out <- stats::setNames(schemes %in% NORM_CONSTITUTIVE, clock_sequence)
+  # quantile is on by default, bmiq is opt-in. both can be declined.
+  out <- stats::setNames(schemes %in% NORM_DEFAULT_ON, clock_sequence)
 
   if (!is.null(normalize) && length(normalize)) {
     checkmate::assert_logical(normalize, any.missing = FALSE)
@@ -221,10 +221,8 @@ resolve_normalize <- function(normalize, clock_sequence) {
           call = NULL
         )
       }
-      # bare policy applies where the clock can honor it
-      out[clock_sequence[
-        schemes %in% setdiff(NORM_SCHEMES, NORM_CONSTITUTIVE)
-      ]] <- normalize
+      # bare policy applies to every clock that declares a scheme we can express
+      out[clock_sequence[schemes %in% NORM_SCHEMES]] <- normalize
     } else {
       unknown <- setdiff(nm, clock_sequence)
       if (length(unknown)) {
@@ -247,20 +245,6 @@ resolve_normalize <- function(normalize, clock_sequence) {
             "i" = "{cli::qty(declared)}The declared scheme{?s} {?is/are}
                    {.val {declared}}. Only {.val {NORM_SCHEMES}} are
                    expressible as a declared panel plus a vendored target."
-          ),
-          call = NULL
-        )
-      }
-      fixed <- nm[!normalize & schemes[nm] %in% NORM_CONSTITUTIVE]
-      if (length(fixed)) {
-        declared <- unique(unname(schemes[fixed]))
-        cli::cli_abort(
-          c(
-            "Cannot decline normalization for
-             {.val {capped_vals(fixed)}}.",
-            "i" = "{cli::qty(fixed)}{?Its/Their} {.val {declared}}
-                   normalization is part of the clock definition, not
-                   preprocessing."
           ),
           call = NULL
         )
