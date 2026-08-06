@@ -328,12 +328,27 @@ only and never reaches `DESCRIPTION`.
   file and returns the path. This is the read-through instrument for everything the linters
   cannot check.
 
+**Run the linters in a session that has not called `devtools::document()`.** Measured 2026-08-06:
+`lint_roxygen(".")` returns 0 rows after `load_all()` and **16 rows in the same session after
+`document()`**, with no file changed in between and the same working directory. Every one of the 16
+is a false positive, and they are exactly the topics whose `DOC_TYPES` fragment contains backticks
+(``An `mc_result` object.``, ``An `mc_citation` object.``, and so on), so `document()` leaves
+roxygen2 in a state where the linter reads that text as rendered Rd rather than as source markdown.
+The underlying bug in `lint_roxygen()` is unfixed. Until it is, use two sessions:
+
 ```r
+# session 1: regenerate
 devtools::document()
+
+# session 2: check
+devtools::load_all(".")
 lint_roxygen(".")            # must be empty
 lint_seealso(".")            # must be empty
 file.edit(dump_roxygen(".")) # then read it as a document
 ```
+
+`lint_seealso()` is unaffected, because it reads `man/` rather than the parsed sources. It still has
+to run **after** `document()`, since its targets only exist once the `.Rd` files are written.
 
 ---
 
