@@ -600,7 +600,7 @@ output**, not implementation detail (see "Test altitude").
   - `KNOWN_PARITY_GAPS` (clock- or `clock@cohort`-keyed) holds only genuine skips -- **two** today,
     both `DNAmSex_Wang_*@cohort_450K`, whose deposited matrix carries no sex-chromosome probes, so
     the panel is 0% present and the fixture is the oracle's empty-panel `0`. **Do not relax the
-    `present == 0` clause in `clock_gate_verdict()` to make them pass**: a 0 there is the `Female`
+    zero-observed-CpG clause to make them pass**: a 0 there is the `Female`
     quadrant of the sign map, not a small number. The clause used to abort and now scores `NA`
     (DECISIONS 2026-08-06), which changes what a relaxation would produce and not why it is wrong --
     parity runs both floors at 0, so `ratio < threshold` cannot catch this and the clause is the

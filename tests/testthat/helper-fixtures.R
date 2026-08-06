@@ -17,6 +17,9 @@ mc_ages <- function(n) seq(45, 70, length.out = n)
 
 mc_fake_cpgs <- function(n) sprintf("cg%08d", seq_len(n))
 
+# the leading `frac` of a panel, which is what a coverage ratio is measured on
+thin_panel <- function(cpgs, frac) cpgs[seq_len(round(frac * length(cpgs)))]
+
 # DNAmGrip_wAge: sex-routed alias. matrix is the union of its members' panels.
 grip_fixture <- function(female = c(1, 1, 0, 0), age = NULL) {
   n <- length(female)

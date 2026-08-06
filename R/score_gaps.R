@@ -1,73 +1,59 @@
 # why a score is NA. every reason is derived from the finished record, so
 # nothing about a gap is stored and nothing can drift from the gate that made it.
 
-# tested in this order. the first that fires is the cell's reason.
-GAP_REASONS <- c(
-  "covariate",
-  "clock_coverage",
-  "sample_coverage",
-  "fit",
-  "dependency"
-)
-
-# empty score_gaps() frame. seeds rbind and matches the batch-column test.
-empty_gap_rows <- function(keep_batch) {
-  out <- data.frame(
-    id = character(0),
-    clock_id = character(0),
-    reason = character(0),
-    stringsAsFactors = FALSE
+# an all-NA character matrix on another matrix's axes. one row per sample,
+# one column per clock, so shape_scores() melts it like any score matrix.
+reason_matrix <- function(m) {
+  matrix(
+    NA_character_,
+    nrow = nrow(m),
+    ncol = ncol(m),
+    dimnames = dimnames(m)
   )
-  if (keep_batch) {
-    out[[MC_BATCH]] <- character(0)
-  }
-  out
 }
 
 # one batch's coverage in the shape row_gate() reads (id-keyed, rows subset)
 batch_gate_input <- function(x, per_clock, rows) {
   ids <- covered_ids(per_clock)
-  pull <- function(panel) {
-    m <- x[["coverage"]][["sample_miss"]][[panel]]
-    out <- lapply(ids, function(id) {
-      if (id %in% colnames(m)) m[rows, id] else NULL
-    })
-    stats::setNames(out, ids)
+  # one row subset per panel, not one per clock
+  pull <- function(panel, want) {
+    m <- x[["coverage"]][["sample_miss"]][[panel]][rows, , drop = FALSE]
+    stats::setNames(
+      lapply(ids, function(id) if (want(id)) m[, id] else NULL),
+      ids
+    )
   }
   list(
     per_clock = per_clock,
-    sample_miss = list(score = pull("score"), norm = pull("norm"))
+    sample_miss = list(
+      score = pull("score", function(id) TRUE),
+      # normalizes is the declared panel fact, never the matrix's columns
+      norm = pull("norm", function(id) per_clock[[id]][["normalizes"]])
+    )
   )
 }
 
 # reason -> clock id -> logical over this batch's samples. every clock the run
-# computed, not just the ones it returned.
-gap_masks <- function(x, per_clock, gate, floor, rows, ids) {
-  pheno <- x[["pheno"]]
+# computed, not just the ones it returned. the list order is the precedence.
+gap_masks <- function(x, gated, gate, rows, ids) {
   sample_id <- x[["provenance"]][["sample_id"]][rows]
   failures <- x[["provenance"]][["scoring_failures"]]
-  none <- rep(FALSE, length(sample_id))
+  none <- rep(FALSE, length(rows))
+  # one sweep per covariate column, not one per clock that reads it
+  na_cov <- lapply(x[["pheno"]][rows, , drop = FALSE], is.na)
 
   test <- list(
     covariate = function(id) {
-      need <- intersect(clock_covariates_required(id), names(pheno))
-      Reduce(`|`, lapply(need, function(v) is.na(pheno[[v]][rows])), none)
+      need <- intersect(clock_covariates_required(id), names(na_cov))
+      Reduce(`|`, na_cov[need], none)
     },
-    clock_coverage = function(id) {
-      rec <- per_clock[[id]]
-      if (is.null(rec)) {
-        return(none)
-      }
-      hit <- clock_gate_verdict(
-        rec[["score_present"]],
-        rec[["score_needed"]],
-        floor
-      ) ==
-        "na"
-      if (hit) !none else none
-    },
+    # the column gate already graded every clock. this reads its verdict.
+    clock_coverage = function(id) if (id %in% gated) !none else none,
     sample_coverage = function(id) gate[[id]][["na"]] %||% none,
-    fit = function(id) sample_id %in% failures[[id]]
+    fit = function(id) {
+      lost <- failures[[id]]
+      if (is.null(lost)) none else sample_id %in% lost
+    }
   )
 
   lapply(test, function(f) stats::setNames(lapply(ids, f), ids))
@@ -75,17 +61,17 @@ gap_masks <- function(x, per_clock, gate, floor, rows, ids) {
 
 # walk every computed clock in dependency order, carrying two things per clock:
 # where it is NA, and why. a returned clock reads its own column for the first.
-gap_walk <- function(x, scores, masks, seq_ids, rows) {
+gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
   routed <- sex_routed_members()
-  sex <- sex_rows(x[["pheno"]][["Female"]][rows], sum(rows))
-  none <- rep(FALSE, sum(rows))
-  returned <- colnames(scores)
+  sex <- sex_rows(x[["pheno"]][["Female"]][rows], length(rows))
+  none <- rep(FALSE, length(rows))
+  returned <- colnames(na_mat)
   na <- list()
   why <- list()
 
   for (id in seq_ids) {
     if (id %in% returned) {
-      gone <- is.na(scores[rows, id])
+      gone <- na_mat[, id]
     } else {
       own <- Reduce(`|`, lapply(masks, function(m) m[[id]] %||% none), none)
       gone <- Reduce(
@@ -102,7 +88,7 @@ gap_walk <- function(x, scores, masks, seq_ids, rows) {
     }
 
     r <- rep(NA_character_, length(gone))
-    for (nm in setdiff(GAP_REASONS, "dependency")) {
+    for (nm in names(masks)) {
       r[is.na(r) & gone & (masks[[nm]][[id]] %||% none)] <- nm
     }
     for (d in clock_depends_on(id)) {
@@ -117,74 +103,60 @@ gap_walk <- function(x, scores, masks, seq_ids, rows) {
   why
 }
 
-# one batch's rows, one per NA cell
-batch_gaps <- function(x, b, rows, seq_ids, batch) {
+# one batch's reasons, as a character matrix over the returned clocks
+batch_gaps <- function(x, b, rows, seq_ids) {
   per_clock <- x[["coverage"]][["per_clock"]][[b]]
   prov <- x[["provenance"]]
   clock_floor <- prov[["min_clocks_coverage"]][[b]]
 
   # the column gate first: at score time it decided which clocks the row gate
   # was even asked about, and skipping them here keeps the two the same shape.
-  gated <- names(per_clock)[vapply(
-    names(per_clock),
+  gated <- Filter(
     function(id) {
       rec <- per_clock[[id]]
-      !is.null(rec) &&
-        clock_gate_verdict(
-          rec[["score_present"]],
-          rec[["score_needed"]],
-          clock_floor
-        ) ==
-          "na"
+      if (is.null(rec)) {
+        return(FALSE)
+      }
+      verdict <- clock_gate_verdict(
+        rec[["score_present"]],
+        rec[["score_needed"]],
+        clock_floor
+      )
+      verdict %in% GATE_NA
     },
-    logical(1L)
-  )]
+    names(per_clock)
+  )
   gate <- row_gate(
     batch_gate_input(x, per_clock, rows),
     prov[["min_samples_coverage"]][[b]],
     skip = gated
   )
 
-  scores <- x[["scores"]]
-  masks <- gap_masks(x, per_clock, gate, clock_floor, rows, seq_ids)
-  why <- gap_walk(x, scores, masks, seq_ids, rows)
-  sample_id <- x[["provenance"]][["sample_id"]][rows]
+  # one sweep of the NA pattern, read by the walk and by the check below
+  na_mat <- is.na(x[["scores"]][rows, , drop = FALSE])
+  masks <- gap_masks(x, gated, gate, rows, seq_ids)
+  why <- gap_walk(x, na_mat, masks, seq_ids, rows)
 
-  parts <- lapply(colnames(scores), function(id) {
-    na_col <- is.na(scores[rows, id])
-    if (!any(na_col)) {
-      return(NULL)
-    }
-    reason <- why[[id]]
-    blind <- na_col & is.na(reason)
-    if (any(blind)) {
-      stop(
-        sprintf(
-          paste0(
-            "score_gaps(): no reason for %d NA scores of %s ",
-            "(batch %s). This is a package bug -- please report it."
-          ),
-          sum(blind),
-          id,
-          b
+  out <- reason_matrix(na_mat)
+  for (id in colnames(out)) {
+    out[, id] <- why[[id]]
+  }
+  blind <- na_mat & is.na(out)
+  if (any(blind)) {
+    stop(
+      sprintf(
+        paste0(
+          "score_gaps(): no reason for %d NA score(s) of %s ",
+          "(batch %s). This is a package bug -- please report it."
         ),
-        call. = FALSE
-      )
-    }
-    keep <- !is.na(reason)
-    out <- data.frame(
-      id = sample_id[keep],
-      clock_id = id,
-      reason = reason[keep],
-      stringsAsFactors = FALSE,
-      row.names = NULL
+        sum(blind),
+        paste(colnames(blind)[apply(blind, 2L, any)], collapse = ", "),
+        b
+      ),
+      call. = FALSE
     )
-    if (!is.null(batch)) {
-      out[[MC_BATCH]] <- batch
-    }
-    out
-  })
-  do.call(rbind, parts)
+  }
+  out
 }
 
 # one row per NA score
@@ -241,13 +213,22 @@ score_gaps <- function(x) {
   # a finalizer: a cross-sample column is all NA until its reduction runs
   x <- finalized(x)
   batch <- x[["provenance"]][[MC_BATCH]]
-  keep <- n_batches(x) > 1L
-  seq_ids <- resolve_clocks_sequence(x[["provenance"]][["requested"]])
+  scores <- x[["scores"]]
 
-  parts <- lapply(names(x[["coverage"]][["per_clock"]]), function(b) {
-    batch_gaps(x, b, batch == b, seq_ids, if (keep) b else NULL)
-  })
-  out <- do.call(rbind, c(list(empty_gap_rows(keep)), parts))
+  reasons <- reason_matrix(scores)
+  # nothing to explain: the walk never runs over a record with every score
+  if (anyNA(scores)) {
+    seq_ids <- resolve_clocks_sequence(x[["provenance"]][["requested"]])
+    # positions, so a batch subsets its own rows and not the whole record
+    idx <- split(seq_along(batch), batch)
+    for (b in names(x[["coverage"]][["per_clock"]])) {
+      rows <- idx[[b]]
+      reasons[rows, ] <- batch_gaps(x, b, rows, seq_ids)
+    }
+  }
+
+  out <- shape_scores(reasons, "id", "reason", batch, long = TRUE)
+  out <- out[!is.na(out[["reason"]]), , drop = FALSE]
   rownames(out) <- NULL
-  drop_single_batch(out, batch)
+  out
 }

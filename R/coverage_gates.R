@@ -10,17 +10,27 @@ gate_label <- function(id, routed = sex_routed_members()) {
   )
 }
 
+# the band just above a floor, where a clock still scores but only barely.
+# both gates read it, so the two tiers cannot drift apart.
+warn_band <- function(threshold) min(1, threshold * 1.1)
+
+# verdicts that blank a column. "dead" is the floor-independent one.
+GATE_NA <- c("na", "dead")
+
 # the column gate's verdict on one clock's counts. shared with score_gaps(),
 # so the gate and the reason a cell is given for it cannot drift.
 clock_gate_verdict <- function(present, needed, threshold) {
   if (needed == 0L) {
     return("")
   }
-  ratio <- present / needed
   # no observed CpG is unscoreable at any floor, whatever the fill policy
-  if (present == 0L || ratio < threshold) {
+  if (present == 0L) {
+    return("dead")
+  }
+  ratio <- present / needed
+  if (ratio < threshold) {
     "na"
-  } else if (ratio < min(1, threshold * 1.1)) {
+  } else if (ratio < warn_band(threshold)) {
     # within 10% of the floor: warn, before the gate itself trips
     "warn"
   } else {
@@ -78,16 +88,12 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   }
 
   graded <- vapply(per_clock, classify, character(1L))
-  ids_for <- function(lvl) names(graded)[graded == lvl]
+  ids_for <- function(lvl) names(graded)[graded %in% lvl]
 
-  fail <- ids_for("na")
+  fail <- ids_for(GATE_NA)
   if (length(fail)) {
     # a clock with no observed CpG is NA at every floor, so the advice splits
-    observed <- vapply(
-      fail,
-      function(id) length(per_clock[[id]][["score_present"]]) > 0L,
-      logical(1L)
-    )
+    observed <- graded[fail] == "na"
     cli::cli_warn(
       c(
         "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
@@ -194,7 +200,7 @@ row_gate_one <- function(cov_rec, score_miss, norm_miss, threshold) {
     cov_rec[["score_present"]] - score_miss == 0L
   dead <- seen & dead
   na <- dead | (seen & cov < threshold)
-  near <- seen & !na & cov < min(1, threshold * 1.1)
+  near <- seen & !na & cov < warn_band(threshold)
   if (!any(na) && !any(near)) {
     return(NULL)
   }
@@ -231,10 +237,14 @@ row_gate <- function(coverage, threshold = 0.75, skip = character(0)) {
 check_row_coverage <- function(gate, threshold = 0.75) {
   routed <- sex_routed_members()
 
-  # counts per clock first, strings only for the ids that survive the cap
-  tier <- function(field) {
-    hit <- Filter(function(s) any(s[[field]]), gate)
-    lines <- function(these) {
+  # the clocks with at least one sample in a tier, keyed by id
+  tier <- function(field) Filter(function(s) any(s[[field]]), gate)
+
+  # one line per clock, strings only for the ids that survive the cap. a near
+  # sample is never dead (row_gate_one() takes na out first), so the near tier
+  # reaches only the thin half of this.
+  lines_for <- function(hit, field) {
+    function(these) {
       vapply(
         these,
         function(id) {
@@ -266,21 +276,19 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         character(1L)
       )
     }
-    list(ids = names(hit), lines = lines)
   }
 
   blank <- tier("na")
-  if (length(blank[["ids"]])) {
-    hit <- gate[blank[["ids"]]]
-    any_of <- function(f) any(vapply(hit, f, logical(1L)))
+  if (length(blank)) {
+    any_of <- function(f) any(vapply(blank, f, logical(1L)))
     cli::cli_warn(
       c(
         "Some samples have too few CpGs in {.arg DNAm} for
-         {length(blank$ids)} clock{?s} ({.arg min_samples_coverage} =
+         {length(blank)} clock{?s} ({.arg min_samples_coverage} =
          {format(threshold)}):",
-        capped_bullets(blank[["ids"]], blank[["lines"]]),
+        capped_bullets(names(blank), lines_for(blank, "na")),
         "i" = "Those samples score {.code NA} for
-               {cli::qty(blank$ids)}{?that clock/those clocks}.",
+               {cli::qty(length(blank))}{?that clock/those clocks}.",
         if (any_of(function(s) any(s[["na"]] & !s[["dead"]]))) {
           c("i" = "Lower {.arg min_samples_coverage} to score more samples.")
         },
@@ -296,12 +304,12 @@ check_row_coverage <- function(gate, threshold = 0.75) {
   }
 
   marginal <- tier("near")
-  if (length(marginal[["ids"]])) {
+  if (length(marginal)) {
     cli::cli_warn(
       c(
         "Some samples are just above {.arg min_samples_coverage} =
-         {format(threshold)} for {length(marginal$ids)} clock{?s}:",
-        capped_bullets(marginal[["ids"]], marginal[["lines"]]),
+         {format(threshold)} for {length(marginal)} clock{?s}:",
+        capped_bullets(names(marginal), lines_for(marginal, "near")),
         "i" = "Call {.fn samples_coverage} to see the coverage of every
                sample."
       ),

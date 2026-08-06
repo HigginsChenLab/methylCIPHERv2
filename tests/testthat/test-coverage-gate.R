@@ -11,9 +11,6 @@ foreign_panel <- function(ids) {
   out
 }
 
-# the leading `frac` of a panel, which is what a coverage ratio is measured on
-thin_panel <- function(cpgs, frac) cpgs[seq_len(round(frac * length(cpgs)))]
-
 test_that("under-covered clocks score NA instead of stopping", {
   cpgs <- clock_scoring_cpgs("Hannum")
   keep <- thin_panel(cpgs, 0.5)
