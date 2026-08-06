@@ -32,63 +32,23 @@ physage_raws <- function(id, cpgs, block, results) {
   )
 }
 
-# cohort z-score, stopping on scale()'s degeneracies (n < 2 or a flat column)
-zscore_raws <- function(id, raws) {
-  n <- nrow(raws)
-  if (n < 2L) {
-    stop(
-      sprintf(
-        paste0(
-          "%s needs at least 2 samples (cohort z-score), got %d. ",
-          "Score it with a larger DNAm matrix."
-        ),
-        id,
-        n
-      ),
-      call. = FALSE
-    )
-  }
-
+# cohort z-score. scale() ignores NA, so a masked sample leaves the moments
+# alone. a surrogate constant across the cohort has no z-score at all, which
+# covers a single sample and a surrogate that observed none of its CpGs.
+zscore_raws <- function(raws) {
   z <- scale(raws)
   # the divisor scale() actually used.
   sds <- attr(z, "scaled:scale")
-  flat <- colnames(raws)[!is.finite(sds) | sds == 0]
-  if (!length(flat)) {
-    return(z)
+  flat <- !is.finite(sds) | sds == 0
+  if (any(flat)) {
+    z[, flat] <- NA_real_
   }
-
-  # declared panel size per surrogate
-  surrogates <- physage_surrogates(id)
-  needed <- stats::setNames(
-    vapply(surrogates, function(s) length(s[["coef"]]), integer(1L)),
-    vapply(surrogates, function(s) s[["name"]], character(1L))
-  )
-  detail <- paste(
-    vapply(
-      flat,
-      function(nm) sprintf("%s: %d declared CpG(s)", nm, needed[[nm]]),
-      character(1L)
-    ),
-    collapse = "; "
-  )
-  stop(
-    sprintf(
-      paste0(
-        "Cannot score %s: %d surrogate(s) constant across the cohort, ",
-        "so z-score is undefined (%s). A surrogate goes constant when none ",
-        "of its CpGs were observed. clocks_coverage() reports panel counts."
-      ),
-      id,
-      length(flat),
-      detail
-    ),
-    call. = FALSE
-  )
+  z
 }
 
 # cohort reduction (years branch reduces twice before the poly)
 finalize_PhysAge <- function(id, raws) {
-  phys <- rowSums(zscore_raws(id, raws))
+  phys <- rowSums(zscore_raws(raws))
 
   poly <- physage_poly_coef(id)
   score_vec <- if (is.null(poly)) {

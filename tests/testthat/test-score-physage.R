@@ -27,7 +27,7 @@ test_that("absent surrogate CpGs vendor-fill by offset under mean reduction", {
 })
 
 # the cross-sample (`pending`) route: reduces over the cohort, so n = 1 refuses
-test_that("PhysAge composites run and need >= 2 samples", {
+test_that("PhysAge composites run, and one sample has no cohort z-score", {
   skip_on_cran()
   DNAm <- random_betas(clock_scoring_cpgs("DNAmPhysAge"), n = 6L)
   cols <- c("DNAmPhysAge", "DNAmPhysAge_years")
@@ -35,18 +35,30 @@ test_that("PhysAge composites run and need >= 2 samples", {
 
   expect_true(all(is.finite(res$scores[, cols])))
 
+  # a z-score needs a cohort. one sample yields NA, and says why.
   one <- random_betas(clock_scoring_cpgs("DNAmPhysAge"), n = 1L)
-  expect_error(calc_clocks(one, "DNAmPhysAge"))
+  res1 <- calc_clocks(one, "DNAmPhysAge")
+  expect_true(is.na(res1$scores[, "DNAmPhysAge"]))
+  expect_equal(
+    res1$provenance$scoring_failures$DNAmPhysAge,
+    rownames(one)
+  )
 })
 
-test_that("a surrogate that goes constant stops instead of NaN-ing the cohort", {
+test_that("a surrogate that goes constant NAs the clock, not the cohort", {
   skip_on_cran()
-  # blank a small surrogate: scale() NaN must stop, not spread via rowSums.
+  # blank a small surrogate: scale() NaN must not spread through rowSums.
   surr <- physage_surrogates("DNAmPhysAge")
   coefs <- lapply(surr, `[[`, "coef")
   flat <- names(coefs[[which.min(lengths(coefs))]])
 
   panel <- setdiff(clock_scoring_cpgs("DNAmPhysAge"), flat)
   DNAm <- random_betas(panel, n = 6L)
-  expect_error(suppressWarnings(calc_clocks(DNAm, "DNAmPhysAge")))
+  res <- suppressWarnings(calc_clocks(DNAm, "DNAmPhysAge"))
+
+  expect_true(all(is.na(res$scores[, "DNAmPhysAge"])))
+  expect_equal(
+    res$provenance$scoring_failures$DNAmPhysAge,
+    rownames(DNAm)
+  )
 })

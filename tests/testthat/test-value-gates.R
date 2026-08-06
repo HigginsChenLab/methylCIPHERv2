@@ -84,14 +84,16 @@ test_that("a column that overflows its own sum stops, and names the column", {
   expect_true(grepl(b$panel[4], conditionMessage(err), fixed = TRUE))
 })
 
-test_that("a sample with nothing on the scoring panel stops, off-panel or not", {
+test_that("a sample with nothing on the scoring panel is NA, off-panel or not", {
   b <- gate_betas()
   extra <- paste0("cg_offpanel_", seq_len(20L))
   DNAm <- cbind(b$DNAm, random_betas(extra, n = nrow(b$DNAm)))
 
   # every panel CpG is partial-NA cohort-wide. fill cannot rescue this row.
   DNAm[1, b$panel] <- NA
-  expect_error(calc_clocks(DNAm, "Hannum"))
+  res <- suppressWarnings(calc_clocks(DNAm, "Hannum"))
+  expect_true(is.na(res$scores[1, "Hannum"]))
+  expect_true(all(!is.na(res$scores[-1, "Hannum"])))
 })
 
 test_that("the moments span columns the column stats and gates never see", {
@@ -146,7 +148,7 @@ test_that("an all-NA or wholly infinite column classifies rather than erroring",
   # a wholly infinite column lands in the same bucket
   inf_col <- b$DNAm
   inf_col[, b$panel[2]] <- Inf
-  mna <- suppressWarnings(scan_missing_cpgs(inf_col, b$panel, b$panel))
+  mna <- suppressWarnings(scan_missing_cpgs(inf_col, b$panel))
   expect_true(b$panel[2] %in% mna$all_na_cols)
   expect_false(b$panel[2] %in% mna$usable_cols)
   expect_false(b$panel[2] %in% names(mna$col_mean))
@@ -161,16 +163,17 @@ test_that("a dead row is judged on the scoring panel, not the norm one", {
   expect_true(length(norm_only) > 0L)
 
   DNAm <- random_betas(panels_union(spec$panels), n = 4L)
+  # a full normalization background does not make a sample scoreable, and it
+  # keeps the gate ratio well above the floor, so only the zero rule sees this
+  DNAm[1, score] <- NA
 
-  # a full normalization background does not make a sample scoreable
-  dead <- DNAm
-  dead[1, score] <- NA
-  expect_error(mc_cohort(dead, spec))
-
-  # the converse is not fatal -- a thin background only warns
-  thin <- DNAm
-  thin[1, norm_only] <- NA
-  expect_no_error(mc_cohort(thin, spec))
+  facts <- mc_cohort(DNAm, spec)
+  block <- mc_block(DNAm, spec, facts)
+  gate <- row_gate(compute_coverage(spec$sequence, facts$cpg_list, block))
+  expect_equal(
+    unname(gate$DunedinPACE$na),
+    c(TRUE, FALSE, FALSE, FALSE)
+  )
 })
 
 test_that("the kernel counts Inf as missing, not as observed", {
@@ -349,7 +352,6 @@ test_that("scan_missing_cpgs banks one moment entry per declared domain", {
   mna <- suppressWarnings(scan_missing_cpgs(
     DNAm,
     sel,
-    sel,
     moment_domains = list(full = NULL, ref = ref)
   ))
   expect_equal(names(mna$sample_moments), c("full", "ref"))
@@ -370,9 +372,9 @@ test_that("scan_missing_cpgs banks one moment entry per declared domain", {
   )
 
   # no declared domain banks no moments at all
-  expect_null(scan_missing_cpgs(b$DNAm, sel, sel)$sample_moments)
+  expect_null(scan_missing_cpgs(b$DNAm, sel)$sample_moments)
   expect_null(
-    scan_missing_cpgs(b$DNAm, sel, sel, moment_domains = list())$sample_moments
+    scan_missing_cpgs(b$DNAm, sel, moment_domains = list())$sample_moments
   )
 })
 
@@ -388,7 +390,6 @@ test_that("a domain too thin to describe a sample reports NA, not zero spread", 
 
   mna <- scan_missing_cpgs(
     DNAm,
-    score,
     score,
     moment_domains = list(thin = thin, one = thin[1], none = character(0))
   )

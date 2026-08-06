@@ -319,14 +319,20 @@ refinalize_clocks <- function(x) {
   }
 
   done <- finalize_cross_sample(list(), pending)
-  ids <- intersect(names(done), colnames(x[["scores"]]))
+  x[["provenance"]][["scoring_failures"]] <- merge_notes(
+    x[["provenance"]][["scoring_failures"]],
+    done[["notes"]]
+  )
+  ids <- intersect(names(done[["scores"]]), colnames(x[["scores"]]))
   for (id in ids) {
-    col <- done[[id]]
-    # match by name, not row order
+    col <- done[["scores"]][[id]]
+    # match by name, not row order. a batch that gated this clock contributed
+    # no intermediates, so its rows have none to reduce and stay NA.
     rows <- id_index(
       rownames(x[["scores"]]),
       rownames(col),
-      "refinalize_clocks"
+      "refinalize_clocks",
+      unmatched = "na"
     )
     x[["scores"]][, id] <- col[rows, 1L]
   }

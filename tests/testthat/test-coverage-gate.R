@@ -1,4 +1,4 @@
-# upfront coverage gate: unscorable clock stops before any scoring
+# coverage gates: neither floor aborts. both decide what does not get a number.
 
 # a panel sharing no CpG with `ids`.
 foreign_panel <- function(ids) {
@@ -14,19 +14,22 @@ foreign_panel <- function(ids) {
 # the leading `frac` of a panel, which is what a coverage ratio is measured on
 thin_panel <- function(cpgs, frac) cpgs[seq_len(round(frac * length(cpgs)))]
 
-test_that("under-covered clocks stop instead of scoring", {
+test_that("under-covered clocks score NA instead of stopping", {
   cpgs <- clock_scoring_cpgs("Hannum")
   keep <- thin_panel(cpgs, 0.5)
-  expect_error(calc_clocks(random_betas(keep, n = 4L), "Hannum"))
+  expect_warning(res <- calc_clocks(random_betas(keep, n = 4L), "Hannum"))
+  expect_true(all(is.na(res$scores[, "Hannum"])))
 
-  # a failing clock stops the whole call, not just its own column
+  # a failing clock takes its own column, not the whole call
   bad <- thin_panel(clock_scoring_cpgs("PedBE"), 0.3)
-  expect_error(calc_clocks(
-    random_betas(c(cpgs, bad), n = 4L),
-    c("Hannum", "PedBE")
-  ))
+  expect_warning(
+    res <- calc_clocks(random_betas(c(cpgs, bad), n = 4L), c("Hannum", "PedBE"))
+  )
+  expect_true(all(is.finite(res$scores[, "Hannum"])))
+  expect_true(all(is.na(res$scores[, "PedBE"])))
 
-  # columns now clear -- every row is still half-imputed, so the row gate warns
+  # the two floors are independent. the column clears at 0.4, and every row is
+  # still half-imputed, so the row gate blanks the same column on its own.
   expect_warning(
     res <- calc_clocks(
       random_betas(keep, n = 4L),
@@ -34,31 +37,21 @@ test_that("under-covered clocks stop instead of scoring", {
       min_clocks_coverage = 0.4
     )
   )
-  expect_true(all(is.finite(res$scores[, "Hannum"])))
+  expect_true(all(is.na(res$scores[, "Hannum"])))
 })
 
-test_that("zero observed CpGs stops even at min_clocks_coverage = 0", {
-  # omit policy: fully absent panel is unscoreable at any threshold
-  DNAm <- random_betas(foreign_panel("Hannum"), n = 4L)
-  expect_error(calc_clocks(DNAm, "Hannum", min_clocks_coverage = 0))
-})
-
-test_that("min_clocks_coverage = 0 really is off for a vendor-filled clock", {
-  # vendor_mean: threshold 0 means no gate (parity runs there)
-  DNAm <- random_betas(foreign_panel("DNAmCRP"), n = 4L)
-
-  res <- suppressWarnings(calc_clocks(
-    DNAm,
-    "DNAmCRP",
-    min_clocks_coverage = 0,
-    min_samples_coverage = 0
-  ))
-  expect_true(all(is.finite(res$scores[, "DNAmCRP"])))
-  # every CpG came from the vendored ref, so every sample gets the same score
-  expect_equal(length(unique(res$scores[, "DNAmCRP"])), 1L)
-
-  # the gate is still a gate one notch up
-  expect_error(calc_clocks(DNAm, "DNAmCRP", min_clocks_coverage = 0.01))
+test_that("zero observed CpGs is NA even at min_clocks_coverage = 0", {
+  # the floor cannot express this: 0 < 0 is FALSE at every policy
+  for (id in c("Hannum", "DNAmCRP")) {
+    DNAm <- random_betas(foreign_panel(id), n = 4L)
+    res <- suppressWarnings(calc_clocks(
+      DNAm,
+      id,
+      min_clocks_coverage = 0,
+      min_samples_coverage = 0
+    ))
+    expect_true(all(is.na(res$scores[, id])))
+  }
 })
 
 test_that("the gate names a clock the caller is allowed to request", {
@@ -76,7 +69,7 @@ test_that("the gate names a clock the caller is allowed to request", {
   )
   msg <- conditionMessage(tryCatch(
     calc_clocks(DNAm, alias, pheno = pheno),
-    error = function(e) e
+    warning = function(w) w
   ))
   # it must be the coverage gate talking, not a missing-pheno abort
   expect_true(grepl("min_clocks_coverage", msg, fixed = TRUE))
@@ -86,43 +79,64 @@ test_that("the gate names a clock the caller is allowed to request", {
   }
 })
 
-test_that("a sparse normalization panel warns but still scores (does not stop)", {
+test_that("a sparse normalization panel warns but still scores", {
   skip_if_not_installed("betanorm")
   gold <- names(clock_norm_target("DunedinPACE"))
   model <- clock_scoring_cpgs("DunedinPACE")
 
   keep <- union(model, thin_panel(gold, 0.5))
-  # two distinct warnings: thin background (column) and per-sample imputation (row)
+  # two distinct warnings: thin background (column) and the row gate below it
   expect_warning(
     expect_warning(
       res <- calc_clocks(random_betas(keep, n = 4L), "DunedinPACE")
     )
   )
+  # the score panel is whole, so the clock itself is not gated out
+  expect_true(all(is.na(res$scores[, "DunedinPACE"])))
+  expect_no_warning(
+    res <- calc_clocks(
+      random_betas(keep, n = 4L),
+      "DunedinPACE",
+      min_clocks_coverage = 0.4,
+      min_samples_coverage = 0.4
+    )
+  )
   expect_true(all(is.finite(res$scores[, "DunedinPACE"])))
 })
 
-test_that("the warn band sits above min_clocks_coverage and is silent at full coverage", {
+test_that("a warn band sits above each floor, and both are silent at full", {
   cpgs <- clock_scoring_cpgs("Hannum")
   keep <- thin_panel(cpgs, 0.78)
   DNAm <- random_betas(keep, n = 4L)
 
-  # clearing the default floor by under 10% warns instead of stopping
-  expect_warning(res <- calc_clocks(DNAm, "Hannum"))
+  # clearing a floor by under 10% warns instead of blanking. one band each,
+  # so pin the other floor out of the way to read them apart.
+  expect_warning(
+    res <- calc_clocks(DNAm, "Hannum", min_samples_coverage = 0)
+  )
+  expect_true(all(is.finite(res$scores[, "Hannum"])))
+  expect_warning(res <- calc_clocks(DNAm, "Hannum", min_clocks_coverage = 0))
   expect_true(all(is.finite(res$scores[, "Hannum"])))
 
-  # the band moves with the floor, and never fires on a full panel
-  expect_silent(calc_clocks(DNAm, "Hannum", min_clocks_coverage = 0.5))
+  # the bands move with their floors, and neither fires on a full panel
+  expect_silent(calc_clocks(
+    DNAm,
+    "Hannum",
+    min_clocks_coverage = 0.5,
+    min_samples_coverage = 0.5
+  ))
   expect_silent(calc_clocks(random_betas(cpgs, n = 4L), "Hannum"))
 })
 
 # row gate reads every branch's coverage record, not just Dunedin
-test_that("an under-covered sample warns on an ordinary linear clock", {
+test_that("an under-covered sample is NA on an ordinary linear clock", {
   cpgs <- clock_scoring_cpgs("Hannum")
   DNAm <- random_betas(cpgs, n = 4L)
   DNAm[1, seq_len(round(0.5 * ncol(DNAm)))] <- NA
 
   expect_warning(res <- calc_clocks(DNAm, "Hannum"))
-  expect_true(all(is.finite(res$scores[, "Hannum"])))
+  expect_true(is.na(res$scores[1, "Hannum"]))
+  expect_true(all(is.finite(res$scores[-1, "Hannum"])))
 
   expect_silent(calc_clocks(DNAm, "Hannum", min_samples_coverage = 0))
 })

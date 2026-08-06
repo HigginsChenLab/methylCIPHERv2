@@ -42,11 +42,11 @@ split_score <- function(spec, DNAm, blocks) {
     facts = facts,
     whole = whole,
     parts = parts,
-    whole_scores = finalize_cross_sample(whole$scores, whole$pending),
+    whole_scores = finalize_cross_sample(whole$scores, whole$pending)$scores,
     chunked_scores = finalize_cross_sample(
       fragments("scores"),
       fragments("pending")
-    )
+    )$scores
   )
 }
 
@@ -244,7 +244,7 @@ test_that("an id join refuses a repeated key and an unmatched one", {
   )
 })
 
-test_that("the clocks gate throws out of mc_cohort, before anything is scored", {
+test_that("the clocks gate decides in mc_cohort, before anything is scored", {
   skip_on_cran()
   spec <- mc_spec("Hannum")
   panel <- spec$needed_union
@@ -252,5 +252,6 @@ test_that("the clocks gate throws out of mc_cohort, before anything is scored", 
   # strip most of the panel -- coverage falls under the default floor
   DNAm <- DNAm[, seq_len(length(panel) %/% 4L), drop = FALSE]
 
-  expect_error(mc_cohort(DNAm, spec, pheno = NULL))
+  expect_warning(facts <- mc_cohort(DNAm, spec, pheno = NULL))
+  expect_equal(facts$na_clocks, "Hannum")
 })
