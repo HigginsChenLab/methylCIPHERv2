@@ -283,16 +283,8 @@ note_scoring_failure <- function(block, id, sample_id) {
   invisible(NULL)
 }
 
-# collector -> plain named list (empty when nothing failed)
-collect_notes <- function(notes) {
-  ids <- sort(names(notes))
-  if (!length(ids)) {
-    return(list())
-  }
-  stats::setNames(lapply(ids, function(id) notes[[id]]), ids)
-}
-
-# union two clock-keyed note lists. the cohort reduction adds its own.
+# union two clock-keyed note lists, name-sorted. also the collector -> list
+# conversion, as merge_notes(list(), as.list(env)).
 merge_notes <- function(a, b) {
   if (!length(b)) {
     return(a)
@@ -376,8 +368,10 @@ mc_block <- function(DNAm, spec, facts) {
   block
 }
 
-# blank the rows the sample gate refused. one matmul scored them all.
-mask_gated_rows <- function(out, low) {
+# blank the rows the sample gate refused. one matmul scored them all, and
+# reading the gate here is what keeps every writer into results/pending honest.
+mask_gated_rows <- function(out, gate, id) {
+  low <- gate[[id]][["na"]]
   if (is.null(low) || !any(low)) {
     return(out)
   }
@@ -421,7 +415,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
   for (gids in split(pack_ids, pgroups)) {
     grp <- score_pack_group(gids, cpg_list[["per_clock"]][[gids[[1]]]], block)
     for (id in names(grp)) {
-      results[[id]] <- mask_gated_rows(grp[[id]], gate[[id]][["na"]])
+      results[[id]] <- mask_gated_rows(grp[[id]], gate, id)
     }
   }
 
@@ -448,7 +442,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
       )
     )
     # masked here, so dependents read the NA and the raws carry it into pending
-    out <- mask_gated_rows(out, gate[[p]][["na"]])
+    out <- mask_gated_rows(out, gate, p)
     # cohort-reducing clocks yield intermediates into pending
     if (p %in% spec[["cross_sample"]]) {
       pending[[p]] <- out
@@ -464,7 +458,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
     gate = gate,
     pending = pending,
     # per-clock sample ids the branch could not score
-    notes = collect_notes(block[["notes"]])
+    notes = merge_notes(list(), as.list(block[["notes"]]))
   )
 }
 

@@ -1,7 +1,5 @@
 # score_gaps(): every NA score gets exactly one reason, derived from the record
 
-thin_panel <- function(cpgs, frac) cpgs[seq_len(round(frac * length(cpgs)))]
-
 test_that("a gap propagates through the clocks calculated from it", {
   sim <- sim_DNAm("DNAmFitAge", n = 4L)
   DNAm <- sim$DNAm

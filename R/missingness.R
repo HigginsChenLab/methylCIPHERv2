@@ -246,9 +246,6 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs, moment_domains = NULL) {
   scan <- col_stats(DNAm, needed_idx, sets)
   check_col_values(scan, present_needed)
 
-  # a sample with no observed CpG is not checked here. the row gate blanks it
-  # per clock, on the panel that clock actually reads.
-
   # past the overflow gate, stats is populated -- and it is the panel's alone
   st <- scan[["stats"]]
   n_obs <- st["n_obs", ]
