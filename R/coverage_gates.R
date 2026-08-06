@@ -10,13 +10,36 @@ gate_label <- function(id, routed = sex_routed_members()) {
   )
 }
 
+# the column gate's verdict on one clock's counts. shared with score_gaps(),
+# so the gate and the reason a cell is given for it cannot drift.
+clock_gate_verdict <- function(present, needed, threshold) {
+  if (needed == 0L) {
+    return("")
+  }
+  ratio <- present / needed
+  # no observed CpG is unscoreable at any floor, whatever the fill policy
+  if (present == 0L || ratio < threshold) {
+    "na"
+  } else if (ratio < min(1, threshold * 1.1)) {
+    # within 10% of the floor: warn, before the gate itself trips
+    "warn"
+  } else {
+    ""
+  }
+}
+
 # column gate: returns the ids that score NA, having warned about them
 check_coverage <- function(cpg_list, threshold = 0.75) {
   # threshold is min_clocks_coverage, already validated at the front door
-  # warn within 10% of the floor, before the gate itself trips
-  warn_below <- min(1, threshold * 1.1)
   routed <- sex_routed_members()
+  # only the clocks that read CpGs. one assembled from other clocks' scores has
+  # no coverage of its own, and inherits NA through them.
   per_clock <- cpg_list[["per_clock"]]
+  per_clock <- per_clock[vapply(
+    names(per_clock),
+    clock_reads_cpgs,
+    logical(1L)
+  )]
 
   # interpolated labels. braces cannot become a cli template.
   panel_line <- function(id, present, needed, label) {
@@ -47,19 +70,11 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   }
 
   classify <- function(x) {
-    if (!length(x[["score_needed"]])) {
-      return("")
-    }
-    present <- length(x[["score_present"]])
-    ratio <- present / length(x[["score_needed"]])
-    # no observed CpG is unscoreable at any floor, whatever the fill policy
-    if (present == 0L || ratio < threshold) {
-      "na"
-    } else if (ratio < warn_below) {
-      "warn"
-    } else {
-      ""
-    }
+    clock_gate_verdict(
+      length(x[["score_present"]]),
+      length(x[["score_needed"]]),
+      threshold
+    )
   }
 
   graded <- vapply(per_clock, classify, character(1L))

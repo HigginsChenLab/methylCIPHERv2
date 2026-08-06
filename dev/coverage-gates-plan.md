@@ -319,17 +319,47 @@ the step, not a style pass.
 
 All eight reachable message shapes were rendered and read, not just inspected in source.
 
-### Step 5. `score_gaps()`
+### Step 5. `score_gaps()`. DONE 2026-08-06
 
-- [ ] Derive R1, R2, R3, R5; read R4 from `scoring_failures`; apply the precedence in D3; assert
-      the unexplained bucket is empty.
-- [ ] Per-batch floors, not the reconciled max. Calls `finalized()`.
-- [ ] Long frame: `id`, `clock_id`, `reason`, plus `mc_batch_id` only when multi-batch, through the
-      shared `drop_single_batch()` / `is_multi_batch()` path.
-- [ ] Write the roxygen block and run `devtools::document()`, so the export exists. **Do not audit
-      the prose here** -- step 9 owns that, including the `@seealso` question, which is a decision
-      about the closed groups and not a per-topic call.
-- [ ] Say in the summary which `export()` entry this implies.
+- [x] `R/score_gaps.R`. R1, R2, R3, R5 derived; R4 read from `scoring_failures`; D3's precedence;
+      the unexplained bucket is a `stop()` inside the function, so a call that returns proves it.
+- [x] Per-batch floors, read from `provenance` by batch label. Calls `finalized()`.
+- [x] Long frame `id`, `clock_id`, `reason`, plus `mc_batch_id` through `drop_single_batch()`.
+- [x] Roxygen written, `devtools::document()` run. **Implies exactly one new line in `NAMESPACE`:
+      `export(score_gaps)`**, plus `man/score_gaps.Rd`. Nothing else moved.
+- [x] `tests/testthat/test-score-gaps.R`, 15 expectations. Suite 825 -> 840.
+
+**The `reason` vocabulary is a returned data value, so it is API**: `covariate`,
+`clock_coverage`, `sample_coverage`, `fit`, `dependency`. The two gate reasons are named for the
+frames the reader calls next (`clocks_coverage()`, `samples_coverage()`) rather than for the
+arguments, because lowering the floor is not always the fix.
+
+**The column gate's span changed, and this is the finding of the step.** `check_coverage()` graded
+every clock in `cpg_list`, which includes three clocks that have a declared panel but **no coverage
+record**: `GrimAgeV1` (1030 CpGs) and the two `DNAmFitAge_{Sex}` members. So a run could NA a clock
+on a panel that `CLAUDE.md` states is not its own coverage ("a clock that reads no betas has no
+coverage of its own"), and `score_gaps()` could not then explain the cell from the record: R2 needs
+a record to read, R5 does not fire when the descendants all scored, and the cell lands in the
+unexplained bucket that D3 says must always be empty. `check_coverage()` now grades only
+`clock_reads_cpgs()`, so **the column gate, the row gate and the coverage record span one set of
+clocks**, which is the harmonization this branch is about. The loss is a clock whose union panel is
+thin while every descendant clears the floor, which cannot happen for a union of panels that each
+cleared it.
+
+**One rule was added that the plan did not anticipate: the frame must be self-contained.** Every
+`dependency` row names a clock the reader can find rows for in the same frame. The 14 sex-routed
+members are the only clocks that break that, since they are never a score column and cannot be
+requested by name, so an alias **inherits its member's reason** instead of being told `dependency`.
+Without it a routed alias reported `dependency` pointing at a clock the user cannot inspect, which
+is a dead end. Derived from `sex_routed_members()` and `sex_rows()`, the two existing sources, and
+it is the only special case in the walk.
+
+**Tooling bug found, and it would have broken step 9.** `devtools::document()` poisons
+`lint_roxygen()` for the rest of the session: 0 rows after `load_all()`, **16 rows after
+`document()`**, same files, same working directory, every one a false positive on a `DOC_TYPES`
+fragment containing backticks. `dev/WRITING.md` section 7 prescribed exactly that order. It now
+prescribes two sessions and records the measurement. The bug in `lint_roxygen()` itself is unfixed
+and is not this branch's work.
 
 ### Step 6. Verify downstream
 
@@ -351,6 +381,12 @@ leave the wording to step 9.
       passed" line; the parity note on the `ratio == 0` stop (the rule survives, the verdict
       changes); the `KNOWN_PARITY_GAPS` reasoning; the finalizer set gains `score_gaps()` by
       derivation, so check the wording still reads correctly.
+- [ ] `CLAUDE.md` says **"All four exits"** share `is_multi_batch()` and names them. `score_gaps()`
+      is a fifth. The count is stated twice in the batch-column paragraph, and the sentence about
+      the four appearing and vanishing together has to keep meaning what it says.
+- [ ] `CLAUDE.md`'s coverage invariant says a clock that reads no CpGs gets a `NULL` record and an
+      all-`NA` `clocks_coverage()` row. Step 5 made the **column gate** honour the same span. Say so
+      where that invariant is stated, since it now binds three things rather than two.
 - [ ] `dev/DECISIONS.md` entry: the gate reversal, the one-pass rule with its accepted cost, the
       floor-independent zero rule, the closed reason set, derive-not-store.
 
