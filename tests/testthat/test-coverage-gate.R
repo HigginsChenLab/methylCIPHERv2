@@ -128,6 +128,25 @@ test_that("a warn band sits above each floor, and both are silent at full", {
   expect_silent(calc_clocks(random_betas(cpgs, n = 4L), "Hannum"))
 })
 
+test_that("a gated clock does not break the clocks scored beside it", {
+  cpgs <- clock_scoring_cpgs("Hannum")
+  bad <- thin_panel(setdiff(clock_scoring_cpgs("PedBE"), cpgs), 0.3)
+  DNAm <- random_betas(c(cpgs, bad), n = 12L)
+  pheno <- mc_pheno(rownames(DNAm), Age = mc_ages(12L))
+
+  expect_warning(
+    res <- calc_clocks(DNAm, c("Hannum", "PedBE"), pheno = pheno)
+  )
+  expect_true(all(is.na(res$scores[, "PedBE"])))
+
+  # an all-NA column is a reachable state now, and the two verbs answer it
+  # differently on purpose: one row per sample stays, one row per clock goes.
+  expect_warning(accel <- calc_accel(res, data = pheno))
+  expect_true(all(is.finite(accel$accel[accel$clock_id == "Hannum"])))
+  expect_true(all(is.na(accel$accel[accel$clock_id == "PedBE"])))
+  expect_equal(score_associations(res, age = pheno$Age)$clock_id, "Hannum")
+})
+
 # row gate reads every branch's coverage record, not just Dunedin
 test_that("an under-covered sample is NA on an ordinary linear clock", {
   cpgs <- clock_scoring_cpgs("Hannum")
