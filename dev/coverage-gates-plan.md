@@ -209,11 +209,14 @@ every surviving sample keeps a real score.
   default: a sample whose panel is 26% cohort-mean-filled goes from a degraded number to `NA`.
 - The accessor is `score_gaps()`. It fits the `<verb>_<noun>` shape of `clocks_coverage()` and
   `samples_coverage()` better than `na_reasons()`.
-- **Warning consolidation is still undecided, and steps 1 to 3 did not pre-empt it.** Each gate
-  emits **two** `cli_warn` calls today, one per tier, mirroring the shape `check_coverage()` already
-  had. That is four in the worst case, plus the thin-normalization warning. Step 4 decides whether
-  to fold each gate's two tiers into one warning with two bullet groups. Nothing depends on the
-  answer, so it stayed as written rather than being changed on the way past.
+- ~~Warning consolidation~~ **decided in step 4: the tiers stay apart.** Five warnings in the worst
+  case, and they do not merge. A warning is a catchable condition, so merging two independent
+  findings into one takes away a caller's ability to handle them apart. The tiers also have
+  different next steps -- the NA tier says how to get a number, the near tier says nothing is wrong
+  yet -- and R4 asks each message for one actionable next step. Folding them would also put two
+  quantities in one template, which is exactly the `cli::qty()` footgun `dev/WRITING.md` section 3
+  warns about. The tiers are disjoint by construction on both axes, so no run repeats a clock
+  between them.
 
 ---
 
@@ -281,20 +284,34 @@ Verified at the console, beyond the suite: `calc_accel()` warns and drops an all
 instead of aborting, and `rbind(rbind(r1, r2))` is still `identical()` to `rbind(r1, r2)` when one
 batch gated the clock and the other did not.
 
-### Step 4. Messages
+### Step 4. Messages. DONE 2026-08-06
 
-The text written in steps 1 to 3 is provisional and has not had a `dev/WRITING.md` pass. Four
-warnings exist now: `check_coverage()`'s NA tier and near-miss tier, and `check_row_coverage()`'s
-two.
+- [x] Consolidation decided against, reasoning in section 5. The tiers stay apart.
+- [x] Audited all five (both column tiers, the thin-normalization warning, both row tiers) against
+      R1 to R8. `gate_label()` kept, so no routed member id reaches user-facing text.
+- [x] Closing bullets made parallel: `See {.fn f} for X` became `Call {.fn f} to see X` in the
+      column near tier and the thin-normalization warning, matching the row tiers.
+- [x] Row leads re-subjected. "N clocks have too few CpGs for some samples" put the clock in the
+      subject of a statement about samples. Both row leads now open on the samples and carry the
+      clock count where the bullets are keyed.
+- [x] No test asserted any of the changed wording. Suite unchanged at 825.
 
-- [ ] Read `dev/WRITING.md` first.
-- [ ] Decide the consolidation question in section 5, then make all four consistent.
-- [ ] Audit the four against R1 to R8. The row gate's NA tier is the newest text and the least
-      reviewed.
-- [ ] Keep `gate_label()` so routed member ids never leak into user-facing text.
-- [ ] Tests assert *that* it warns, never the wording. `test-coverage-gate.R` currently greps the
-      column gate's message for `min_clocks_coverage` and for the alias id, which is the one
-      deliberate exception: it exists to prove a routed member id does **not** appear.
+**Two of the messages gave advice that does not work, and both are fixed.** This is the finding of
+the step, not a style pass.
+
+1. **"Lower the floor to score it" is false for a zero panel.** D1 makes a clock with no observed
+   CpG NA at *every* floor, so the column gate told a user to do something that cannot help. The
+   bullet is now conditional on at least one failing clock having an observed CpG, and a second
+   conditional bullet states the zero rule when a zero-panel clock is in the list. The row gate had
+   the identical defect for a sample dead on its scoring panel, fixed the same way.
+2. **The row gate reported a coverage figure that contradicted its own verdict.** "worst 99% of
+   19827 CpGs" for a `DunedinPACE` sample blanked for having none of its 173 scoring CpGs, because
+   the ratio is measured on the gate panel (D1, last paragraph). `row_gate_one()` now returns
+   `dead` as a subset of `na`, and the bullet counts dead samples apart from the worst ratio:
+   `DunedinPACE: 1 of 6 samples, 1 with no scoring CpGs`, with the ratio clause omitted entirely
+   when every blanked sample is dead.
+
+All eight reachable message shapes were rendered and read, not just inspected in source.
 
 ### Step 5. `score_gaps()`
 

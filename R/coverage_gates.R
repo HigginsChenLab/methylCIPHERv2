@@ -67,6 +67,12 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
 
   fail <- ids_for("na")
   if (length(fail)) {
+    # a clock with no observed CpG is NA at every floor, so the advice splits
+    observed <- vapply(
+      fail,
+      function(id) length(per_clock[[id]][["score_present"]]) > 0L,
+      logical(1L)
+    )
     cli::cli_warn(
       c(
         "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
@@ -74,8 +80,13 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         capped_bullets(fail, score_lines),
         "i" = "{cli::qty(fail)}{?This clock scores/These clocks score}
                {.code NA} for every sample.",
-        "i" = "Lower {.arg min_clocks_coverage} to score
-               {cli::qty(fail)}{?it/them}.",
+        if (any(observed)) {
+          c("i" = "Lower {.arg min_clocks_coverage} to score more clocks.")
+        },
+        if (!all(observed)) {
+          c("i" = "A clock with no CpGs in {.arg DNAm} scores {.code NA} at
+                   every value of {.arg min_clocks_coverage}.")
+        },
         "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
                clock needs."
       ),
@@ -92,7 +103,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         capped_bullets(marginal, score_lines),
         "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
                clock needs.",
-        "i" = "See {.fn clocks_coverage} for the panel counts per clock."
+        "i" = "Call {.fn clocks_coverage} to see the panel counts per clock."
       ),
       call = NULL
     )
@@ -127,7 +138,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
          (below {.arg min_clocks_coverage} = {format(threshold)}):",
         capped_bullets(thin, norm_lines),
         stats::setNames(fate, rep("i", length(fate))),
-        "i" = "See {.fn clocks_coverage} for the panel counts per clock."
+        "i" = "Call {.fn clocks_coverage} to see the panel counts per clock."
       ),
       call = NULL
     )
@@ -166,7 +177,8 @@ row_gate_one <- function(cov_rec, score_miss, norm_miss, threshold) {
   # that is measured on the scoring panel, the one the arithmetic reads.
   dead <- cov_rec[["score_needed"]] > 0L &
     cov_rec[["score_present"]] - score_miss == 0L
-  na <- seen & (dead | cov < threshold)
+  dead <- seen & dead
+  na <- dead | (seen & cov < threshold)
   near <- seen & !na & cov < min(1, threshold * 1.1)
   if (!any(na) && !any(near)) {
     return(NULL)
@@ -175,6 +187,8 @@ row_gate_one <- function(cov_rec, score_miss, norm_miss, threshold) {
     cov = cov,
     scored = sum(seen),
     na = na,
+    # a subset of na, kept apart because cov does not explain it
+    dead = dead,
     near = near,
     needed = rc[["needed"]]
   )
@@ -211,10 +225,27 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         function(id) {
           s <- hit[[id]]
           low <- s[[field]]
-          cli::format_inline(
-            "{gate_label(id, routed)}: {sum(low)} of {s[['scored']]}
-             sample{?s}, worst {round(100 * min(s[['cov']][low]), 1)}% of
-             {s[['needed']]} CpGs"
+          # a dead sample failed on the scoring panel, so its gate-panel
+          # figure does not explain the verdict. count it apart.
+          gone <- low & s[["dead"]]
+          thin <- low & !gone
+          paste(
+            c(
+              cli::format_inline(
+                "{gate_label(id, routed)}: {sum(low)} of {s[['scored']]}
+                 sample{?s}"
+              ),
+              if (any(gone)) {
+                cli::format_inline("{sum(gone)} with no scoring CpGs")
+              },
+              if (any(thin)) {
+                cli::format_inline(
+                  "worst {round(100 * min(s[['cov']][thin]), 1)}% of
+                   {s[['needed']]} CpGs"
+                )
+              }
+            ),
+            collapse = ", "
           )
         },
         character(1L)
@@ -225,18 +256,25 @@ check_row_coverage <- function(gate, threshold = 0.75) {
 
   blank <- tier("na")
   if (length(blank[["ids"]])) {
+    hit <- gate[blank[["ids"]]]
+    any_of <- function(f) any(vapply(hit, f, logical(1L)))
     cli::cli_warn(
       c(
-        "{length(blank$ids)} clock{?s} {?has/have} too few CpGs in
-         {.arg DNAm} for some samples ({.arg min_samples_coverage} =
+        "Some samples have too few CpGs in {.arg DNAm} for
+         {length(blank$ids)} clock{?s} ({.arg min_samples_coverage} =
          {format(threshold)}):",
         capped_bullets(blank[["ids"]], blank[["lines"]]),
         "i" = "Those samples score {.code NA} for
                {cli::qty(blank$ids)}{?that clock/those clocks}.",
+        if (any_of(function(s) any(s[["na"]] & !s[["dead"]]))) {
+          c("i" = "Lower {.arg min_samples_coverage} to score more samples.")
+        },
+        if (any_of(function(s) any(s[["dead"]]))) {
+          c("i" = "A sample with no scoring CpGs scores {.code NA} at every
+                   value of {.arg min_samples_coverage}.")
+        },
         "i" = "Call {.fn samples_coverage} to see the coverage of every
-               sample.",
-        "i" = "Drop those samples from {.arg DNAm}, or lower
-               {.arg min_samples_coverage}."
+               sample."
       ),
       call = NULL
     )
@@ -246,8 +284,8 @@ check_row_coverage <- function(gate, threshold = 0.75) {
   if (length(marginal[["ids"]])) {
     cli::cli_warn(
       c(
-        "{length(marginal$ids)} clock{?s} scored some samples just above
-         {.arg min_samples_coverage} = {format(threshold)}:",
+        "Some samples are just above {.arg min_samples_coverage} =
+         {format(threshold)} for {length(marginal$ids)} clock{?s}:",
         capped_bullets(marginal[["ids"]], marginal[["lines"]]),
         "i" = "Call {.fn samples_coverage} to see the coverage of every
                sample."
