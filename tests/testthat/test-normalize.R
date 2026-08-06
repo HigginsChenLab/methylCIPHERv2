@@ -134,6 +134,39 @@ test_that("a normalized run says on the record that it normalized", {
   expect_equal(pace$provenance$normalized, "DunedinPACE")
 })
 
+# the record keeps both facts, so a difference can be attributed to one of them
+test_that("a declined scheme is on the record beside the request", {
+  skip_on_cran()
+  skip_if_not_installed("betanorm")
+  # the scoring panel alone: nowhere near enough background to normalize with
+  DNAm <- random_betas(clock_scoring_cpgs("Horvath1"), n = 4L)
+  res <- suppressWarnings(
+    calc_clocks(DNAm, "Horvath1", normalize = c(Horvath1 = TRUE))
+  )
+
+  # asked for, not done -- and the score is the raw one, so it is not NA
+  asked <- res$provenance$normalize_requested
+  # keyed by batch, so the name is the label and the value is the request
+  expect_equal(names(asked), res$provenance$mc_batch_id[[1L]])
+  expect_equal(unname(unlist(asked)), "Horvath1")
+  expect_equal(res$provenance$normalized, character(0))
+  expect_false(anyNA(res$scores[, "Horvath1"]))
+
+  # a batch that never asked binds with it: both normalized nothing, so the
+  # columns mean the same thing even though the two requests differ
+  other <- random_betas(clock_scoring_cpgs("Horvath1"), n = 4L)
+  rownames(other) <- paste0(rownames(other), "b")
+  plain <- calc_clocks(other, "Horvath1")
+  bound <- rbind(res, plain)
+
+  expect_equal(bound$provenance$normalized, character(0))
+  # kept per batch, never reconciled: one entry each, and they disagree
+  both <- bound$provenance$normalize_requested
+  expect_equal(length(both), 2L)
+  expect_equal(sort(unname(lengths(both))), c(0L, 1L))
+  expect_equal(sort(names(both)), sort(unique(bound$provenance$mc_batch_id)))
+})
+
 # unfit BMIQ sample: NA score + notes entry (coverage still full)
 test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   skip_on_cran()

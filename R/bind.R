@@ -98,15 +98,41 @@ run_bind_gates <- function(recs) {
      {.arg clocks} request."
   )
   gate_same_pheno_id(recs)
+  gate_same_normalized(recs)
+  invisible(NULL)
+}
+
+# clocks a record asked to normalize and did not, over every batch it holds
+normalize_declined <- function(rec) {
+  prov <- rec[["provenance"]]
+  asked <- unlist(prov[["normalize_requested"]], use.names = FALSE)
+  setdiff(asked, prov[["normalized"]])
+}
+
+# a normalized column and a raw one are two different columns, so the effective
+# sets must agree. which of the two facts differs decides the advice: the
+# caller chose the setting, but only the data can decline one.
+gate_same_normalized <- function(recs) {
+  forced <- any(vapply(
+    recs,
+    function(r) length(normalize_declined(r)) > 0L,
+    logical(1L)
+  ))
   gate_same_set(
     recs,
     "normalized",
     "normalized clocks",
-    "Use one {.arg normalize} setting for every batch. A clock that is
-     normalized in one batch, and not in another, gives two different
-     columns."
+    if (forced) {
+      "At least one batch had too few normalization CpGs, so it was scored
+       without the scheme. Call {.fn clocks_coverage} to compare the
+       normalization panels, then supply the missing background CpGs or lower
+       {.arg min_clocks_coverage}."
+    } else {
+      "Use one {.arg normalize} setting for every batch. A clock that is
+       normalized in one batch, and not in another, gives two different
+       columns."
+    }
   )
-  invisible(NULL)
 }
 
 # batch labels are a hash of the id set gate 1 made disjoint.
@@ -161,8 +187,14 @@ say_pending <- function(x) {
 #'
 #' @details
 #' Each input must use disjoint sample ids, the same scored clocks, the
-#' same `pheno_id`, and the same `normalize` setting. `rbind()` stops when
-#' any of those differ between inputs.
+#' same `pheno_id`, and the same normalized clocks. `rbind()` stops when any
+#' of those differ between inputs.
+#'
+#' The normalized clocks are the ones a run actually normalized, which is
+#' not always the ones it was asked to. A batch whose background panel was
+#' too thin is scored without the scheme, so two inputs given the same
+#' `normalize` setting can still differ here. `rbind()` says which of the
+#' two caused it.
 #'
 #' The combined value gets one `mc_batch_id` label for each input. A clock
 #' that depends on sample-wise information, such as a z-score, keeps the
@@ -248,6 +280,10 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         covariates_used = ref[["covariates_used"]],
         normalized = ref[["normalized"]],
         # kept per batch. never reconciled.
+        normalize_requested = unlist(
+          lapply(args, function(r) r[["provenance"]][["normalize_requested"]]),
+          recursive = FALSE
+        ),
         min_clocks_coverage = prov(args, "min_clocks_coverage"),
         min_samples_coverage = prov(args, "min_samples_coverage"),
         # clock -> the sample ids it failed on anywhere
