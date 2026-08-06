@@ -12,24 +12,15 @@ reason_matrix <- function(m) {
   )
 }
 
-# one batch's coverage in the shape row_gate() reads (id-keyed, rows subset)
+# one batch's coverage in the shape row_gate() reads (id-keyed, rows subset).
+# the row gate reads the scoring panel alone, so the norm panel is not needed.
 batch_gate_input <- function(x, per_clock, rows) {
   ids <- covered_ids(per_clock)
-  # one row subset per panel, not one per clock
-  pull <- function(panel, want) {
-    m <- x[["coverage"]][["sample_miss"]][[panel]][rows, , drop = FALSE]
-    stats::setNames(
-      lapply(ids, function(id) if (want(id)) m[, id] else NULL),
-      ids
-    )
-  }
+  # one row subset for the panel, not one per clock
+  m <- x[["coverage"]][["sample_miss"]][["score"]][rows, , drop = FALSE]
   list(
     per_clock = per_clock,
-    sample_miss = list(
-      score = pull("score", function(id) TRUE),
-      # normalizes is the declared panel fact, never the matrix's columns
-      norm = pull("norm", function(id) per_clock[[id]][["normalizes"]])
-    )
+    sample_miss = list(score = stats::setNames(lapply(ids, function(id) m[, id]), ids))
   )
 }
 

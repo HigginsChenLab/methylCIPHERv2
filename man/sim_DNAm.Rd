@@ -33,8 +33,10 @@ about half the samples set to \code{1}. Default is \code{FALSE}.}
 from the simulated panel. Default is \code{0}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
-for the clocks that support it. Default is \code{NULL}, which leaves the
-optional schemes off.}
+or off for the clocks that support it. Default is \code{NULL}, which leaves
+each clock at its own default: on for \code{quantile}, off for \code{bmiq}. A
+single unnamed \code{TRUE} or \code{FALSE} applies to every clock that supports a
+scheme.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}

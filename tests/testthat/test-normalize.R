@@ -38,8 +38,6 @@ bmiq_calibrated <- function(m) {
 
 # front-door refusals: the user's own normalize= argument
 test_that("normalize= refuses what the catalog cannot express", {
-  # constitutive normalization cannot be declined
-  expect_error(resolve_normalize(c(DunedinPACE = FALSE), "DunedinPACE"))
   # no scheme declared at all
   expect_error(resolve_normalize(c(Hannum = TRUE), "Hannum"))
   # noob is an IDAT-level correction, unreachable from a beta matrix
@@ -50,13 +48,18 @@ test_that("normalize= refuses what the catalog cannot express", {
   expect_error(resolve_normalize(c(Hannum = NA), "Hannum"))
 })
 
-test_that("normalize= resolves per clock, and a bare policy is only a wish", {
+test_that("normalize= resolves per clock, and every scheme can be declined", {
   expect_true(resolve_normalize(NULL, "DunedinPACE")[["DunedinPACE"]])
+  # on by default is a default, not a part of the clock that cannot be moved
+  expect_false(
+    resolve_normalize(c(DunedinPACE = FALSE), "DunedinPACE")[["DunedinPACE"]]
+  )
   # declining a scheme the clock never declared is merely redundant
   expect_false(resolve_normalize(c(Hannum = FALSE), "Hannum")[["Hannum"]])
-  # an unnamed policy passes over the clocks that cannot honor it
-  got <- resolve_normalize(TRUE, c("Horvath1", "DunedinPACE", "Hannum"))
-  expect_equal(unname(got), c(TRUE, TRUE, FALSE))
+  # an unnamed policy reaches every clock that declares an expressible scheme
+  ids <- c("Horvath1", "DunedinPACE", "Hannum")
+  expect_equal(unname(resolve_normalize(TRUE, ids)), c(TRUE, TRUE, FALSE))
+  expect_equal(unname(resolve_normalize(FALSE, ids)), c(FALSE, FALSE, FALSE))
 })
 
 test_that("Horvath1 defaults to declining normalization", {

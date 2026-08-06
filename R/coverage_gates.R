@@ -68,17 +68,6 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
       character(1L)
     )
   }
-  norm_lines <- function(ids) {
-    vapply(
-      ids,
-      function(id) {
-        x <- per_clock[[id]]
-        panel_line(id, x[["norm_present"]], x[["norm_needed"]], "normalization")
-      },
-      character(1L)
-    )
-  }
-
   classify <- function(x) {
     clock_gate_verdict(
       length(x[["score_present"]]),
@@ -130,75 +119,87 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     )
   }
 
-  # thin QN backgrounds warn only
-  thin <- names(per_clock)[vapply(
-    per_clock,
-    function(x) {
-      length(x[["norm_needed"]]) > 0L &&
-        length(x[["norm_present"]]) / length(x[["norm_needed"]]) < threshold
-    },
-    logical(1L)
-  )]
-  if (length(thin)) {
-    # qn fills absent background CpGs from the target, BMIQ does not
-    thin_schemes <- unique(vapply(thin, clock_norm_scheme, character(1)))
-    fate <- if (all(thin_schemes == "bmiq")) {
-      "The absent CpGs are dropped from the BMIQ fit."
-    } else if (any(thin_schemes == "bmiq")) {
-      c(
-        "The absent CpGs are dropped from the BMIQ fit.",
-        "For quantile normalization, the absent CpGs are filled from the
-         reference mean."
-      )
-    } else {
-      "The absent CpGs are filled from the reference mean."
-    }
-    cli::cli_warn(
-      c(
-        "{length(thin)} clock{?s} {?has/have} too few normalization CpGs
-         (below {.arg min_clocks_coverage} = {format(threshold)}):",
-        capped_bullets(thin, norm_lines),
-        stats::setNames(fate, rep("i", length(fate))),
-        "i" = "Call {.fn clocks_coverage} to see the panel counts per clock."
-      ),
-      call = NULL
-    )
-  }
-
   fail
 }
 
-# per-sample observed fraction of the row-gate panel (norm if normalizes, else score)
-row_coverage <- function(cov, score_miss, norm_miss) {
+# normalization gate: the clocks whose background is too thin to normalize
+# against. it declines the scheme, it never blanks a score -- the clock is
+# still scored, from its raw betas. run before the panels are resolved.
+norm_gate <- function(spec, usable, threshold = 0.75) {
+  on <- names(spec[["normalize"]])[spec[["normalize"]]]
+  if (!length(on)) {
+    return(character(0))
+  }
+  # one ratio per distinct background, not one per clock
+  panel <- lapply(on, function(id) clock_norm_cpgs(id, TRUE))
+  present <- vapply(panel, function(p) sum(p %in% usable), integer(1L))
+  needed <- lengths(panel)
+  ratio <- ifelse(needed > 0L, present / needed, NA_real_)
+
+  low <- !is.na(ratio) & (present == 0L | ratio < threshold)
+  if (!any(low)) {
+    return(character(0))
+  }
+
+  drop <- on[low]
+  lines <- function(ids) {
+    vapply(
+      ids,
+      function(id) {
+        at <- match(id, on)
+        cli::format_inline(
+          "{.val {id}}: {present[[at]]}/{needed[[at]]} normalization CpGs
+           ({round(100 * ratio[[at]], 1)}%)"
+        )
+      },
+      character(1L)
+    )
+  }
+  cli::cli_warn(
+    c(
+      "{length(drop)} clock{?s} {?has/have} too few normalization CpGs in
+       {.arg DNAm} to normalize ({.arg min_clocks_coverage} =
+       {format(threshold)}):",
+      capped_bullets(drop, lines),
+      "i" = "{cli::qty(length(drop))}{?That clock is/Those clocks are} scored
+             without normalization.",
+      "i" = "Supply the background CpGs, or lower {.arg min_clocks_coverage},
+             to normalize {cli::qty(length(drop))}{?it/them}.",
+      "i" = "Call {.fn clock_cpgs} with {.code normalize = TRUE} to list the
+             background a clock needs."
+    ),
+    call = NULL
+  )
+  drop
+}
+
+# per-sample observed fraction of the scoring panel, the one the arithmetic
+# reads. a thin normalization background is the norm gate's business, and it
+# declines the scheme for the whole cohort rather than blanking a row.
+row_coverage <- function(cov, score_miss) {
   if (is.null(cov)) {
     return(NULL)
   }
-  qn <- cov[["normalizes"]]
   # needed is a scalar count, so 0 is the only empty
-  needed <- if (qn) cov[["norm_needed"]] else cov[["score_needed"]]
-  present <- if (qn) cov[["norm_present"]] else cov[["score_present"]]
-  miss <- if (qn) norm_miss else score_miss
-  if (is.null(miss) || needed == 0L) {
+  needed <- cov[["score_needed"]]
+  if (is.null(score_miss) || needed == 0L) {
     return(NULL)
   }
-  panel_ratio(present, miss, needed)
+  panel_ratio(cov[["score_present"]], score_miss, needed)
 }
 
 # one clock's per-sample verdicts, or NULL when nothing is below the band
-row_gate_one <- function(cov_rec, score_miss, norm_miss, threshold) {
-  rc <- row_coverage(cov_rec, score_miss, norm_miss)
+row_gate_one <- function(cov_rec, score_miss, threshold) {
+  rc <- row_coverage(cov_rec, score_miss)
   if (is.null(rc)) {
     return(NULL)
   }
   cov <- rc[["cov"]]
   # na already: a row this clock's sex did not score
   seen <- !is.na(cov)
-  # the ratio is measured on the gate panel, which is the normalization panel
-  # where the clock has one. no observed CpG is unscoreable at any floor, and
-  # that is measured on the scoring panel, the one the arithmetic reads.
-  dead <- cov_rec[["score_needed"]] > 0L &
-    cov_rec[["score_present"]] - score_miss == 0L
-  dead <- seen & dead
+  # no observed CpG is unscoreable at any floor, and `cov < threshold` cannot
+  # say so at a floor of 0, so the zero rule stays its own clause.
+  dead <- seen & cov == 0
   na <- dead | (seen & cov < threshold)
   near <- seen & !na & cov < warn_band(threshold)
   if (!any(na) && !any(near)) {
@@ -224,7 +225,6 @@ row_gate <- function(coverage, threshold = 0.75, skip = character(0)) {
       row_gate_one(
         coverage[["per_clock"]][[id]],
         coverage[["sample_miss"]][["score"]][[id]],
-        coverage[["sample_miss"]][["norm"]][[id]],
         threshold
       )
     }),

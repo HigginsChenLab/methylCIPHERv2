@@ -19,20 +19,27 @@
 #' @details
 #' [list_clocks()] and [list_clock_tags()] show every value `clocks` accepts.
 #'
-#' `normalize` turns on the schemes that a clock declares as optional. It
-#' cannot turn off a scheme that is part of the clock. The `normalize` column
-#' of `list_clocks(all_columns = TRUE)` gives the scheme each clock uses.
+#' `normalize` turns a clock's declared scheme on or off. Each clock has its
+#' own default, which the `normalize` column of
+#' `list_clocks(all_columns = TRUE)` gives along with the scheme itself.
+#' Normalization needs a background panel that is much larger than the
+#' scoring panel, so a matrix cut down to the scoring CpGs cannot supply it.
 #'
-#' The two coverage arguments decide what does not get a number, and neither
-#' one stops the call. A clock under `min_clocks_coverage` scores `NA` for
-#' every sample. A sample under `min_samples_coverage` scores `NA` for that
-#' clock alone. A clock with none of its CpGs present scores `NA` whatever
-#' the two values are. Each case raises a warning that names the clocks.
+#' `min_clocks_coverage` is read against both panels, and what it decides
+#' differs by panel. Too little of the scoring panel and the clock scores
+#' `NA` for every sample, because there is nothing to score from. Too little
+#' of the background panel and the clock is scored without normalization,
+#' because the raw betas are still there. Either way the call does not stop,
+#' and each case raises a warning that names the clocks.
 #'
-#' A clock just above either floor, and a clock whose normalization panel
-#' falls below `min_clocks_coverage`, each raise a warning and still score.
-#' Pass the returned value to [clocks_coverage()] or [samples_coverage()] to
-#' see the counts, and to [score_gaps()] to see why each `NA` is missing.
+#' `min_samples_coverage` is read against the scoring panel alone. A sample
+#' under it scores `NA` for that clock, and for that clock only.
+#'
+#' A clock with none of its scoring CpGs present scores `NA` whatever the two
+#' values are. A clock just above either floor raises a warning and still
+#' scores. Pass the returned value to [clocks_coverage()] or
+#' [samples_coverage()] to see the counts, and to [score_gaps()] to see why
+#' each `NA` is missing.
 #'
 #' `calc_clocks()` narrows `pheno` before it stores it. The returned value
 #' keeps the id column and the covariates that the clocks need, and drops the
@@ -91,7 +98,9 @@ calc_clocks <- function(
     pheno = facts[["pheno"]],
     pheno_id = spec[["pheno_id"]],
     covariates_used = spec[["covariates"]],
-    normalized = names(spec[["normalize"]])[spec[["normalize"]]],
+    # what the run normalized, not what was asked for -- the norm gate may
+    # have declined a scheme whose background was too thin to use
+    normalized = names(facts[["normalize"]])[facts[["normalize"]]],
     min_clocks_coverage = min_clocks_coverage,
     min_samples_coverage = min_samples_coverage,
     scoring_failures = merge_notes(scored[["notes"]], final[["notes"]]),
