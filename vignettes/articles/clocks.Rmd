@@ -13,10 +13,6 @@ library(methylCIPHERv2)
 ```{r, echo = FALSE}
 catalog <- list_clocks(all_columns = TRUE)
 
-# a sex-routed family is scored through its own name, so its internal members
-# are dropped here. They are the rows whose request_as points elsewhere.
-catalog <- catalog[catalog[["clock_id"]] == catalog[["request_as"]], ]
-
 reactable::reactable(
   catalog[c("clock_id", "group_id", "covariates", "normalize")],
   searchable = TRUE,

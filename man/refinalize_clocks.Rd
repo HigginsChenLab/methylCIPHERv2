@@ -19,14 +19,14 @@ Recalculates every clock that depends on sample-wise information, such as
 a z-score, using the samples now in \code{x}.
 }
 \details{
-A clock of that kind is calculated once from every sample in a
+Such a clock is calculated once from every sample in a
 \code{calc_clocks()} call, not one sample at a time. After \code{rbind()} combines
 several such values, each score still holds the value its own input
 calculated. \code{refinalize_clocks()} calculates it again from every sample in
 \code{x}.
 
 \code{refinalize_clocks()} changes nothing, and returns \code{x} unchanged, when
-\code{x} holds no clock of that kind.
+\code{x} holds no such clock.
 }
 \examples{
 clocks <- c("Horvath1", "Hannum")

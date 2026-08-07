@@ -285,16 +285,12 @@ say_low_samples <- function(out, threshold) {
   n_samp <- length(unique(out[["id"]][low]))
   cli::cli_warn(
     c(
-      "{sum(low)} of {nrow(out)} scoring row{?s}
-       {cli::qty(sum(low))}{?is/are} under {.arg min_samples_coverage} =
-       {format(threshold)}, across {n_samp} sample{?s}.",
-      "i" = "{.arg min_samples_coverage} reads the {.val score} rows. The
-             {.field coverage} column gives the fraction of the panel present
-             for each row.",
-      "i" = "Filter the returned frame on those two columns to see
-             {cli::qty(sum(low))}{?the row/the rows}. For example,
-             {.code cov[cov$panel == \"score\" & cov$coverage <
-             {format(threshold)}, ]}.",
+      "{n_samp} sample{?s} {cli::qty(n_samp)}{?is/are} under
+       {.arg min_samples_coverage} = {format(threshold)} on the {.val score}
+       panel ({sum(low)} of {nrow(out)} row{?s}).",
+      "i" = "Filter the returned frame to see {cli::qty(sum(low))}{?the
+             row/the rows}. For example, {.code cov[cov$panel == \"score\" &
+             cov$coverage < {format(threshold)}, ]}.",
       "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
     ),
     call = NULL

@@ -20,25 +20,22 @@ and the group id. Default is \code{NULL}, which applies no pattern filter.}
 frame leaves out by default. Default is \code{FALSE}.}
 }
 \value{
-A data.frame. One row for each clock in the catalog, including a
-clock that scores only as part of another clock.
+A data.frame. One row for each clock that the \code{clocks} argument of
+\code{\link[=calc_clocks]{calc_clocks()}} accepts.
 }
 \description{
-Lists the clocks in the catalog, with the group, tags, and token to
-request each one.
+Lists the clocks in the catalog, with the group and tags of each one.
 }
 \details{
 Valid values for \code{tag} are the names of \code{\link[=list_clock_tags]{list_clock_tags()}}.
 
-\code{request_as} names the token to pass to \code{clocks} in \code{\link[=calc_clocks]{calc_clocks()}}. It
-differs from \code{clock_id} for a clock that only another clock can request.
+\code{clock_id} names the token to pass to \code{clocks} in \code{\link[=calc_clocks]{calc_clocks()}}.
 \code{covariates} names the \code{\link[=calc_clocks]{calc_clocks()}} \code{pheno} columns a clock needs, and
 \code{external} is \code{TRUE} for a clock whose weights are a download.
 
-\code{all_columns = TRUE} adds four more columns.
+\code{all_columns = TRUE} adds three more columns.
 \itemize{
-\item \code{callable} is \code{FALSE} for a clock that only another clock can request.
-\item \code{group_size} counts the callable clocks a group token expands to.
+\item \code{group_size} counts the clocks a group token expands to.
 \item \code{batch_dependent} is \code{TRUE} for a clock whose score depends on the other
 samples scored with it.
 \item \code{normalize} names the background normalization scheme a clock declares,

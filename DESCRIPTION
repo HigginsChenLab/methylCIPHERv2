@@ -6,12 +6,13 @@ Authors@R: c(
     person("Hung", "Pham", , "amser.hoanghung@gmail.com", role = c("aut", "cre"),
            comment = c(ORCID = "0000-0002-8271-9355")),
     person("Kyra L.", "Thrush", , "kyra.thrush@yale.edu", role = "aut"),
-    person("Yale University", role = "cph"))
+    person("Yale University", role = "cph")
+  )
 Description: Calculates scores for CpG-based epigenetic clocks to support
-    hypothesis-driven evaluation and research. A single function scores every
-    supported clock from a beta matrix of DNA methylation values. Scoring runs
-    on the local machine, and most clock weights are bundled with the package.
-    The larger weight sets are downloaded on request.
+    hypothesis-driven evaluation and research. A single function scores
+    every supported clock from a beta matrix of DNA methylation values.
+    Scoring runs on the local machine, and most clock weights are bundled
+    with the package.  The larger weight sets are downloaded on request.
 License: BSD_3_clause + file LICENSE
 URL: https://github.com/hhp94/methylCIPHERv2,
     https://hhp94.github.io/methylCIPHERv2/
@@ -32,15 +33,14 @@ Suggests:
     rmarkdown,
     testthat (>= 3.0.0),
     withr
+LinkingTo: 
+    Rcpp
 VignetteBuilder:
     knitr
-biocViews:
 Config/Needs/website: reactable
+Config/roxygen2/version: 8.0.0
 Config/testthat/edition: 3
 Encoding: UTF-8
 LazyData: true
-Config/roxygen2/version: 8.0.0
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 8.0.0
-LinkingTo: 
-    Rcpp

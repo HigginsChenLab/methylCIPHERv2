@@ -629,10 +629,10 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
         cli::cli_abort(
           c(
             "The {.val {g}} asset is not in {.arg ext_data}.",
-            "i" = "A list of loaded assets is fixed, so no asset is downloaded.",
-            "i" = "Add the {.val {g}} asset to {.arg ext_data}.",
-            "i" = "Or pass an assets directory path, or {.code NULL}, to allow a
-                   download."
+            "i" = "When {.arg ext_data} is a loaded asset list,
+                   {.fn load_mc_assets} uses only the assets it holds.",
+            "i" = "Add the {.val {g}} asset to {.arg ext_data}, or pass an
+                   assets directory path or {.code NULL} to download it."
           ),
           call = NULL
         )
@@ -670,10 +670,11 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
         c(
           "The {.val {gone}} asset{cli::qty(gone)}{?s}
            {cli::qty(gone)}{?is/are} not in {.path {dir}}.",
-          "i" = "A path in {.arg ext_data} is fixed, so no asset is
-                 downloaded.",
-          "i" = "Put the missing file{cli::qty(gone)}{?s} in that directory.",
-          "i" = "Or pass {.code ext_data = NULL} to allow a download."
+          "i" = "When {.arg ext_data} is a directory path,
+                 {.fn load_mc_assets} reads only the files already there.",
+          "i" = "Put the missing file{cli::qty(gone)}{?s} in {.path {dir}}, or
+                 pass {.code ext_data = NULL} to download
+                 {cli::qty(gone)}{?it/them}."
         ),
         call = NULL
       )

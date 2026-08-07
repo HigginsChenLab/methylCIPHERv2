@@ -4,21 +4,14 @@
 LIST_CLOCKS_DEFAULT_COLS <- c(
   "clock_id",
   "group_id",
-  "request_as",
   "covariates",
   "external",
   "tags"
 )
 
-# token a user should pass to get this clock (alias for routed members)
-request_token <- function(clock_id, alias) {
-  ifelse(clock_id %in% names(alias), alias[clock_id], clock_id)
-}
-
 #' Epigenetic Clock Catalog
 #'
-#' Lists the clocks in the catalog, with the group, tags, and token to
-#' request each one.
+#' Lists the clocks in the catalog, with the group and tags of each one.
 #'
 #' @param group A character vector. Keeps only the clocks in these groups.
 #'   Default is `NULL`, which keeps every group.
@@ -31,15 +24,13 @@ request_token <- function(clock_id, alias) {
 #' @details
 #' Valid values for `tag` are the names of [list_clock_tags()].
 #'
-#' `request_as` names the token to pass to `clocks` in [calc_clocks()]. It
-#' differs from `clock_id` for a clock that only another clock can request.
+#' `clock_id` names the token to pass to `clocks` in [calc_clocks()].
 #' `covariates` names the [calc_clocks()] `pheno` columns a clock needs, and
 #' `external` is `TRUE` for a clock whose weights are a download.
 #'
-#' `all_columns = TRUE` adds four more columns.
+#' `all_columns = TRUE` adds three more columns.
 #'
-#' - `callable` is `FALSE` for a clock that only another clock can request.
-#' - `group_size` counts the callable clocks a group token expands to.
+#' - `group_size` counts the clocks a group token expands to.
 #' - `batch_dependent` is `TRUE` for a clock whose score depends on the other
 #'   samples scored with it.
 #' - `normalize` names the background normalization scheme a clock declares,
@@ -47,8 +38,8 @@ request_token <- function(clock_id, alias) {
 #'   default and `"bmiq"` is off. The `normalize` argument of [calc_clocks()]
 #'   turns either one on or off.
 #'
-#' @returns A data.frame. One row for each clock in the catalog, including a
-#'   clock that scores only as part of another clock.
+#' @returns A data.frame. One row for each clock that the `clocks` argument of
+#'   [calc_clocks()] accepts.
 #'
 #' @seealso
 #' - [list_clock_tags()] for the tags a `tag` value accepts.
@@ -72,18 +63,18 @@ list_clocks <- function(
   checkmate::assert_string(pattern, null.ok = TRUE)
   checkmate::assert_flag(all_columns)
 
-  routed <- sex_routed_members()
-  idx <- mc_index
-  callable <- !idx[["clock_id"]] %in% names(routed[["alias"]])
+  # a sex-routed member is not a clock a user can request, so it is not listed
+  idx <- mc_index[
+    !mc_index[["clock_id"]] %in% names(sex_routed_members()[["alias"]]), ,
+    drop = FALSE
+  ]
 
-  # callable clocks a group token expands to
-  group_size <- table(idx[["group_id"]][callable])
+  # what a group token expands to
+  group_size <- table(idx[["group_id"]])
 
   out <- data.frame(
     clock_id = idx[["clock_id"]],
     group_id = idx[["group_id"]],
-    request_as = unname(request_token(idx[["clock_id"]], routed[["alias"]])),
-    callable = callable,
     group_size = as.integer(group_size[idx[["group_id"]]]),
     covariates = vapply(
       idx[["covariates_required"]],
@@ -106,13 +97,11 @@ list_clocks <- function(
     stringsAsFactors = FALSE,
     row.names = NULL
   )
-  out[["group_size"]][is.na(out[["group_size"]])] <- 0L
 
-  # tags follow request_as (routed members inherit the alias)
   tag_ids <- lapply(names(MC_TAGS), resolve_clocks)
   names(tag_ids) <- names(MC_TAGS)
   out[["tags"]] <- vapply(
-    out[["request_as"]],
+    out[["clock_id"]],
     function(id) {
       paste(
         names(MC_TAGS)[vapply(tag_ids, function(x) id %in% x, logical(1L))],
@@ -153,7 +142,7 @@ list_clocks <- function(
 
   if (!is.null(tag)) {
     keep <- unique(unlist(lapply(tag, resolve_clocks), use.names = FALSE))
-    out <- out[out[["request_as"]] %in% keep, , drop = FALSE]
+    out <- out[out[["clock_id"]] %in% keep, , drop = FALSE]
   }
 
   if (!is.null(pattern)) {

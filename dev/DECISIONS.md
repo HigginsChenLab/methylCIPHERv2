@@ -14,6 +14,168 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-07 -- `list_clocks()` lists what `clocks =` accepts, and nothing else
+
+`list_clocks()` returned all 137 catalog entries, including the 14 sex-routed members, which
+`resolve_clocks()` refuses by name. It now returns the 123 a user can request, and the `callable`
+and `request_as` columns go with them. This **reverses 2026-07-23** ("the 14 sex-routed members
+appear with `callable = FALSE` and `request_as` naming their alias", `DECISIONS.old.md`) and
+supersedes the column-set clause of 2026-08-03 below.
+
+**The evidence was our own catalog article.** `vignettes/articles/clocks.Rmd` carried
+`catalog[catalog[["clock_id"]] == catalog[["request_as"]], ]` with a two-line comment explaining
+it. The one consumer we control was filtering the leak back out by hand, inferring
+"not requestable" from a column identity. Three lines deleted.
+
+**`all_columns` was the wrong lever and was rejected on its own terms.** Hiding the members in the
+narrow frame and keeping them under `all_columns = TRUE` fails twice: the article needs
+`all_columns` for its `normalize` column, so it would keep the filter; and `test-list-clocks.R`
+asserts `nrow(narrow) == nrow(wide)`, which is the right model. The argument is named for columns
+and must not add rows.
+
+**Both dropped columns were provably constant afterwards, which is why they are not a second
+decision.** `callable` is all `TRUE`. `request_as` equals `clock_id` in every row -- it existed
+only to name a routed member's alias. 2026-08-03 dropped `callable` from the default set precisely
+because it was `request_as == clock_id`; the two collapse together once the rows they split are
+gone. Keeping either would have shipped a column carrying no information.
+
+**What is knowingly lost: no public surface maps a `role = "routing_target"` id in
+`clocks_coverage()` back to its alias.** Three things cover it. The coverage row still carries
+`group_id`. The member ids are `<alias>_Female` / `_Male`. And passing one to `calc_clocks()`
+returns the exact pointer. A `list_clocks(internal = TRUE)` argument was considered and rejected as
+surface bought for a lookup that three cheaper routes already answer.
+
+**This closes the `list_clocks()` half of `dev/to-do.md` Q3, and the item is deleted rather than
+narrowed, because the other two halves were never open.** The pool half was already done --
+`resolve_clocks()` excludes the members from `"all"`, from every group token and from every tag,
+and refuses one by name with a pointer to its alias. The coverage half **must not** be done: an
+alias has no `per_clock` record by the `clock_reads_cpgs()` invariant, so the member rows are the
+only place a routed family's CpG counts exist, in both coverage frames. Q3's proposed rule -- one
+partition, "requestable, shown, and returned" against "internal machinery counted only for
+coverage", never overlapping in what a user "can type or see" -- **cannot be implemented as
+written**, because type and see are different axes and a routed member has to sit on opposite sides
+of them. It is untypeable and necessarily visible in coverage. The two functions that carry the
+real taxonomy, `sex_routed_members()` and `clock_reads_cpgs()`, are deliberately not the same
+partition.
+
+Q3 also named `DNAmSex_Wang_ChrX` as a routed member. It is not one, and neither is
+`DNAmSex_Wang_ChrY`: both are ordinary callable clocks that `predict_sex()` composes. All 14
+members are the `DNAmFitAge` family.
+
+Measured after the change: `list_clocks()` 137 rows to 123, `nrow(bundled)` in the article 108 to
+94 (the chunk computes it, no prose quotes it), and the `head(list_clocks(), n = 3)` block in
+`README.md` loses one column. No tag names a member, and no member sorts into the first three rows,
+so the tag filter and the three `@examples` blocks are unchanged. 884 pass / 0 fail; parity not run.
+
+---
+
+## 2026-08-07 -- cli messages stop prescribing data fixes, and point at a diagnostic one way
+
+A recommendation pass over the cli warnings and aborts, after a verbosity audit
+(`dev/cli-audit.md`, `dev/cli-verbose.md`) and maintainer review. Two rules landed in
+`dev/WRITING.md`, plus a set of trims.
+
+**A cli message does not hand out a recipe for a numeric transformation of the data.** The age-unit
+warnings dropped `Age / 12`, `Age / 52`, `Age / 365.25`; the beta-range warnings dropped
+`beta <- 2^m / (2^m + 1)` and `DNAm / 100`; the EPICv2 warning dropped the `sub()` that strips
+probe suffixes. The reason is liability, not length: a user who copies a conversion and misapplies
+it gets a plausible but wrong age that traces back to our message, and the units, scale, or probe
+layout of the input is theirs to own. The messages now name the likely cause ("an M-value matrix is
+a common cause") and the property the data should have, never the correction. **A trivial structural
+fix that fails loudly is the exception and stays** -- `t(DNAm)`, `rownames(DNAm) <- ...`,
+`as.matrix()` -- because none of those can silently corrupt a score.
+
+**One declarative phrasing points at a diagnostic function.** `Call {.fn samples_coverage} to
+see ...` and its variants became `{.fn samples_coverage} gives ...`, with the function as the
+subject. An imperative read as an order for something the reader may not need to do; the coverage
+frames are there to read on demand. `clock_cpgs()` follows the same form. `norm_gate()` was left
+imperative for now (its item was approved with no change) and is queued in `dev/to-do.md`.
+
+**The missing-covariate warning stopped telling the user to drop samples.** Dropping a sample for a
+missing covariate drops it for every clock, including the ones that never needed that covariate, so
+the advice was actively wrong. It now says a sample scores `NA` only for the clocks that need the
+covariate, and when the missing covariate is `Female` it points at `predict_sex()` to estimate sex
+from `DNAm`.
+
+Two items are deferred, not done: the assets closed-set aborts still read "never triggers a
+download" (too strong), and a full sweep of every message not in `cli-verbose.md` against the recipe
+rule. Both are in `dev/to-do.md`. Sex-routed members leaking into the callable pool became its own
+open question (`dev/to-do.md` Q3), because the routed-member refusal is a patch over a wider
+requestable-versus-internal inconsistency.
+
+## 2026-08-07 -- BMIQ says it is running, and calibrates a shared background once
+
+Two changes to the one BMIQ call site, from one measurement. `calc_clocks()` at 1000 samples with
+`normalize = c(Horvath1 = TRUE)` takes **76.9 s**, against 0.01 s for the same call with
+`normalize = FALSE`. The whole run is BMIQ, at a flat **77 ms per sample** past a one-time 0.17 s
+gold-standard fit, and it printed nothing at all for those 77 seconds.
+
+**The `-O0` caveat does not apply on this path, which is itself the finding.** The same job through
+`load_all()` took 91 s, only 18% slower, because BMIQ is R-bound: the EM loop and the `pbeta` /
+`qbeta` maps are R, and the C++ kernels are only the block gather and scatter. So the standing rule
+against benchmarking through `load_all()` costs nothing here. The optimized figure came from
+`R CMD INSTALL` into a temporary library, never from `check()`.
+
+**Not a progress bar, and the vendored file is why.** `bmiq_calibration()` already carries a
+`verbose` argument, dead since the one call site hard-codes `verbose = FALSE`, whose per-sample
+`message()` would print 1000 lines. Converting it to `cli_progress_bar()` was rejected: the sample
+loop lives inside `R/normalize_bmiq.R`, which is vendored from `hhp94/betanorm`, so a bar there
+diverges the vendor for a caller-side concern. The alternative of calling `bmiq_calibration()` once
+per sample block re-runs the gold fit each time. `cli::cli_progress_step()` works with **zero
+updates inside the body** -- it prints on entry and rewrites with the elapsed time on exit -- so it
+sits entirely in `bmiq_panel()` and the vendored file is untouched. `verbose` stays as upstream
+wrote it.
+
+**`BMIQ_SAY_AT` is 25 samples, and the threshold exists because the step does not self-suppress.**
+`cli_progress_bar()` prints nothing under `cli.progress_show_after` (2 s, verified: a 0.9 s loop is
+silent, a 5 s loop emits four throttled lines). `cli_progress_step()` has no such gate and announces
+a 200 ms step, so a 10-sample run would newly print. 25 samples is about 2 s at the measured rate,
+which is cli's own threshold reached by arithmetic rather than by a timer. **Quantile is left
+silent** and needs no threshold of its own: `DunedinPACE` at 1000 samples is 2.27 s, because that
+scheme is the C++ kernel.
+
+**The background is calibrated once per panel, and the reporting stays per clock.** The catalog
+declares exactly two bmiq clocks, `Horvath1` and `Knight`, whose declared backgrounds and gold
+standards are `identical()` at 21368 probes, so `dedup_panels()` already collapses them to one
+entry and scoring both calibrated it twice. `resolve_cpgs()` now carries a `norm_panel_key` per
+clock and `bmiq_fit()` memoizes into `block[["norm_cache"]]`. Measured 40 samples: 9.64 s separately
+against 6.44 s together, scores **bit-identical** (max abs diff 0) with matching NA patterns.
+
+Three things about the shape, each of which could have gone the other way:
+
+- **The key is `NULL` unless two clocks share the panel.** A calibrated panel is n x 21368 doubles,
+  171 MB at 1000 samples. Today it dies when `bmiq_panel()` returns; cached, it would live until the
+  block finishes every other clock. Keying only a shared panel means a lone normalizing clock
+  retains exactly what it retains now, and peak memory with two clocks is unchanged, because the two
+  never held separate copies at once anyway.
+- **The panel is not the whole key, and the key is not hand-listed.** Two clocks can declare
+  identical background panels and different gold standards, which `dedup_panels()` cannot see, and
+  a later scheme could declare a per-clock `nL` or `doH` the same way. The obvious fix is to name
+  the varying parts in the key, nested or pasted. It was rejected: a hand-listed key is an
+  enumeration that has to be widened every time the call gains an argument, and forgetting returns
+  a **hit** on an entry calibrated with different parameters. Instead `bmiq_fit()` builds the
+  kernel's arguments once as `args`, `do.call`s them into `bmiq_calibration()`, and hands the same
+  list to `norm_cached()`, which stores it beside the result and compares it whole with
+  `identical()`. An argument cannot join the call without joining the key. The bucket name carries
+  the scheme (`"bmiq/1"`) so a second scheme reading the same cache cannot collide, even though
+  quantile does not read it today.
+
+  **The betas are deliberately not in `args`.** Within one block the panel index fixes
+  `norm_present` and `norm_present_idx`, so it fixes what `observed_panel()` returns, and the
+  bucket name already carries that index. Storing the matrix instead would pin a second 171 MB at
+  1000 samples to re-prove something the key already establishes.
+- **`say_scored_na()` still fires once per clock, and `dev/to-do.md` was wrong to call that a
+  blocker.** The queued entry held the hoist back on the theory that a shared calibration trading
+  duplicate work for a duplicate warning was a bad bargain. The warning is not duplicated: it names
+  a different clock and a different `NA` column each time, and both columns really are `NA`. Two
+  clocks failing on one sample is two facts a reader needs, not one fact said twice. So the hoist
+  is a pure performance change with no observable difference, which is what the new
+  `test-normalize.R` block asserts. That block is kept against "parity owns the arithmetic" for the
+  same reason as the other four: parity scores one clock per call, so it can never exercise a
+  cross-clock cache at all.
+
+---
+
 ## 2026-08-07 -- BMIQ drops RcppArmadillo; `LinkingTo:` is `Rcpp` alone
 
 `src/bmiq_norm.cpp` was vendored earlier the same day as Armadillo code, and `LinkingTo:

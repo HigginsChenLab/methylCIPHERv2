@@ -5,7 +5,7 @@ test_that("list_clocks filters, rejects an unknown group, and widens on demand",
   expect_equal(nrow(narrow), nrow(wide))
   expect_setequal(
     setdiff(names(wide), names(narrow)),
-    c("callable", "group_size", "batch_dependent", "normalize")
+    c("group_size", "batch_dependent", "normalize")
   )
 
   # a filter narrows rows, never columns
@@ -16,7 +16,7 @@ test_that("list_clocks filters, rejects an unknown group, and widens on demand",
 
   # the tag filter selects what the same token resolves to
   tag <- names(MC_TAGS)[[1L]]
-  expect_setequal(list_clocks(tag = tag)[["request_as"]], resolve_clocks(tag))
+  expect_setequal(list_clocks(tag = tag)[["clock_id"]], resolve_clocks(tag))
 
   # regex kept: names a real group so a broken suggestion is not a plain reject.
   expect_error(list_clocks(group = "Horvat"), "Horvath")
@@ -47,18 +47,17 @@ test_that("a token resolves exactly -- never by case or abbreviation", {
 test_that("the callable pool holds exactly the clocks a user can request", {
   skip_on_cran()
   lc <- list_clocks(all_columns = TRUE)
-  expect_equal(nrow(lc), length(mc_index[["clock_id"]]))
-  expect_setequal(lc[["clock_id"]][lc[["callable"]]], resolve_clocks("all"))
+  expect_setequal(lc[["clock_id"]], resolve_clocks("all"))
 
-  # a routed member is reachable only as its alias's dependency
-  routed <- lc[!lc[["callable"]], ]
+  # a routed member is listed nowhere, and is reachable only as a dependency
+  # of the alias that routes to it
+  alias <- sex_routed_members()[["alias"]]
+  expect_false(any(names(alias) %in% lc[["clock_id"]]))
   reach <- vapply(
-    seq_len(nrow(routed)),
-    function(i) {
-      seq_ids <- resolve_clocks_sequence(
-        resolve_clocks(routed[["request_as"]][[i]])
-      )
-      routed[["clock_id"]][[i]] %in% seq_ids
+    names(alias),
+    function(member) {
+      seq_ids <- resolve_clocks_sequence(resolve_clocks(alias[[member]]))
+      member %in% seq_ids
     },
     logical(1L)
   )

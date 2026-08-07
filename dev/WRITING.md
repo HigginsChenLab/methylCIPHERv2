@@ -138,6 +138,26 @@ word a user can see (DECISIONS 2026-08-05).
   `DNAmSex_Wang_ChrX` and `DNAmSex_Wang_ChrY`, never "the two `DNAmSex_Wang` scores", because
   `DNAmSex_Wang` is not a column the reader will find. The two halves are not in conflict -- a
   short request producing long column names is exactly what the README example demonstrates.
+- **A cli message does not hand out a recipe for transforming the data values.** Name the problem
+  and the value the data should have; do not give the code that converts the user's own matrix. No
+  `Age / 12`, no `beta <- 2^m / (2^m + 1)`, no `DNAm / 100`, no `sub()` over `colnames`. A user who
+  copies a numeric conversion and misapplies it gets a plausible but wrong score that traces back
+  to our message, and the units, scale, or probe layout of their input is theirs to fix in their
+  own pipeline. Name the likely cause instead ("an M-value matrix is a common cause", "percent
+  methylation is a common cause at this size"), never the correction. This narrows R4: the
+  actionable next step is a function in this package to call, a property to check, or a
+  transformation to name -- not code to run on the input. **A trivial structural fix that fails
+  loudly is the exception and stays**: `t(DNAm)` for a transposed matrix, `rownames(DNAm) <- ...`
+  for missing ids, `as.matrix()` for a data.frame. None of those can silently corrupt a score --
+  they either work or error -- so the liability the rule guards against does not arise
+  (DECISIONS 2026-08-07).
+- **One phrasing points at a diagnostic function, and it is declarative.** `{.fn samples_coverage}
+  gives ...` and `{.fn clocks_coverage} gives ...`, with the function as the grammatical subject,
+  not `Call {.fn ...} to see ...`. An imperative reads as an order for something the reader may not
+  need to do, and the coverage frames are there to read when they want them, not a step in a
+  repair. Use the one verb ("gives") everywhere, so the same suggestion does not appear in three
+  shapes across the gates. `clock_cpgs()` follows the same form (`{.fn clock_cpgs} gives the CpGs a
+  clock needs`) even though it is not a coverage frame (DECISIONS 2026-08-07).
 
 ### What no rule covers
 

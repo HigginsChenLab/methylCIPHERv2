@@ -102,25 +102,24 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         capped_bullets(fail, score_lines),
         if (length(plain)) {
           c(
-            "i" = "{cli::qty(plain)}{?This clock scores/These clocks score}
+            "i" = "{cli::qty(plain)}{?That clock scores/Those clocks score}
                    {.code NA} for every sample."
           )
         },
         if (length(modelled)) {
           c(
-            "i" = "Each clock with a model scores {.code NA} for the samples
-                   of that sex."
+            "i" = "A sex-specific clock scores {.code NA} only for samples of
+                   that sex."
           )
         },
         if (any(observed)) {
           c("i" = "Lower {.arg min_clocks_coverage} to score more clocks.")
         },
         if (!all(observed)) {
-          c("i" = "A clock with no CpGs in {.arg DNAm} scores {.code NA} at
-                   every value of {.arg min_clocks_coverage}.")
+          c("i" = "A clock with no CpGs in {.arg DNAm} is {.code NA} at every
+                   {.arg min_clocks_coverage}.")
         },
-        "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
-               clock needs."
+        "i" = "{.fn clock_cpgs} gives the CpGs a clock needs."
       ),
       call = NULL
     )
@@ -133,9 +132,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         "{length(marginal)} clock{?s} {?is/are} just above
          {.arg min_clocks_coverage} = {format(threshold)}:",
         capped_bullets(marginal, score_lines),
-        "i" = "Call {.fn clock_cpgs} with a clock id to list every CpG that
-               clock needs.",
-        "i" = "Call {.fn clocks_coverage} to see the panel counts per clock."
+        "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
       ),
       call = NULL
     )
@@ -187,7 +184,7 @@ norm_gate <- function(panels, usable, threshold = 0.75) {
       # no claim about the score here: this gate runs before the column gate.
       "i" = "Supply the background CpGs, or lower {.arg min_clocks_coverage},
              to normalize {cli::qty(length(drop))}{?it/them}.",
-      "i" = "Call {.fn clock_cpgs} with {.code normalize = TRUE} to list the
+      "i" = "{.fn clock_cpgs} with {.code normalize = TRUE} gives the
              background a clock needs."
     ),
     call = NULL
@@ -295,17 +292,14 @@ check_row_coverage <- function(gate, threshold = 0.75) {
          {length(blank)} clock{?s} ({.arg min_samples_coverage} =
          {format(threshold)}):",
         capped_bullets(names(blank), lines_for(blank, "na")),
-        "i" = "Those samples score {.code NA} for
-               {cli::qty(length(blank))}{?that clock/those clocks}.",
         if (any_of(function(s) any(s[["na"]] & !s[["dead"]]))) {
           c("i" = "Lower {.arg min_samples_coverage} to score more samples.")
         },
         if (any_of(function(s) any(s[["dead"]]))) {
-          c("i" = "A sample with no scoring CpGs scores {.code NA} at every
-                   value of {.arg min_samples_coverage}.")
+          c("i" = "A sample with no scoring CpGs is {.code NA} at every
+                   {.arg min_samples_coverage}.")
         },
-        "i" = "Call {.fn samples_coverage} to see the coverage of every
-               sample."
+        "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),
       call = NULL
     )
@@ -318,8 +312,7 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         "Some samples are just above {.arg min_samples_coverage} =
          {format(threshold)} for {length(marginal)} clock{?s}:",
         capped_bullets(names(marginal), lines_for(marginal, "near")),
-        "i" = "Call {.fn samples_coverage} to see the coverage of every
-               sample."
+        "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),
       call = NULL
     )

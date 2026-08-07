@@ -30,8 +30,8 @@ score_Dunedin <- function(id, cpgs, block, results) {
     panel[, absent] <- rep(target[absent], each = n)
   }
 
+  # the kernel copies its input's dimnames onto the result
   norm <- quantile_norm(panel, target = as.numeric(target[needed]))
-  dimnames(norm) <- dimnames(panel)
 
   model <- cpgs[["score_needed"]]
   score_matrix(

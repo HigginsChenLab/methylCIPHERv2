@@ -66,20 +66,11 @@ check_DNAm <- function(DNAm) {
   if (length(suffixed)) {
     cli::cli_warn(
       c(
-        "{.arg DNAm} holds EPICv2 or MSA chip probes. Most clocks need those
-         probes deduplicated first.",
-        "i" = "An EPICv2 or MSA chip carries several probes per CpG and
-               suffixes each one with its address, for example
-               {.val {suffixed[[1L]]}}.",
-        "i" = "A clock panel names the plain CpG id, so a suffixed column
-               counts as absent.",
-        "i" = "Strip the suffixes with
-               {.code sub(\"_[BT][CO][0-9]+$\", \"\", colnames(DNAm))}.",
-        "i" = "Stripping is the first half. Collapse the duplicate columns to
-               one column per CpG as well.",
-        "i" = "{.fn calc_clocks} cannot collapse them, because that step needs
-               the array manifest.",
-        "i" = "{.fn clock_cpgs} shows the ids a clock expects."
+        "{.arg DNAm} holds EPICv2 or MSA chip probes, for example
+         {.val {suffixed[[1L]]}}.",
+        "i" = "Most clocks need one column per CpG, so deduplicate the probes
+               before you score.",
+        "i" = "{.fn clock_cpgs} gives the CpGs a clock needs."
       ),
       call = NULL
     )
@@ -134,11 +125,10 @@ say_full_panel_clocks <- function(clock_ids) {
   }
   cli::cli_inform(
     c(
-      "i" = "{.val {full}} score{cli::qty(full)}{?s/} against every column of
-             {.arg DNAm}, not just {cli::qty(full)}{?its/their} own panel.",
-      "i" = "Pass every CpG you measured.",
-      "i" = "A subset of {.arg DNAm} changes {cli::qty(full)}{?this/these}
-             score{?s}."
+      "i" = "{.val {full}} use{cli::qty(full)}{?s/} every column of
+             {.arg DNAm}, not only {cli::qty(full)}{?its/their} own CpG list.",
+      "i" = "Pass the full matrix you measured. A smaller set of columns
+             changes {cli::qty(full)}{?this/these} score{?s}."
     )
   )
   invisible(full)
@@ -239,13 +229,9 @@ warn_age_units <- function(pheno, ID, sample_id) {
          {?is/are} above {.val {AGE_MAX_YEARS}}.",
         "x" = "The largest is {.val {signif(age[[at]], 6)}}, for sample
                {.val {ids[[at]]}}.",
-        "i" = "{.field Age} must be in years.",
-        "i" = "{.val {AGE_MAX_YEARS}} is the verified human maximum, so these
-               values are usually a units mistake.",
-        "i" = "Convert with {.code Age / 12} for months, {.code Age / 52} for
-               weeks, or {.code Age / 365.25} for days.",
-        "i" = "{.fn calc_accel} reads this column, so correct it before you
-               measure age acceleration."
+        "i" = "{.field Age} should be in years. {.val {AGE_MAX_YEARS}} is the
+               verified human maximum.",
+        "i" = "{.fn calc_accel} reads this column."
       ),
       call = NULL
     )
@@ -260,11 +246,8 @@ warn_age_units <- function(pheno, ID, sample_id) {
          {?is/are} below {.val {AGE_MIN_YEARS}}.",
         "x" = "The smallest is {.val {signif(age[[at]], 6)}}, for sample
                {.val {ids[[at]]}}.",
-        "i" = "A small negative age is normal. Some cohorts code pre-birth as
-               a fraction of a year.",
-        "i" = "These values are lower than that. Gestational age in weeks runs
-               from {.val {-40}} to {.val {0}}.",
-        "i" = "Convert weeks with {.code Age / 52}."
+        "i" = "{.field Age} should be in years. A small negative value is
+               normal for pre-birth samples, but these are lower than that."
       ),
       call = NULL
     )
@@ -308,9 +291,15 @@ warn_missing_covariates <- function(
           character(1L)
         )
       }),
-      "i" = "A sample with a missing covariate scores {.code NA}.",
-      "i" = "Fill the column in {.arg pheno}, or drop those samples before
-             you score."
+      "i" = "A sample with a missing covariate scores {.code NA} for the
+             clocks that need it.",
+      if ("Female" %in% names(n_na)) {
+        c(
+          "i" = "{.fn predict_sex} estimates sex from {.arg DNAm} when
+                 {.field Female} is unknown."
+        )
+      },
+      "i" = "Fill the column in {.arg pheno} before you score."
     ),
     call = NULL
   )
