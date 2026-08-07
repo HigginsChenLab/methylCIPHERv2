@@ -16,7 +16,6 @@ src/Makevars.win text eol=lf
 *.rda binary
 *.rds binary
 *.RData binary
-*.qs2 binary
 *.duckdb binary
 *.png binary
 *.jpg binary

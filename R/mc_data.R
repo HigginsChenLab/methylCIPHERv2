@@ -1,7 +1,7 @@
-# external clock-data assets (content-addressed qs2 packs)
+# external clock-data assets (content-addressed rds packs)
 
-# content-addressed tail of a pack filename: <stem>-<sha256>.qs2
-MC_ASSET_SUFFIX <- "-[0-9a-f]{64}\\.qs2$"
+# content-addressed tail of a pack filename: <stem>-<sha256>.rds
+MC_ASSET_SUFFIX <- "-[0-9a-f]{64}\\.rds$"
 
 mc_external_groups <- function() {
   assets <- mc_provenance[["external_assets"]]
@@ -251,6 +251,27 @@ mc_ask_yes_no <- function(header, labels, sizes, dir, question) {
   isTRUE(utils::askYesNo(question))
 }
 
+# read a pack. zlib reports a damaged stream as a warning and readRDS() then
+# returns a wrong object, so both conditions abort here.
+mc_read_pack <- function(path, group_id) {
+  damaged <- function(cnd) {
+    cli::cli_abort(
+      c(
+        "The asset for {.val {group_id}} is damaged.",
+        "i" = "File: {.path {path}}",
+        "i" = "Delete that file.",
+        "i" = "Then run {.fn download_mc_assets} to get a new copy."
+      ),
+      parent = cnd,
+      call = NULL
+    )
+  }
+  withCallingHandlers(
+    tryCatch(readRDS(path), error = damaged),
+    warning = damaged
+  )
+}
+
 # stage, validate, atomic rename
 mc_fetch <- function(row, dir) {
   fs::dir_create(dir)
@@ -296,7 +317,7 @@ mc_fetch <- function(row, dir) {
       call = NULL
     )
   }
-  payload <- qs2::qs_read(tmp, validate_checksum = TRUE)
+  payload <- mc_read_pack(tmp, row[["group_id"]])
   fs::file_move(tmp, dest)
   list(path = as.character(dest), payload = payload)
 }
@@ -666,7 +687,7 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
   }
 
   unread <- vapply(packs, is.null, logical(1))
-  packs[unread] <- lapply(files[unread], qs2::qs_read, validate_checksum = TRUE)
+  packs[unread] <- unname(Map(mc_read_pack, files[unread], groups[unread]))
   new_mc_assets(packs, groups)
 }
 

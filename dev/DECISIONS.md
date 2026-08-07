@@ -14,6 +14,62 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-06 -- qs2 dropped for gzipped rds, and the checksum it took with it is replaced by promoting a warning
+
+External packs are now `<group>-<payload_hash>.rds`, written by `saveRDS(compress = "gzip")` and
+read by the one internal `mc_read_pack()`. `qs2` leaves `Imports`. The package is pre-alpha with no
+users, so nothing migrates: the local staging and cache directories were emptied by hand rather than
+given a transitional suffix regex.
+
+**Measured before deciding, over all four staged packs.** Totals: qs2 at `compress_level = 1` is
+45.14 MB and 0.64 s to read; gzip rds is 45.55 MB and 0.72 s. That is +0.9% size and +80 ms across
+the whole corpus, which is a wash on both axes. Uncompressed rds is 63.36 MB (rejected below on
+correctness, not size). `xz` is 42.88 MB but 1.96 s to read and 25 s to write, so it buys 5% for 3x
+the read: not taken.
+
+**What it buys is the dependency graph, not speed.** `qs2` carries `RcppParallel` and `stringfish`,
+both compiled, plus `SystemRequirements: GNU make, C++17`. Dropping it removes three compiled
+packages from a CRAN install. `Rcpp` stays, because this package has its own `src/`.
+
+**`payload_hash` does not move, and that is why this is cheap.** `payload_hash_of()` digests the R
+object, never the file bytes, so the content address and the release tag are identical across the
+serializer change. Only the extension moves. A rebuilt pack lands as a second asset under its
+existing tag.
+
+**The one real loss is `validate_checksum`, and it is not replaced by an equivalent.** The
+2026-07-21 entry made qs2's checksum the single integrity guard and deleted the parallel sha256
+recompute; a runtime re-hash of the loaded object would bring that cost straight back, doubling
+every load to restore a property that is now cheaper to get another way.
+
+**That other way is one rule: a warning from `readRDS()` is an abort.** This is the part that had
+to be measured rather than assumed, and the measurement is the reason the rule exists. Over 60
+random single-bit flips in a gzipped pack:
+
+- 28 raised an error (`ReadItem: unknown type ...`, `embedded nul in string`),
+- **32 raised only the warning `invalid or incomplete compressed data` and returned a wrong
+  object**,
+- 0 read correctly.
+
+A warning stops nothing, so the plain reader hands 32 of 60 damaged files straight into scoring as
+wrong weights. `mc_read_pack()` promotes both conditions to one cli abort naming the file and the
+next step. With the promotion, all 60 abort, which is what qs2 gave.
+
+**Uncompressed rds is therefore banned on the write side too.** A flip in an uncompressed stream
+returns a wrong object with *no* condition at all, so the promotion has nothing to catch. gzip is
+load-bearing for detection, not only for size.
+
+**Truncation was already covered and stays covered**: it reads as `error reading from connection`,
+and `mc_fetch()`'s `.part` staging plus atomic rename means a partial download never lands under
+the real name. The pre-rename read is what validates it, exactly as before.
+
+**The test is one block, and it scans rather than pins a byte.** `test-mc_data.R` finds the first
+bit whose flip `readRDS()` accepts with only a warning, asserts such a bit exists, and asserts
+`load_mc_assets()` refuses the file. Pinning an offset would rot on any change to the fixture
+payload, and worse, could silently drift onto a byte in the gzip header slack, where a flip is a
+clean correct read and the test would pass while proving nothing.
+
+---
+
 ## 2026-08-06 -- Six guards on the coverage-gate branch could not fire, and each one restated a guarantee the caller already carries
 
 **Method first, because the finding is only as good as it.** Every branch the coverage-gate work

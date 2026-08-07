@@ -99,7 +99,7 @@ test_that("no `$` access anywhere in R/, and the guard fires", {
   expect_equal(scan_sources(dollar_sites), character(0))
 
   bait <- bait_parsed(c(
-    '# a comment mentioning $ and a regex "\\\\.qs2$"',
+    '# a comment mentioning $ and a regex "\\\\.rds$"',
     'f <- function(e) e[["ok"]]',
     'g <- function(e) e$covariates'
   ))

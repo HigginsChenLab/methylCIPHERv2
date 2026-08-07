@@ -248,7 +248,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   today is the one someone widens tomorrow -- so it binds on result records, `optim()` output and
   environments alike, where `$` is exact and harmless but not worth the exception.
   `tests/testthat/test-source-hygiene.R` enforces it by scanning **parse tokens**, not text, so a
-  `$` in a comment or a `"\\.qs2$"` regex does not count and a real access cannot hide; the only
+  `$` in a comment or a `"\\.rds$"` regex does not count and a real access cannot hide; the only
   exempt file is the generated `R/RcppExports.R`. `options(warnPartialMatchDollar)` is **not** the
   fix -- a package cannot set a session global for its users and it does not fire under R CMD check.
 - **Never resolve a name by partial match. `$` is one instance of a general rule.** A token the user
@@ -417,7 +417,7 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
        equal its declared `n_cpgs`, with no exemption list.
   3. **External packs** (SystemsAge, PCClocks, PCBrainAge, Zhang2019): reuse when `force = FALSE`
      and `data-raw/assets/lockfile.rds` hits (every external clock's `bundle_hash` unchanged and
-     every staged pack on disk); else rebuild the content-addressed `<group>-<payload_hash>.qs2`
+     every staged pack on disk); else rebuild the content-addressed `<group>-<payload_hash>.rds`
      packs and rewrite the lockfile. `bundle_hash` (from `manifest.json`) moves iff that clock's
      meta or one of its declared artifacts moved -- unlike `source_git_sha`, which moved on every
      upstream commit and could not say which clock changed.
@@ -482,8 +482,17 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   2026-07-28).
 - **Identity key:** `payload_hash` (pack content-address) only -- it sets the pack filename and
   release tag, which is what makes re-upload of unchanged weights a no-op. It stays maintainer-side
-  and never reaches a result record. Transfer integrity and bit rot are qs2's own
-  `validate_checksum`; there is no second hash and no runtime re-hash of a loaded pack.
+  and never reaches a result record. There is no second hash and no runtime re-hash of a loaded
+  pack.
+  - **A pack is a gzipped `.rds`, and `mc_read_pack()` is the only reader.** qs2 was dropped on
+    2026-08-06 for the same total size and read time at three fewer compiled dependencies. What it
+    took with it was `validate_checksum`, and the replacement is one rule: **a warning from
+    `readRDS()` is an abort.** This is not defensive coding. zlib reports a damaged stream as
+    `invalid or incomplete compressed data`, a *warning*, and `readRDS()` then returns a **wrong
+    object** -- measured at 32 of 60 random single-bit flips, against 28 that error and 0 that read
+    correctly. Uncompressed is worse (silent, no condition at all), so `compress` is never `FALSE`
+    on the sync side. Do not "simplify" `mc_read_pack()` to a bare `readRDS()`: the failure it
+    prevents is wrong weights scoring silently (DECISIONS 2026-08-06).
 - **Gitignored, do not commit:** `data-raw/assets/` and `data-raw/methylCIPHER-meta/`.
 
 ## Testing
