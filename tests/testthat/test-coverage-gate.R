@@ -37,18 +37,37 @@ test_that("under-covered clocks score NA instead of stopping", {
   expect_true(all(is.na(res$scores[, "Hannum"])))
 })
 
-test_that("zero observed CpGs is NA even at min_clocks_coverage = 0", {
-  # the floor cannot express this: 0 < 0 is FALSE at every policy
+# the reasons that samples_coverage() carries, for a record with a gap
+reasons_of <- function(res) {
+  sc <- suppressWarnings(suppressMessages(samples_coverage(res)))
+  sc[["reason"]][!is.na(sc[["reason"]])]
+}
+
+# the zero-CpG rule is two clauses, one per axis. hold the other floor away
+# from 0 and read the reason, so neither clause can stand in for the other.
+test_that("a clock with no observed CpGs is NA at min_clocks_coverage = 0", {
+  # 0 < 0 is FALSE, so the ratio cannot express this at any policy. the
+  # vendored fill does not rescue it either: the gate reads observed presence.
   for (id in c("Hannum", "DNAmCRP")) {
     DNAm <- random_betas(foreign_panel(id), n = 4L)
-    res <- suppressWarnings(calc_clocks(
-      DNAm,
-      id,
-      min_clocks_coverage = 0,
-      min_samples_coverage = 0
-    ))
+    expect_warning(res <- calc_clocks(DNAm, id, min_clocks_coverage = 0))
     expect_true(all(is.na(res$scores[, id])))
+    # the reason names the gate that decided, so the row gate cannot cover it
+    expect_equal(unique(reasons_of(res)), "clock_coverage")
   }
+})
+
+test_that("a sample with no observed CpGs is NA at min_samples_coverage = 0", {
+  # cohort-wide the panel is whole, so the column gate is silent here
+  DNAm <- random_betas(clock_scoring_cpgs("Hannum"), n = 4L)
+  DNAm[1, ] <- NA
+
+  expect_warning(
+    res <- calc_clocks(DNAm, "Hannum", min_samples_coverage = 0)
+  )
+  expect_true(is.na(res$scores[1, "Hannum"]))
+  expect_true(all(is.finite(res$scores[-1, "Hannum"])))
+  expect_equal(reasons_of(res), "sample_coverage")
 })
 
 test_that("the gate names a clock the caller is allowed to request", {
@@ -102,7 +121,7 @@ test_that("a sparse normalization panel declines the scheme, it does not blank",
   )))
 })
 
-test_that("a warn band sits above each floor, and both are silent at full", {
+test_that("a warn band sits above each floor, and moves with it", {
   cpgs <- clock_scoring_cpgs("Hannum")
   keep <- thin_panel(cpgs, 0.78)
   DNAm <- random_betas(keep, n = 4L)
@@ -116,14 +135,13 @@ test_that("a warn band sits above each floor, and both are silent at full", {
   expect_warning(res <- calc_clocks(DNAm, "Hannum", min_clocks_coverage = 0))
   expect_true(all(is.finite(res$scores[, "Hannum"])))
 
-  # the bands move with their floors, and neither fires on a full panel
+  # the same panel is clear of both bands once the floors drop
   expect_silent(calc_clocks(
     DNAm,
     "Hannum",
     min_clocks_coverage = 0.5,
     min_samples_coverage = 0.5
   ))
-  expect_silent(calc_clocks(random_betas(cpgs, n = 4L), "Hannum"))
 })
 
 test_that("a gated clock does not break the clocks scored beside it", {

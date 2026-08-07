@@ -85,7 +85,9 @@ no first person, no contractions, no `--`, no `;`. See section 10 for what else 
   PDF manual.
 - **R8. No internal vocabulary.** Name an object the way the reader's own code names it. A word
   that is all over `CLAUDE.md` and `DECISIONS.md` but nowhere in the API is our word, not the
-  reader's: **"record", "closed set", "the block", "routed member", "cohort-mean fill"**.
+  reader's: **"record", "closed set", "the block", "routed member", "cohort-mean fill", "floor",
+  "gate"**. The last two leaked into three shipped topics before anyone read for them (DECISIONS
+  2026-08-06): say `min_clocks_coverage`, or "either argument", or "either value".
   The test is mechanical: if the word is not a function name, an argument name, a component name
   (`$scores`, `$pheno`, `$coverage`, `$provenance`), a column name in a returned frame, or a word
   already in a message the user sees, it is jargon. Say "the returned value" or "an `mc_result`
@@ -384,13 +386,13 @@ section is **intended and verified**. Reporting one of these as a defect is a fa
 
 ### The three shape rules, and where the package stands
 
-Measured 2026-08-05 over all 29 topics. Re-measure rather than trust this line.
+Measured 2026-08-06 over all 30 topics. Re-measure rather than trust this line.
 
 | rule | state |
 |---|---|
-| Every exported topic carries `@examples` or `@examplesIf` | 27 of 27 |
+| Every exported topic carries `@examples` or `@examplesIf` | 28 of 28 |
 | No internal topic carries an example | 0 of 2 carry one |
-| Every exported topic carries `@returns` | 27 of 27 |
+| Every exported topic carries `@returns` | 28 of 28 |
 
 The two internal topics are `mc-params` (the shared `@param` donor, section 5) and
 `methylCIPHERv2-package` (roxygen-generated). Neither has `@returns` or `@examples`, and neither

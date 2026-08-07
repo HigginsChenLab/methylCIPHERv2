@@ -38,7 +38,7 @@ test_that("clocks_coverage reports score_used = present + imputed_full per row",
   expect_equal(row$missing_cpgs[[1]], fx$drop)
 })
 
-test_that("samples_coverage emits no rows for a clock that reads no CpGs", {
+test_that("a clock that reads no CpGs gets rows, and no counts on them", {
   female <- c(1, 1, 1, 0, 0, 0)
   fx <- grip_fixture(female)
   DNAm <- fx$DNAm
@@ -46,27 +46,33 @@ test_that("samples_coverage emits no rows for a clock that reads no CpGs", {
   res <- calc_clocks(DNAm, "DNAmGrip_wAge", pheno = fx$pheno)
   sc <- samples_coverage(res)
 
-  # the alias is a returned column but reads no CpGs, so it reports nothing
-  expect_false("DNAmGrip_wAge" %in% sc$clock_id)
+  # the alias is a returned column that reads no CpGs, so it gets a row per
+  # sample with nothing counted on it. that row is what carries a reason.
+  alias <- sc[sc$clock_id == "DNAmGrip_wAge", ]
+  expect_equal(nrow(alias), 6L)
+  expect_true(all(is.na(alias$n_needed)))
+  expect_true(all(is.na(alias$coverage)))
 
-  # rows are members that read betas, one per sample under the model that scored it.
+  # the members that read betas keep one row per sample, under the model
+  # that scored it, and those rows carry the counts.
+  mem <- sc[sc$clock_id != "DNAmGrip_wAge", ]
   expect_setequal(
-    unique(sc$clock_id),
+    unique(mem$clock_id),
     c("DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male")
   )
-  expect_equal(nrow(sc), 6L)
-  expect_false(anyNA(sc$coverage))
+  expect_equal(nrow(mem), 6L)
+  expect_false(anyNA(mem$coverage))
   expect_equal(
-    sc$clock_id[match(rownames(DNAm), sc$id)],
+    mem$clock_id[match(rownames(DNAm), mem$id)],
     ifelse(female == 1, "DNAmGrip_wAge_Female", "DNAmGrip_wAge_Male")
   )
   expect_equal(
-    sc$n_needed[match(rownames(DNAm), sc$id)],
+    mem$n_needed[match(rownames(DNAm), mem$id)],
     ifelse(female == 1, length(fx$fem), length(fx$mal))
   )
 })
 
-test_that("a sample no model scored gets no samples_coverage row", {
+test_that("a sample no model scored keeps the row that explains it", {
   # the last sample's sex is unknown, so neither member claims it
   fx <- grip_fixture(c(1, 1, 0, NA))
   DNAm <- fx$DNAm
@@ -77,7 +83,9 @@ test_that("a sample no model scored gets no samples_coverage row", {
 
   unscored <- rownames(DNAm)[4]
   expect_true(is.na(res$scores[unscored, "DNAmGrip_wAge"]))
-  expect_setequal(sc$id, rownames(DNAm)[1:3])
+  # no member counted it, so it has no counted row and one alias row
+  expect_setequal(sc$clock_id[sc$id == unscored], "DNAmGrip_wAge")
+  expect_equal(sc$reason[sc$id == unscored], "covariate")
 })
 
 test_that("samples_coverage coverage is the observed fraction of the panel", {
@@ -110,6 +118,25 @@ test_that("samples_coverage gives a normalizing clock a score and a norm row", {
   needed <- tapply(dp$n_needed, dp$panel, unique)
   expect_equal(as.integer(needed[["score"]]), length(score_panel))
   expect_gt(needed[["norm"]], needed[["score"]])
+})
+
+test_that("min_samples_coverage reads the score rows and not the norm rows", {
+  skip_on_cran()
+  skip_if_not_installed("betanorm")
+  gold <- names(clock_norm_target("DunedinPACE"))
+  bg_only <- setdiff(gold, clock_scoring_cpgs("DunedinPACE"))
+  DNAm <- random_betas(gold, n = 4L)
+  # sample 1 loses 40% of the background alone. every scoring CpG is present,
+  # cohort-wide and for that sample, so nothing was gated and nothing is NA.
+  DNAm[1, bg_only[seq_len(round(0.4 * length(bg_only)))]] <- NA_real_
+
+  res <- calc_clocks(DNAm, "DunedinPACE")
+  expect_false(anyNA(res$scores[, "DunedinPACE"]))
+  expect_silent(sc <- samples_coverage(res))
+
+  # the norm row really is under the floor. it is simply not read against it.
+  thin <- sc[sc$panel == "norm" & sc$id == rownames(DNAm)[[1L]], ]
+  expect_lt(thin$coverage, 0.75)
 })
 
 # the coverage floors the run was scored under

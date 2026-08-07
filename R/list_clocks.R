@@ -44,8 +44,8 @@ request_token <- function(clock_id, alias) {
 #'   samples scored with it.
 #' - `normalize` names the background normalization scheme a clock declares,
 #'   and is empty for a clock that declares none. `"quantile"` is on by
-#'   default and `"bmiq"` is off, and the `normalize` argument of
-#'   [calc_clocks()] moves either one.
+#'   default and `"bmiq"` is off. The `normalize` argument of [calc_clocks()]
+#'   turns either one on or off.
 #'
 #' @returns A data.frame. One row for each clock in the catalog, including a
 #'   clock that scores only as part of another clock.

@@ -9,8 +9,7 @@ NORM_SCHEMES <- c("quantile", "bmiq")
 # schemes score_normalized() implements (quantile routes via Dunedin)
 NORM_SCHEMES_ROUTED <- "bmiq"
 
-# schemes that are on unless the caller declines them. every scheme can be
-# declined, and a background too thin to use declines one on the caller's behalf.
+# schemes that are on unless declined. every scheme here can be declined.
 NORM_DEFAULT_ON <- "quantile"
 
 # schemes that fill an absent background cpg with the target value

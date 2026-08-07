@@ -54,7 +54,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 - **One beta entry point, and therefore no pre-flight check.** `calc_clocks()` is the only public
   surface that reads a beta matrix; everything else reads the **catalog** (`list_clocks`,
   `clock_cpgs`, `list_clock_tags`) or a **finished record** (`clocks_coverage`, `samples_coverage`,
-  `score_gaps`, `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Only
+  `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Only
   `calc_clocks` and `predict_sex` take a `DNAm` argument, and `predict_sex` touches it *through*
   `calc_clocks`; `sim_DNAm` generates a matrix rather than reading one. A "dry run", a coverage
   preview, or a `report(DNAm)` arm is **a second beta reader**, and that is what is refused: it
@@ -101,10 +101,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     axes and can exceed `score_present`.
   - **The sample axis is `$coverage$sample_miss`, and only that**:
     `list(score = <n x k>, norm = <n x k' over just the normalizing columns>)`. **`$per_clock`,
-    `$sample_miss` and `samples_coverage()` span one set -- the clocks that read CpGs** -- so
-    routing targets are in and pure composites are out even when returned. `cached_cols()` /
+    `$per_clock` and `$sample_miss` span one set -- the clocks that read CpGs** -- so routing
+    targets are in and pure composites are out even when returned. `cached_cols()` /
     `count_sample_miss()` (integer) / `score_matrix()` are the shared shape helpers (DECISIONS
-    2026-07-24, 2026-07-29).
+    2026-07-24, 2026-07-29). **`samples_coverage()` spans more than that, and did not always**:
+    it adds a countless row per sample for every score column with no record, so a composite or an
+    alias has somewhere for its `reason` to sit. That is the span `clocks_coverage()` always had
+    (DECISIONS 2026-08-06).
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double), `$pheno`,
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
   `$provenance` carries the per-sample `mc_batch_id` (aligned to `sample_id`), the retained
@@ -113,10 +116,10 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   reconciles nothing; `samples_coverage()` finalizes them by taking the **most restrictive** (`max`)
   and re-warning, which is the only thing that makes a post-bind `coverage < threshold` filter well
   defined. There is no `below_min` column -- it would mean different things per row after a bind.
-  **Both floors are read, and `score_gaps()` is what reads them**: neither aborts any more, so a
-  record can hold a clock the column gate refused and a cell the row gate refused, and only the
-  floor that batch ran under says which (DECISIONS 2026-08-06, superseding the 2026-08-03 reading
-  that `min_clocks_coverage` was recorded but read by nothing).
+  **Both floors are read, and `samples_coverage()`'s `reason` column is what reads them**: neither
+  aborts any more, so a record can hold a clock the column gate refused and a cell the row gate
+  refused, and only the floor that batch ran under says which (DECISIONS 2026-08-06, superseding the
+  2026-08-03 reading that `min_clocks_coverage` was recorded but read by nothing).
   - **Normalization is two facts, and the record keeps both.** `normalized` is what a run *did* --
     flat, and `rbind` gates on it, because a normalized column and a raw one are two different
     columns. `normalize_requested` is what the caller *asked for*, **keyed by batch** like the
@@ -127,12 +130,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     reconcile `normalize_requested` on bind, and do not gate on it -- differing requests with
     matching results is a legal bind (DECISIONS 2026-08-06).
   - **Where a verb exists it is a method**, and the built surface is exactly `print`, `as.matrix`,
-    `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()` and `score_gaps()`.
+    `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()`.
     Coverage is deliberately not `summary()`: it is `clocks_coverage()` (one row per
     **(clock, batch)**) and `samples_coverage()` (each sample's batch alongside its id), with
     `mc_batch_id` **last** in both -- it is the join key, but it is a hash, so it does not sit in
-    front of `clock_id`. `score_gaps()` is the third frame and takes the same shape, one row per
-    NA score, with the reason derived and never stored. Citations
+    front of `clock_id`. **There is no third frame.** Why an `NA` score is `NA` is the `reason`
+    column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()` and
+    never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06). Citations
     dispatch as `cite_clocks()`, a **package-owned** generic, because `utils::citation` and
     `utils::cite` both exist as plain functions and taking either name masks it. `[`, `cbind` and
     `augment` are **unbuilt ideas, not contracts** (DECISIONS 2026-07-23/24/25, 2026-07-27).
@@ -140,16 +144,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `cite_clocks()`, blocked until upstream verifies a `description` per clock. Do not build it
     against a partly populated field (DECISIONS 2026-08-04).
   - **The batch column reaches an exit frame only when the record spans more than one batch** -- at
-    one batch it is a repeated hash carrying no information. All five exits (`as.data.frame`,
-    `calc_accel`, both coverage frames, `score_gaps`) share the **one** test in `is_multi_batch()`
+    one batch it is a repeated hash carrying no information. All four exits (`as.data.frame`,
+    `calc_accel`, both coverage frames) share the **one** test in `is_multi_batch()`
     (`R/mc_result.R`), keyed on `length(unique(provenance[[mc_batch_id]]))`, the vector that fills
     the column and never `per_clock`'s names. Each **declines to build the column** rather than
-    building one it will lose; `drop_single_batch()` still runs at all five as the gate, now a
+    building one it will lose; `drop_single_batch()` still runs at all four as the gate, now a
     no-op, and the two forms produce `identical()` frames. The coverage frames thread the decision
-    down to `panel_rows()` / `batch_coverage()`, and `score_gaps()` to `batch_gaps()`, all of which
+    down to `panel_rows()` / `batch_coverage()`, both of which
     assemble by `rbind` and cannot add the column after the fact. The conditional schema is a real
-    cost, accepted knowingly: the five exits must appear and vanish **together** or two frames
-    disagree about whether the join key exists. Nothing internal is conditional (DECISIONS
+    cost, accepted knowingly: the four exits must appear and vanish **together** or two frames
+    disagree about whether the join key exists. Nothing internal is conditional -- `gap_reasons()`
+    drops the label and joins on the sample id, which gate 1 already made disjoint (DECISIONS
     2026-07-31, 2026-08-01, 2026-08-06).
   - **The label is `mc_batch_id` everywhere the user can touch it** -- both coverage frames, both
     finalizer frames, `$provenance`, and the `calc_accel()` formula namespace, where it is always
@@ -180,21 +185,30 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     because `split()` names its result and refusing would kill
     `do.call(rbind, lapply(split(...), ...))`, the idiom the feature exists for. This is what makes
     re-association exact: `rbind(rbind(r1, r2), r3)` and `rbind(r1, r2, r3)` are `identical()`.
-  - **A finalizer is any exit that takes an `mc_result` and returns something that is not one.** The
-    test is mechanical, so the set is derived rather than listed and cannot go stale:
-    `as.data.frame()`, `as.matrix()`, `calc_accel()`, `score_associations()`, and `score_gaps()`,
-    which joined by that test and not by an edit -- it reads the NA pattern of `$scores`, and an
-    unfinalized cross-sample column is entirely NA until its reduction runs. All five re-finalize
+  - **A finalizer is an exit that reads a score *value*.** Two clauses, both load-bearing. It
+    **returns something that is not an `mc_result`**, which is why `rbind` and `refinalize_clocks`
+    are out and `print` is out, handing `x` straight back. And it **reads the cells of `$scores`,
+    not its shape**, which is why `clocks_coverage` is out having never touched it, and
+    `cite_clocks` is out reading `colnames()` alone -- a reduction moves no column name. What is
+    left derives exactly, and is `finalized()`'s five call sites: `as.data.frame()`, `as.matrix()`,
+    `calc_accel()`, `score_associations()`, and `samples_coverage()`, which joined by the test and
+    not by an edit -- its `reason` column reads the NA pattern of `$scores`, and an unfinalized
+    cross-sample column is entirely NA until its reduction runs. **The one-clause form was wrong,
+    and had been wrong since before either coverage frame existed**: "any exit that returns
+    something that is not an `mc_result`" admits `clocks_coverage` and `cite_clocks`, so the set it
+    derived was never the set that finalizes, and a separate sentence about "both coverage frames"
+    hid the mismatch. Fixing the definition is the point -- an enumerated set drifted twice
+    (DECISIONS 2026-08-03, 2026-08-06). All five re-finalize
     on the way out and say so, under `say_pending()`'s exact guard (non-empty `pending` **and** more
     than one batch); `rbind` is the only verb that leaves `pending` unresolved. It must **not**
     become a finalizer: `do.call(rbind, ...)` recurses and would re-finalize at every intermediate
     step, whereas a finalizer is a leaf handing back a value the record cannot be recovered from.
-    Enumerating the set instead of deriving it drifted twice (DECISIONS 2026-08-03). A single-batch
+    A single-batch
     record is skipped because its reduction already spans its whole cohort; for the per-batch
     reductions, finalize each record *before* binding.
   - **The two batch counts are cross-checked, not chosen between.** `n_batches()` derives the count
     from `provenance[[mc_batch_id]]` and `stop()`s if `length(per_clock)` disagrees. Every finalizer
-    and both coverage frames route through it, and `finalized()` calls it **before** the `pending`
+    and `clocks_coverage()` route through it, and `finalized()` calls it **before** the `pending`
     test so `&&` cannot short-circuit past the check. Never read either count directly.
   - **Every `print.mc_*` method shares one grammar, built in `R/print.R`**: a `<class> A x B` header,
     a `$component [what is shown]` line per list element, then `... N more <axis>`. The builders
@@ -287,7 +301,9 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 - **Coverage is never reported for a sample it is not true of, and a clock reports only what it
   counted itself.** A clock whose branch reads no betas -- assembled purely from other clocks'
   scores -- **has no coverage of its own**: `per_clock[[id]]` is `NULL`, it gets no `sample_miss`
-  column and no `samples_coverage()` row, and its all-`NA` `clocks_coverage()` row says so.
+  column, and its all-`NA` row in **both** coverage frames says so. It does get a
+  `samples_coverage()` row per sample, with every count `NA`, because that is where its `reason`
+  sits; a row saying nothing was counted is not a coverage figure.
   `clock_reads_cpgs()` (`R/score_cohort.R`) is the one source and switches on `score_type()`, so it
   is a fact about the closed branch set, not a clock list; today it selects the 7 sex-routed
   aliases, `GrimAgeV1` and `DNAmFitAge_{Sex}` (`GrimAgeV2` keeps its record -- its cox stack
@@ -303,8 +319,8 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     two `DNAmFitAge_{Sex}` members -- so it could NA a clock on a panel this invariant says is not
     its own coverage, and nothing in the record could then explain the cell. **Do not widen it back
     to `cpg_list`**: the union of panels that each cleared the floor clears it too, so what is lost
-    cannot happen, and what is gained is that `score_gaps()` has a record to read for every clock it
-    must explain (DECISIONS 2026-08-06).
+    cannot happen, and what is gained is that `gap_reasons()` has a record to read for every clock
+    it must explain (DECISIONS 2026-08-06).
   - **`min_clocks_coverage` grades two panels and decides differently on each; `min_samples_coverage`
     grades one.** Too little of the **scoring** panel and the clock is `NA` for the batch, because
     there is nothing to compute from. Too little of the **background** and only the scheme is
@@ -318,10 +334,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `resolve_cpgs()`, because declining a scheme empties the background panel and every downstream
     fact reads the resolved panel; that is what keeps it a flag flip instead of a branch
     (DECISIONS 2026-08-06).
-  - **`samples_coverage()` drops NA-coverage rows**, which has exactly one source: a routed member
-    masked on a row its sex did not score. So the long frame carries one row per sample per family,
-    under the model that scored it, and a sample no model scored (unknown sex) has no row at all --
-    the same fact its `NA` score already carries. It was never a complete sample x clock grid.
+  - **`samples_coverage()` drops an NA-coverage row it built from a record, and only that**: a
+    routed member masked on a row its sex did not score. So the counted half carries one row per
+    sample per family, under the model that scored it, and a sample no model scored (unknown sex)
+    gets no member row. It still gets the **alias** row -- countless by construction, never graded
+    by the drop, and carrying the `covariate` reason that explains its `NA`. Build the two halves
+    apart and filter only the counted one; a single `!is.na(coverage)` sweep over the assembled
+    frame deletes every composite row and takes 14 of 19 reasons with it (DECISIONS 2026-08-06).
   - **The converse binds too: never score a CpG coverage did not count.** Coverage counts the
     *declared* panel, so a branch takes its CpGs from the resolved `cpgs` it is handed
     (`score_present` / `score_absent`) and never re-derives them against the block's cohort-wide
@@ -355,7 +374,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 - **The exported surface is documented, and `dev/WRITING.md` is how.** Roxygen went on because the
   package went Rcpp and `useDynLib` has no route into `NAMESPACE` except a tag, so `NAMESPACE` and
   `man/*.Rd` are **generated files** and `devtools::document()` is a normal part of the workflow.
-  Prose docs shipped 2026-08-03: all 26 user-facing topics carry real `@param` / `@details` /
+  Prose docs shipped 2026-08-03: all 28 user-facing topics carry real `@param` / `@details` /
   `@returns` / `@examples`, the `@seealso` groups are closed, and `cite_clocks` merges its three
   methods onto one topic with `@rdname`. `lint_roxygen()` and `lint_seealso()` (`R/dev-utils.R`)
   must both come back empty (DECISIONS 2026-07-27, 2026-08-03).

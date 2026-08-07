@@ -236,6 +236,18 @@ clock_sample_rows <- function(x, id, rec, batch, rows) {
   do.call(rbind, out)
 }
 
+# a clock assembled from other clocks' scores counts no CpGs of its own, so it
+# gets one score row per sample with no figures, as clocks_coverage() does.
+composite_sample_rows <- function(id, batch, sample_id) {
+  panel_rows(
+    id,
+    "score",
+    batch,
+    list(n_observed = NA_integer_, needed = NA_integer_, cov = NA_real_),
+    sample_id
+  )
+}
+
 # empty samples_coverage() frame. seeds rbind and matches the batch-column test.
 empty_sample_rows <- function(keep_batch) {
   out <- data.frame(
@@ -260,6 +272,12 @@ finalize_samples_gate <- function(x) {
 
 # re-warn on the assembled frame, so a bound record says it once under one floor
 say_low_samples <- function(out, threshold) {
+  # a norm row is never read against this floor, and a composite row has no
+  # figure to grade.
+  out <- out[
+    out[["panel"]] == "score" & !is.na(out[["coverage"]]), ,
+    drop = FALSE
+  ]
   low <- out[["coverage"]] < threshold
   if (!any(low)) {
     return(invisible(NULL))
@@ -267,14 +285,16 @@ say_low_samples <- function(out, threshold) {
   n_samp <- length(unique(out[["id"]][low]))
   cli::cli_warn(
     c(
-      "{sum(low)} of {nrow(out)} row{?s} {cli::qty(sum(low))}{?is/are} under
-       {.arg min_samples_coverage} = {format(threshold)}, across
-       {n_samp} sample{?s}.",
-      "i" = "The {.field coverage} column gives the fraction of the panel
-             present for each row.",
-      "i" = "Filter the returned frame on that column to see
+      "{sum(low)} of {nrow(out)} scoring row{?s}
+       {cli::qty(sum(low))}{?is/are} under {.arg min_samples_coverage} =
+       {format(threshold)}, across {n_samp} sample{?s}.",
+      "i" = "{.arg min_samples_coverage} reads the {.val score} rows. The
+             {.field coverage} column gives the fraction of the panel present
+             for each row.",
+      "i" = "Filter the returned frame on those two columns to see
              {cli::qty(sum(low))}{?the row/the rows}. For example,
-             {.code cov[cov$coverage < {format(threshold)}, ]}.",
+             {.code cov[cov$panel == \"score\" & cov$coverage <
+             {format(threshold)}, ]}.",
       "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
     ),
     call = NULL
@@ -285,29 +305,51 @@ say_low_samples <- function(out, threshold) {
 # one row per (sample, clock with a coverage record, panel)
 #' Sample Coverage Counts
 #'
-#' Reports each sample's CpG coverage for every clock in `x`, one row for
-#' each sample, clock, and panel.
+#' Reports each sample's CpG coverage for every clock in `x`, and the reason
+#' for each missing score.
 #'
 #' @inheritParams mc-params
 #'
 #' @details
-#' A clock gets a row when it reads CpGs of its own, under its own name. A
-#' clock that scores as part of another clock is included. A clock assembled
-#' only from other clocks' scores gets no row, even when it is one of the
-#' scores of `x`. Read the rows of the clocks it depends on instead. A clock
-#' scored separately for each sex has no row for a sample outside the sex it
-#' scored.
+#' Every clock in the scores of `x` gets a row for each sample, and so does
+#' every clock that scores as part of another clock. A clock assembled only
+#' from other clocks' scores counts no CpGs of its own, so its counts are
+#' `NA`. A clock scored separately for each sex has no row for a sample
+#' outside the sex it scored.
 #'
 #' A clock that normalizes has a second row for each sample, under
 #' `panel = "norm"`, for the panel used to normalize it.
 #'
-#' `samples_coverage()` warns when a row's `coverage` is under the
-#' strictest `min_samples_coverage` value used to score `x`. The
-#' `mc_batch_id` column appears only when `x` holds more than one batch.
+#' `reason` says why a score is missing, and is `NA` where the score is
+#' present. It takes one of five values, and where more than one applies, the
+#' first of these is given.
+#'
+#' - `covariate`, when a covariate the clock needs is missing from `pheno`.
+#'   An unknown `Female` value is the usual cause.
+#' - `clock_coverage`, when the clock is under `min_clocks_coverage`. Every
+#'   sample is missing this score.
+#' - `sample_coverage`, when the sample is under `min_samples_coverage`.
+#' - `fit`, when the clock reached the sample but could not be calculated
+#'   for it.
+#' - `dependency`, when a clock that this clock is calculated from is
+#'   missing for that sample.
+#'
+#' A score that is not a number, such as `NaN`, is not a missing score. It
+#' gets no reason, and `calc_clocks()` warns about it instead. A `norm` row
+#' counts a background panel rather than a score, so it never gets one
+#' either. `min_clocks_coverage` and `min_samples_coverage` are read for the
+#' batch that scored the sample, because those are the values that decided
+#' the score.
+#'
+#' `samples_coverage()` warns when a `score` row's `coverage` is under the
+#' strictest `min_samples_coverage` value used to score `x`. A `norm` row is
+#' never read against that value, because the background panel is counted for
+#' the whole run and not for one sample. The `mc_batch_id` column appears
+#' only when `x` holds more than one batch.
 #'
 #' @returns A data.frame. One row for each sample, clock, and panel, with
-#'   `n_observed`, `n_needed`, `coverage`, and, when `x` holds more than
-#'   one batch, `mc_batch_id`.
+#'   `n_observed`, `n_needed`, `coverage`, `reason`, and, when `x` holds more
+#'   than one batch, `mc_batch_id`.
 #'
 #' @seealso
 #' [clocks_coverage()] for the same panels counted for each clock.
@@ -322,30 +364,60 @@ say_low_samples <- function(out, threshold) {
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)
+  # a finalizer: `reason` reads the NA pattern of the scores, and a
+  # cross-sample column is entirely NA until its reduction runs
+  x <- finalized(x)
   batch <- x[["provenance"]][[MC_BATCH]]
   # one row per (sample, clock, panel). batch masks rows. label withheld when single-batch.
   keep <- n_batches(x) > 1L
+  returned <- colnames(x[["scores"]])
 
-  parts <- list()
+  counted <- list()
+  composite <- list()
   for (b in names(x[["coverage"]][["per_clock"]])) {
     per_clock <- x[["coverage"]][["per_clock"]][[b]]
     rows <- batch == b
+    label <- if (keep) b else NULL
     # no record means no cpgs of its own.
     ids <- covered_ids(per_clock)
-    parts <- c(
-      parts,
+    counted <- c(
+      counted,
       lapply(ids, function(id) {
-        clock_sample_rows(x, id, per_clock[[id]], if (keep) b else NULL, rows)
+        clock_sample_rows(x, id, per_clock[[id]], label, rows)
+      })
+    )
+    composite <- c(
+      composite,
+      lapply(setdiff(returned, ids), function(id) {
+        composite_sample_rows(id, label, x[["provenance"]][["sample_id"]][rows])
       })
     )
   }
 
-  # seed with the empty frame so a run of pure composites keeps the shape
-  out <- do.call(rbind, c(list(empty_sample_rows(keep)), parts))
+  # drop na coverage rows (routed member on a sex it did not score). only the
+  # counted half is graded -- a composite row is all NA by construction.
+  counted <- do.call(rbind, counted)
+  counted <- counted[!is.na(counted[["coverage"]]), , drop = FALSE]
 
-  # drop na coverage rows (routed member on a sex it did not score)
-  out <- out[!is.na(out[["coverage"]]), , drop = FALSE]
+  # seed with the empty frame so the column types and order are fixed
+  out <- do.call(rbind, c(list(empty_sample_rows(keep)), list(counted), composite))
   rownames(out) <- NULL
   say_low_samples(out, finalize_samples_gate(x))
-  drop_single_batch(out, batch)
+  attach_reasons(drop_single_batch(out, batch), gap_reasons(x))
+}
+
+# why each missing score is missing, against the score row that holds it. a
+# norm row is a background count and never a score cell, so it takes no reason.
+attach_reasons <- function(out, gaps) {
+  key <- function(id, clock) paste(id, clock, sep = "\r")
+  hit <- match(
+    key(out[["id"]], out[["clock_id"]]),
+    key(gaps[["id"]], gaps[["clock_id"]])
+  )
+  hit[out[["panel"]] != "score"] <- NA_integer_
+
+  cols <- names(out)
+  out[["reason"]] <- gaps[["reason"]][hit]
+  # mc_batch_id stays last: it is the join key, and it is a hash
+  out[c(setdiff(cols, MC_BATCH), "reason", intersect(MC_BATCH, cols))]
 }

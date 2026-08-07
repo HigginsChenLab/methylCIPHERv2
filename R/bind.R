@@ -109,15 +109,24 @@ normalize_declined <- function(rec) {
   setdiff(asked, prov[["normalized"]])
 }
 
+# the clocks gate_same_set() will refuse on, or none when it will not refuse
+normalized_diff <- function(recs) {
+  ref <- recs[[1L]][["provenance"]][["normalized"]]
+  for (i in seq_along(recs)[-1L]) {
+    got <- recs[[i]][["provenance"]][["normalized"]]
+    if (!setequal(ref, got)) {
+      return(c(setdiff(ref, got), setdiff(got, ref)))
+    }
+  }
+  character(0)
+}
+
 # a normalized column and a raw one are two different columns, so the effective
-# sets must agree. which of the two facts differs decides the advice: the
-# caller chose the setting, but only the data can decline one.
+# sets must agree. which of the two facts differs decides the advice.
 gate_same_normalized <- function(recs) {
-  forced <- any(vapply(
-    recs,
-    function(r) length(normalize_declined(r)) > 0L,
-    logical(1L)
-  ))
+  # measured on the clocks that differ, not on every decline in the record
+  declined <- unlist(lapply(recs, normalize_declined))
+  forced <- any(normalized_diff(recs) %in% declined)
   gate_same_set(
     recs,
     "normalized",
@@ -190,11 +199,11 @@ say_pending <- function(x) {
 #' same `pheno_id`, and the same normalized clocks. `rbind()` stops when any
 #' of those differ between inputs.
 #'
-#' The normalized clocks are the ones a run actually normalized, which is
+#' The normalized clocks are the ones a run applied a scheme to, which are
 #' not always the ones it was asked to. A batch whose background panel was
 #' too thin is scored without the scheme, so two inputs given the same
-#' `normalize` setting can still differ here. `rbind()` says which of the
-#' two caused it.
+#' `normalize` setting can still differ here. `rbind()` names the cause when
+#' it stops.
 #'
 #' The combined value gets one `mc_batch_id` label for each input. A clock
 #' that depends on sample-wise information, such as a z-score, keeps the
