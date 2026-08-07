@@ -1,9 +1,6 @@
-# quantile normalization to a target distribution, vendored from hhp94/betanorm.
-# internal: calc_clocks() stays the only public reader of a beta matrix.
+# quantile norm to a target (vendored from hhp94/betanorm; internal).
 
-# no-missing-data port of preprocessCore::normalize.quantiles.use.target().
-# each sample row is ranked onto `target` -- Bolstad equal-length indexing when
-# length(target) == ncol(obj), linear quantile interpolation otherwise.
+# Port of preprocessCore::normalize.quantiles.use.target(); rank each row onto target.
 quantile_norm <- function(obj, target) {
   checkmate::assert_matrix(
     obj,

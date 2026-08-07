@@ -36,16 +36,16 @@ library(methylCIPHERv2)
 ### Browse the clocks
 
 `list_clocks()` returns a data.frame showing all the supported clocks.
-[The clock
+The [clock
 catalog](https://hhp94.github.io/methylCIPHERv2/articles/clocks.html)
 article provides a searchable table.
 
 ``` r
 head(list_clocks(), n = 3)
-#>    clock_id     group_id request_as covariates external        tags
-#> 1 Bohlin251       Bohlin  Bohlin251               FALSE gestational
-#> 2  Bohlin96       Bohlin   Bohlin96               FALSE gestational
-#> 3  AdaptAge CausalityAge   AdaptAge               FALSE
+#>    clock_id     group_id covariates external        tags
+#> 1 Bohlin251       Bohlin               FALSE gestational
+#> 2  Bohlin96       Bohlin               FALSE gestational
+#> 3  AdaptAge CausalityAge               FALSE
 ```
 
 A clock can be selected by `clock_id`, `group_id`, or `tag`.
@@ -68,10 +68,10 @@ required download status.
 ``` r
 list_mc_assets()
 #>     group_id n_clocks n_cpgs   size downloaded superseded superseded_size
-#> 1 PCBrainAge        1 357852  6.68M      FALSE          0               0
-#> 2   PCClocks       14  78464  8.88M      FALSE          0               0
-#> 3 SystemsAge       13 125175 22.46M      FALSE          0               0
-#> 4  Zhang2019        1 319607  5.02M      FALSE          0               0
+#> 1 PCBrainAge        1 357852   6.8M      FALSE          0               0
+#> 2   PCClocks       14  78464  8.87M      FALSE          0               0
+#> 3 SystemsAge       13 125175 22.54M      FALSE          0               0
+#> 4  Zhang2019        1 319607  5.22M      FALSE          0               0
 ```
 
 For example, `"SystemsAge"` needs its asset for `calc_clocks()`.
@@ -85,10 +85,10 @@ download_mc_assets(groups = "all", ask = TRUE) # downloading requires confirmati
 ``` r
 list_mc_assets()
 #>     group_id n_clocks n_cpgs   size downloaded superseded superseded_size
-#> 1 PCBrainAge        1 357852  6.68M       TRUE          0               0
-#> 2   PCClocks       14  78464  8.88M       TRUE          0               0
-#> 3 SystemsAge       13 125175 22.46M       TRUE          0               0
-#> 4  Zhang2019        1 319607  5.02M       TRUE          0               0
+#> 1 PCBrainAge        1 357852   6.8M       TRUE          0               0
+#> 2   PCClocks       14  78464  8.87M       TRUE          0               0
+#> 3 SystemsAge       13 125175 22.54M       TRUE          0               0
+#> 4  Zhang2019        1 319607  5.22M       TRUE          0               0
 ```
 
 The function `clear_mc_assets()` deletes the downloaded assets.

@@ -290,9 +290,7 @@ panels_union <- function(panels, roles = c("score", "norm")) {
   ))
 }
 
-# per-clock present/absent CpG sets over usable_cols
-# usable_cols is unique by construction (setdiff in scan_missing_cpgs), and
-# present_idx below indexes it, so mc_block() must key on the same vector.
+# per-clock present/absent over usable_cols (same vector mc_block must key on).
 resolve_cpgs <- function(usable_cols, panels) {
   usable <- usable_cols
   clock_sequence <- panels[["clock_id"]]
@@ -324,8 +322,7 @@ resolve_cpgs <- function(usable_cols, panels) {
   score_parts <- split_panels(panels[["score"]])
   norm_parts <- split_panels(panels[["norm"]])
 
-  # a background two clocks share is calibrated once, so it needs a key. keyed
-  # only where it is shared: a lone normalizing clock then retains nothing.
+  # shared background panels get a cache key; lone norm clocks do not.
   norm_shared <- tabulate(
     panels[["norm"]][["idx"]],
     nbins = length(norm_parts)

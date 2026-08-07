@@ -183,7 +183,7 @@ check_moment_sets <- function(sets, nc) {
   out
 }
 
-# domain cpgs -> column indices. NULL element is the whole matrix. declared refs keep only measured cols.
+# domain CpGs -> column indices; NULL = whole matrix; keep measured only.
 resolve_moment_sets <- function(domains, cpgs) {
   if (!length(domains)) {
     return(NULL)

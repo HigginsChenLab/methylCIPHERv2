@@ -32,8 +32,7 @@ physage_raws <- function(id, cpgs, block, results) {
   )
 }
 
-# cohort z-score. scale() ignores NA, so a masked sample leaves the moments
-# alone, and a surrogate constant across the cohort scores NA.
+# cohort z-score (scale() ignores NA; constant surrogate -> NA).
 zscore_raws <- function(raws) {
   z <- scale(raws)
   # the divisor scale() actually used.

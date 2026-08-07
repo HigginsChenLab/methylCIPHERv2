@@ -109,7 +109,7 @@ normalize_declined <- function(rec) {
   setdiff(asked, prov[["normalized"]])
 }
 
-# the clocks gate_same_set() will refuse on, or none when it will not refuse
+# clocks that differ across records under gate_same_set(), or none
 normalized_diff <- function(recs) {
   ref <- recs[[1L]][["provenance"]][["normalized"]]
   for (i in seq_along(recs)[-1L]) {
@@ -121,11 +121,9 @@ normalized_diff <- function(recs) {
   character(0)
 }
 
-# a normalized column and a raw one are two different columns, so the effective
-# sets must agree. which of the two facts differs decides the advice.
+# normalized sets must match; which side differs picks the advice.
 gate_same_normalized <- function(recs) {
-  # measured on the clocks that differ, not on every decline in the record
-  declined <- unlist(lapply(recs, normalize_declined))
+    declined <- unlist(lapply(recs, normalize_declined))
   forced <- any(normalized_diff(recs) %in% declined)
   gate_same_set(
     recs,
@@ -309,8 +307,7 @@ rbind.mc_result <- function(..., deparse.level = 1) {
   out
 }
 
-# reduce every retained intermediate over the samples in `x`, and say nothing.
-# leaves pending so calls compose. returns the record and the columns it rewrote.
+# silent re-reduction over samples in x; leaves pending so calls compose.
 reduce_pending <- function(x) {
   done <- finalize_cross_sample(list(), x[["provenance"]][["pending"]])
   x[["provenance"]][["scoring_failures"]] <- merge_notes(
@@ -320,8 +317,7 @@ reduce_pending <- function(x) {
   ids <- intersect(names(done[["scores"]]), colnames(x[["scores"]]))
   for (id in ids) {
     col <- done[["scores"]][[id]]
-    # match by name, not row order. a batch that gated this clock contributed
-    # no intermediates, so its rows have none to reduce and stay NA.
+    # match by sample id; rows with no intermediate stay NA.
     rows <- id_index(
       rownames(x[["scores"]]),
       rownames(col),
@@ -333,8 +329,7 @@ reduce_pending <- function(x) {
   list(x = x, ids = ids)
 }
 
-# recompute cohort-reducing clocks over every sample. the speaking wrapper over
-# reduce_pending(): an explicit call reports, an exit's silent re-reduction does not.
+# recompute cohort-reducing clocks; reports (unlike silent reduce_pending()).
 #' Scores Recomputed From All Samples
 #'
 #' Recalculates every clock that depends on sample-wise information, such as

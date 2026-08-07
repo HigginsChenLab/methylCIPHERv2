@@ -1,5 +1,4 @@
-# shared @param definitions. inherit with `@inheritParams mc-params`.
-# only same-default params. override locally. `x` is mc_result -- do not inherit for other types.
+# shared @param donor for @inheritParams mc-params. x is mc_result only.
 
 #' Shared Parameters
 #'

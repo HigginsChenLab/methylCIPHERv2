@@ -19,8 +19,7 @@ namespace
         }
     };
 
-    // equal lengths (n == m): integer rank -> target[k-1]; half-rank (ties)
-    // -> mean of adjacent target values. Bolstad using_target() path.
+    // equal length: integer rank -> target; ties -> mean of adjacent targets.
     inline double target_equal_rank(
         double rank,
         const double *target)
@@ -34,8 +33,7 @@ namespace
         return target[k - 1];
     }
 
-    // unequal lengths: linear interpolation of the matching target quantile.
-    // inv_nm1 = 1/(n-1), m1 = m-1 are hoisted by the caller.
+    // unequal length: linear interpolation of the target quantile.
     inline double target_unequal_rank(
         double rank,
         double inv_nm1,
@@ -85,8 +83,7 @@ namespace
         return target[0];
     }
 
-    // fill items from a contiguous sample column, sort, map ranks -> target.
-    // map_rank is applied once per tie-group.
+    // sort sample column, map ranks to target (once per tie-group).
     template <typename MapRank>
     void normalize_column(
         double *column,
@@ -141,8 +138,7 @@ Rcpp::NumericMatrix qnorm_target_rows_cpp(
     std::vector<double> sorted_target(target.begin(), target.end());
     std::sort(sorted_target.begin(), sorted_target.end());
 
-    // variables x samples: each sample becomes a contiguous column so that
-    // ranking is a linear scan over packed memory (R is column-major).
+    // samples as contiguous columns for packed ranking.
     Rcpp::NumericMatrix xt = Rcpp::transpose(obj);
 
     const int n_variables = xt.nrow();

@@ -100,8 +100,7 @@ calc_clocks <- function(
     pheno = facts[["pheno"]],
     pheno_id = spec[["pheno_id"]],
     covariates_used = spec[["covariates"]],
-    # both facts: `normalized` is what the run did, `normalize_requested` what
-    # the caller asked for.
+    # normalized = applied; normalize_requested = asked for.
     normalized = names(facts[["normalize"]])[facts[["normalize"]]],
     normalize_requested = names(spec[["normalize"]])[spec[["normalize"]]],
     min_clocks_coverage = min_clocks_coverage,

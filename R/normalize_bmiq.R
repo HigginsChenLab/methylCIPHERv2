@@ -1,5 +1,4 @@
-# beta-mixture quantile calibration, vendored from hhp94/betanorm.
-# internal: calc_clocks() stays the only public reader of a beta matrix.
+# beta-mixture quantile calibration (vendored from hhp94/betanorm; internal).
 
 check_thresholds <- function(
   thresholds,
@@ -84,10 +83,7 @@ density_thresholds <- function(
     )
   }
 
-  # The desired boundary between adjacent components k and k + 1 (ordered by
-  # increasing mean) is where the lower-mean component stops dominating the
-  # weighted density and the higher-mean component takes over. Two Beta
-  # densities can cross twice, so we require that specific orientation.
+  # Boundary between components k and k+1 (by mean): lower stops dominating higher.
   find_crossing <- function(k) {
     lo <- means[k]
     hi <- means[k + 1L]
@@ -189,10 +185,7 @@ density_thresholds <- function(
   thresholds
 }
 
-# Continuous class-wise quantile map for nL = 2, joined at the gold cut.
-# Sample cut t_s and gold cut t_g are the U/M density-crossing thresholds.
-# U side (x <= t_s): conditional quantile of F_sU on (0, t_s] -> (0, t_g].
-# M side (x > t_s): conditional upper-tail map of F_sM on (t_s, 1] -> (t_g, 1].
+# nL=2 class-wise quantile map joined at gold cut t_g (sample cut t_s).
 normalize_nl2 <- function(
   beta,
   class,
@@ -231,15 +224,9 @@ normalize_nl2 <- function(
     )
   }
 
-  # Work in log-probability throughout: an extreme but nonzero tail mass can
-  # underflow stats::pbeta() to exactly 0 on the natural scale and force a spurious
-  # rejection, whereas log.p returns a finite log-mass. A conditional CDF
-  # (numerator log-mass minus threshold log-mass) is clamped at 0 (probability
-  # 1), then re-inflated by the gold threshold log-mass before stats::qbeta().
+  # Conditional CDF in log-prob (avoids pbeta underflow); clamp, then qbeta.
   check_log_mass <- function(value, label) {
-    # A real probability has log-mass <= 0; a tiny positive value is rounding
-    # noise at prob = 1 and is harmless, but -Inf means the threshold sits on
-    # the boundary with no usable conditioning mass.
+    # log-mass > 0 is rounding noise; -Inf means no usable conditioning mass.
     if (!is.finite(value)) {
       stop(
         context,
@@ -335,18 +322,12 @@ estimate_mode <- function(x, context) {
     return(x[1L])
   }
   estimate <- stats::density(x)
-  # stats::density() is not boundary-corrected, so its Gaussian tails can place the
-  # mode just outside the unit interval; clamp so it can only shift the
-  # initialization thresholds toward, never past, a valid beta value.
+  # clamp density() mode into (0, 1) for init thresholds.
   mode <- estimate[["x"]][which.max(estimate[["y"]])]
   min(1, max(0, mode))
 }
 
-# Mixture component labels are arbitrary, so canonicalize each fit by sorting
-# complete component tuples (a, b, eta, mu, responsibilities, fit status) by
-# increasing mean. Downstream code can then treat component 1 as U and
-# component nL as M, and density_thresholds() can assume adjacent components
-# are ordered. Never sort a, b, eta, or thresholds independently.
+# Sort full component tuples by mean (U first, M last); never sort params alone.
 canonicalize_em_components <- function(em, context) {
   a <- as.numeric(em[["a"]][, 1L])
   b <- as.numeric(em[["b"]][, 1L])
@@ -383,9 +364,7 @@ canonicalize_em_components <- function(em, context) {
   em
 }
 
-# Draw fit indices reproducibly without disturbing the caller's RNG stream.
-# fit_mixture() runs once per sample, so seeding the global generator in place
-# would silently reset .Random.seed for the whole session on every call.
+# Sample fit indices with a local RNG (do not touch .Random.seed).
 draw_fit_indices <- function(n, size, seed) {
   has.seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
   if (has.seed) {
@@ -434,17 +413,11 @@ fit_mixture <- function(
     min.count = 2L
   )
 
-  # One-hot responsibilities for the fit subset only; allocating a full
-  # length(beta) x nL matrix and then keeping only sampled rows wastes memory
-  # proportional to the whole probe set.
+  # One-hot responsibilities on the fit subset only.
   w.init <- matrix(0, nrow = length(rand.idx), ncol = nL)
   w.init[cbind(seq_along(rand.idx), initial.class)] <- 1
 
-  # Historical BMIQ clips endpoints to half the distance to the nearest
-  # interior observation. Guard the degenerate case where every fit value is
-  # 0 (or every value is 1) so min()/max() do not return +/-Inf, and floor the
-  # clips at endpoint.eps so a subnormal input cannot round the bound back to
-  # an exact 0 or 1 (which would feed log(0) into the mixture fit).
+  # Clip endpoints toward nearest interior; floor at endpoint.eps (avoid log(0)).
   y_fit <- as.numeric(beta[rand.idx])
   endpoint.eps <- sqrt(.Machine[["double.eps"]])
   positive <- y_fit[y_fit > 0]
@@ -487,14 +460,11 @@ fit_mixture <- function(
   # Components are already canonicalized by increasing mean.
   component.means <- as.numeric(em[["mu"]][, 1L])
 
-  # Diagnostic only: a valid soft component may never win the hard posterior
-  # assignment, so do not reject on it. The load-bearing class checks are the
-  # initial-count check above and the complete threshold-class check below.
+  # Soft assignment is diagnostic only; hard class checks are elsewhere.
   subset.class <- max.col(em[["w"]], ties.method = "first")
   subset.counts <- tabulate(subset.class, nbins = nL)
 
-  # The responsibility matrix is not returned in diagnostics and is only used
-  # for the counts above; drop it so it is not carried for the whole run.
+  # Drop responsibilities after counting (not returned).
   em[["w"]] <- NULL
 
   posterior.thresholds <- density_thresholds(
@@ -570,8 +540,7 @@ map_beta_q <- function(x, a.sample, b.sample, a.gold, b.gold, lower.tail) {
   )
 }
 
-# BMIQ calibration of a beta matrix onto a gold-standard profile. Defaults
-# (nL = 3, niter = 5) are the legacy BMIQ configuration the clocks expect.
+# BMIQ calibrate beta matrix onto gold standard (defaults match legacy BMIQ).
 bmiq_calibration <- function(
   datM,
   goldstandard.beta,
@@ -681,9 +650,7 @@ bmiq_calibration <- function(
     sample.names <- rep.int("", number.of.samples)
   }
 
-  # Freshly allocated output so the C++ block scatter can mutate it in place
-  # without ever touching the caller's datM (copy-on-write would otherwise make
-  # the first write allocate a full-size copy anyway).
+  # Fresh output matrix for in-place C++ scatter.
   calibrated <- matrix(
     NA_real_,
     nrow = number.of.samples,
@@ -723,8 +690,7 @@ bmiq_calibration <- function(
   em1.o <- gold.fit[["em"]]
   nth1.v <- gold.fit[["thresholds"]]
 
-  # Hoist the gold-standard shapes and thresholds out of the per-sample loop;
-  # they are constant across samples.
+  # Gold shapes/thresholds are constant across samples.
   gold.a <- as.numeric(em1.o[["a"]][, 1L])
   gold.b <- as.numeric(em1.o[["b"]][, 1L])
   gold.thresholds <- as.numeric(nth1.v)
@@ -800,8 +766,7 @@ bmiq_calibration <- function(
         unmethylated.shift <- mod2U - mod1U
         methylated.shift <- mod2M - mod1M
 
-        # nL = 3: end-mode shifts on each boundary.
-        # nL = 2: average of the two anchor shifts on the single U/M cut.
+        # Mode-shift init cuts: per-boundary (nL=3) or averaged (nL=2).
         if (nL == 3L) {
           th2.initial <- c(
             gold.thresholds[1L] + unmethylated.shift,
@@ -812,9 +777,7 @@ bmiq_calibration <- function(
             0.5 * (unmethylated.shift + methylated.shift)
         }
 
-        # These are only EM initialization cuts, not fitted component-specific
-        # roots, so sorting mode-shifted boundaries that cross is safe. (Never
-        # sort fitted posterior thresholds.)
+        # Init cuts only; sorting crossed mode-shifts is safe (not fitted thresholds).
         th2.initial <- sort(th2.initial)
 
         check_thresholds(
@@ -861,8 +824,7 @@ bmiq_calibration <- function(
 
         U <- 1L
         M <- nL
-        # Assign every U/M observation to exactly one tail; values exactly at
-        # a component mean must not be left unnormalized.
+        # Assign every U/M observation to one tail (including exact mean).
         selU.idx <- which(class2.v == U)
         selUL.idx <- selU.idx[beta2.v[selU.idx] <= classAV2.v[U]]
         selUR.idx <- selU.idx[beta2.v[selU.idx] > classAV2.v[U]]
@@ -935,8 +897,7 @@ bmiq_calibration <- function(
             {
               stage <- "intermediate/H normalization"
 
-              # Component means are canonicalized in fit_mixture(), so no
-              # separate ordering check is needed here.
+              # Means already ordered in fit_mixture().
               if (!length(selMR.idx)) {
                 stop(
                   "H normalization needs methylated probes above the ",
@@ -1077,10 +1038,7 @@ bmiq_calibration <- function(
     )
   }
 
-  # Samples are rows in a column-major matrix, so a single sample is strided
-  # across memory. Gather a contiguous run of samples into a probes x block
-  # matrix (each sample contiguous), process the block, then scatter it back
-  # into the freshly allocated output. Eight doubles is one 64-byte cache line.
+  # Process samples in contiguous probes x block chunks (cache-friendly).
   sample.block.size <- 8L
 
   for (block.start in seq.int(1L, number.of.samples, by = sample.block.size)) {
@@ -1164,8 +1122,7 @@ bmiq_calibration <- function(
     rm(block)
   }
 
-  # failures and h.applied are reported by the caller, which is the only frame
-  # that knows the clock and the sample ids the user supplied.
+  # Caller reports failures / h.applied (has clock id and sample ids).
   if (length(failures)) {
     failures <- do.call(rbind, failures)
     rownames(failures) <- NULL
