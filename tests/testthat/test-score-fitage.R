@@ -158,13 +158,20 @@ test_that("composites report no coverage; the CpG readers under them do", {
   res <- calc_clocks(DNAm2, "DNAmFitAge", pheno = pheno)
   cov <- res$coverage$per_clock[[1]]
 
-  # composites read no betas. no record and no samples_coverage rows.
+  # composites read no betas, so none of them gets a coverage record
   composites <- Filter(Negate(clock_reads_cpgs), seq_ids)
   expect_gt(length(composites), 0L)
   for (id in composites) {
     expect_null(cov[[id]])
   }
-  expect_false(any(composites %in% samples_coverage(res)$clock_id))
+
+  # a composite that is a score column still gets a samples_coverage row, so
+  # its reason has somewhere to sit, and that row carries no counts. one that
+  # is not a column gets none.
+  sc <- samples_coverage(res)
+  returned <- intersect(composites, colnames(res$scores))
+  expect_setequal(intersect(composites, sc$clock_id), returned)
+  expect_true(all(is.na(sc$n_needed[sc$clock_id %in% returned])))
 
   # the fill lands on the component that declared the panel
   gait <- cov[["DNAmGait_noAge_Female"]]

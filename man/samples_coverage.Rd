@@ -11,27 +11,50 @@ samples_coverage(x)
 }
 \value{
 A data.frame. One row for each sample, clock, and panel, with
-\code{n_observed}, \code{n_needed}, \code{coverage}, and, when \code{x} holds more than
-one batch, \code{mc_batch_id}.
+\code{n_observed}, \code{n_needed}, \code{coverage}, \code{reason}, and, when \code{x} holds more
+than one batch, \code{mc_batch_id}.
 }
 \description{
-Reports each sample's CpG coverage for every clock in \code{x}, one row for
-each sample, clock, and panel.
+Reports each sample's CpG coverage for every clock in \code{x}, and the reason
+for each missing score.
 }
 \details{
-A clock gets a row when it reads CpGs of its own, under its own name. A
-clock that scores as part of another clock is included. A clock assembled
-only from other clocks' scores gets no row, even when it is one of the
-scores of \code{x}. Read the rows of the clocks it depends on instead. A clock
-scored separately for each sex has no row for a sample outside the sex it
-scored.
+Every clock in the scores of \code{x} gets a row for each sample, and so does
+every clock that scores as part of another clock. A clock assembled only
+from other clocks' scores counts no CpGs of its own, so its counts are
+\code{NA}. A clock scored separately for each sex has no row for a sample
+outside the sex it scored.
 
 A clock that normalizes has a second row for each sample, under
 \code{panel = "norm"}, for the panel used to normalize it.
 
-\code{samples_coverage()} warns when a row's \code{coverage} is under the
-strictest \code{min_samples_coverage} value used to score \code{x}. The
-\code{mc_batch_id} column appears only when \code{x} holds more than one batch.
+\code{reason} says why a score is missing, and is \code{NA} where the score is
+present. It takes one of five values, and where more than one applies, the
+first of these is given.
+\itemize{
+\item \code{covariate}, when a covariate the clock needs is missing from \code{pheno}.
+An unknown \code{Female} value is the usual cause.
+\item \code{clock_coverage}, when the clock is under \code{min_clocks_coverage}. Every
+sample is missing this score.
+\item \code{sample_coverage}, when the sample is under \code{min_samples_coverage}.
+\item \code{fit}, when the clock reached the sample but could not be calculated
+for it.
+\item \code{dependency}, when a clock that this clock is calculated from is
+missing for that sample.
+}
+
+A score that is not a number, such as \code{NaN}, is not a missing score. It
+gets no reason, and \code{calc_clocks()} warns about it instead. A \code{norm} row
+counts a background panel rather than a score, so it never gets one
+either. \code{min_clocks_coverage} and \code{min_samples_coverage} are read for the
+batch that scored the sample, because those are the values that decided
+the score.
+
+\code{samples_coverage()} warns when a \code{score} row's \code{coverage} is under the
+strictest \code{min_samples_coverage} value used to score \code{x}. A \code{norm} row is
+never read against that value, because the background panel is counted for
+the whole run and not for one sample. The \code{mc_batch_id} column appears
+only when \code{x} holds more than one batch.
 }
 \examples{
 clocks <- c("Horvath1", "Hannum")

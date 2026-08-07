@@ -12,9 +12,7 @@ group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
 or off for the clocks that support it. Default is \code{NULL}, which leaves
-each clock at its own default: on for \code{quantile}, off for \code{bmiq}. A
-single unnamed \code{TRUE} or \code{FALSE} applies to every clock that supports a
-scheme.}
+each clock at its own default: on for \code{quantile}, off for \code{bmiq}.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}
@@ -32,10 +30,9 @@ Lists the CpGs needed to score a set of clocks, including background CpGs
 for normalization.
 }
 \details{
-A clock built from other clocks also needs their CpGs. A clock whose
-normalization is part of its definition always adds its background panel.
-For a clock whose normalization is optional, \code{normalize} adds the
-background panel only when it is on.
+A clock built from other clocks also needs their CpGs. A clock adds its
+background panel when its normalization scheme is on. \code{normalize} turns a
+scheme on or off, and each clock has its own default.
 }
 \section{The assets directory}{
 

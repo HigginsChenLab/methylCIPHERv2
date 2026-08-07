@@ -14,6 +14,243 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-06 -- Six guards on the coverage-gate branch could not fire, and each one restated a guarantee the caller already carries
+
+**Method first, because the finding is only as good as it.** Every branch the coverage-gate work
+added or changed was instrumented with a hit counter and the whole suite run through it
+(880 pass / 0 fail, identical to clean). What the suite reached is kept. What it did not reach was
+then argued reachable-or-not **by construction**, because a cold branch is not a dead one. Six came
+out dead, and all six are the same mistake: a guard placed one frame below the thing that makes it
+impossible.
+
+**`row_coverage()`'s three, and the function with them.** Its only caller chain is
+`row_gate()` -> `row_gate_one()`, and `row_gate()` iterates `covered_ids(per_clock)` -- which is
+*defined* as the non-`NULL` names of `per_clock`. So `is.null(cov)` tested the one thing
+`covered_ids()` exists to guarantee. `is.null(score_miss)` was the same story on the other axis:
+`construct_mc_result()` builds the `sample_miss` matrix from `covered_ids()` and
+`batch_gate_input()` builds its list from `covered_ids()`, so the two are keyed alike by
+construction -- and on the `gap_reasons()` path the guard could not have fired even had they
+disagreed, because `m[, id]` errors on a missing matrix column before returning anything.
+`needed == 0L` needed a measurement rather than an argument, and got one: the smallest declared
+scoring panel over the 127 CpG-reading clocks is 3. With all three gone the function was a one-line
+wrapper around `panel_ratio()` with a single caller, so it was inlined into `row_gate_one()`, whose
+own `is.null(rc)` fell with it. Note this is **not** the same as `clock_gate_verdict()`'s
+`needed == 0L`, which fired 241 times and stays: that one grades **norm** panels, where an empty
+panel is how a non-normalizing clock declines without a separate test.
+
+**`gap_walk()`'s four `%||% none` fallbacks.** `masks` is `setNames(lapply(seq_ids, f), seq_ids)`
+and the walk iterates `seq_ids`, so `masks[[nm]][[id]]` is always populated. `na[[d]]` was checked
+across the whole catalog: every dependency precedes its dependent in `resolve_clocks_sequence()`
+and none falls outside it. That one is **self-enforcing** and is the reason it can go without a
+replacement test -- `score_cohort()` dispatches in the same order and its branches read
+`results[[dep]]`, so a dependency arriving late breaks scoring long before any reason walk sees it.
+The third fallback in that file, `gate[[id]][["na"]] %||% none` in `gap_masks()`, fired 44 times and
+stays: `gate` holds only the clocks with a verdict, which is a genuinely partial set.
+
+**The rule this leaves.** A guard earns its place by testing something its caller does not already
+guarantee. Where a helper is reached only through a set-builder like `covered_ids()`, say so in a
+comment and let the builder be the check -- a second test there cannot fail, and it reads as though
+the key set were in doubt, which is worse than silence because the next reader will preserve it.
+Everything else measured is live and was kept, including all four conditional bullets in
+`check_coverage()` and all five in `check_row_coverage()`.
+
+**One defect found in passing, in a defect guard.** `batch_gaps()`'s unexplained-gap `stop()` still
+opened `"score_gaps(): "`, naming a function unexported hours earlier. That prefix is the greppable
+handle a pasted bug report is located by, so a stale one is the whole failure mode. Now
+`gap_reasons():`.
+
+---
+
+## 2026-08-06 -- `score_gaps()` is not a frame, it is a column of `samples_coverage()`. Unexported the day it shipped
+
+**Reverses the same-day decision to export it.** The question the maintainer asked was whether the
+gap reasons could just be joined onto `samples_coverage()`. Measured against a `DNAmFitAge` run
+carrying all four reachable reasons, the answer is yes, and the fold **removes an asymmetry that was
+already there** rather than creating one.
+
+**The two coverage frames did not span the same set, and `samples_coverage()` was the odd one out.**
+On that run `clocks_coverage()` spanned 30 clocks and `samples_coverage()` 20. The 10 missing are
+the composites and the aliases, and `clocks_coverage()` had **always** carried them as an all-`NA`
+count row -- the invariant "a clock reports only what it counted itself" is about not reporting a
+*figure*, and an `NA` row is not a figure. `samples_coverage()` alone dropped them. Widening it to
+the same span is the simplification; the `reason` column is what made the gap visible.
+
+**A naive join loses the majority of the reasons, which is why this had to be a span change and not
+a `merge()`.** Joined onto the old span, 14 of 19 gap rows have no row to sit on: every `dependency`
+row, because a composite counts nothing, and every `covariate` row, because a sample no model scored
+was dropped entirely. Those are exactly the reasons a caller cannot derive by hand. Widened, all 19
+land. **So the `!is.na(coverage)` sweep had to move**: it now filters only the half built from
+coverage records, where its one real job is a routed member masked outside its sex. Run over the
+assembled frame it deletes every composite row, and the failure is silent -- the reasons just are
+not there.
+
+Three consequences, all accepted:
+
+- **`samples_coverage()` is now a finalizer**: it reads the NA pattern of `$scores`, and a
+  cross-sample column is entirely NA until its reduction runs. It was one of the two exits that
+  deliberately did not call `finalized()`. `clocks_coverage()` still does not, and that asymmetry
+  is now load-bearing rather than incidental: it never touches `$scores`.
+
+  **Which exposed that the definition of "finalizer" was wrong, and had been all along.** The
+  stated test was one clause -- "any exit that takes an `mc_result` and returns something that is
+  not one" -- and `clocks_coverage()` satisfies it while never finalizing. So did `cite_clocks()`.
+  The rule's whole claim for itself is that the set is **derived** and so cannot go stale, and it
+  was not: two counterexamples predate this branch, and a separate sentence treating "both coverage
+  frames" as their own category is what kept the mismatch out of sight. Asserting the conclusion
+  ("`clocks_coverage()` is not one, and the asymmetry is the point") on top of a definition that
+  says otherwise would have left the next reader to find this again.
+
+  **The test is two clauses, and both do work.** An exit **returns something that is not an
+  `mc_result`**, which excludes `rbind` and `refinalize_clocks`, and excludes `print` because it
+  hands `x` back. And it **reads the cells of `$scores` rather than its shape**, which excludes
+  `clocks_coverage` (never touches it) and `cite_clocks` (reads `colnames()`, and no reduction
+  moves a column name). That derives exactly `finalized()`'s five call sites, with no exception
+  list. Verified by grep against the tree rather than by reading the rule.
+- **The frame is sparser.** 50 rows to 82 on that run, which is the worst shape in the catalog --
+  a plain `c("Horvath1", "Hannum")` request adds nothing, because every clock in it counts its own
+  CpGs. 23% of rows carry a reason and 61% carry a coverage figure.
+- **`reason` is unconditional, unlike `role` or `missing_cpgs` in `clocks_coverage()`.** Those have
+  `all_columns = TRUE` as an escape hatch and `samples_coverage()` has no such argument, so a
+  conditional column would be unreachable for code that wants it. An all-`NA` column on a clean run
+  reads as "nothing is missing", which is exactly true.
+
+**A `norm` row never takes a reason.** It counts a background panel, not a score cell, so the join
+is masked to `panel == "score"`. This is the same line the row gate already draws.
+
+The machinery is unchanged and moved wholesale to `R/gap_reasons.R`: `gap_reasons()` is the internal
+entry point, returns `(id, clock_id, reason)` with **no** batch column, and joins on the sample id
+alone, which `rbind` gate 1 already made disjoint. That is what keeps the label out of an internal
+shape, so it stays a decision made once at each of the four exits.
+
+**Do not re-export it.** One row per `NA` score is a nicer object to read, and
+`sc[!is.na(sc$reason), ]` is one line. A second public frame over the same axis is what was wrong
+with it.
+
+## 2026-08-06 -- Three coverage messages promised an outcome the same call could withdraw, and "floor" is our word, not the reader's
+
+The final audit of `coverage-gate-na`. Every finding is a **factual error in text a user reads**,
+and none is a wrong number, so the suite could not have caught any of them -- tests here assert
+*that* a message errors, never its wording. Each was found by rendering the message and reading it
+against what the run actually returned.
+
+**One shape produced all three: a message stating an outcome that a different part of the same call
+decides.** A gate knows its own verdict. It does not know the verdict of the gate that runs after
+it, and it does not know how a label it printed maps onto the columns the caller gets back.
+
+**The column gate claimed a whole column for a half-blanked alias.** `gate_label()` deliberately
+renders a sex-routed member as the **alias the caller can request** -- that is the invariant, and it
+is right -- but the bullet under it then said "This clock scores `NA` for every sample". The alias's
+column is `NA` only for the samples of that model's sex: on `DNAmGrip_noAge` with three female and
+three male samples and only the male model gated, three scores are finite and `score_gaps()` returns
+three rows, not six. The row tier had always stated the same fact correctly ("Those samples score
+`NA` for that clock"), so the two tiers of one gate contradicted each other. The fix splits `fail`
+on membership of `sex_routed_members()` and gives the modelled half its own bullet. **Do not merge
+the two bullets back into one sentence with a hedge**: the plain case is the common one and its
+claim is exact, and weakening it to cover the routed case would make every message vaguer to fix a
+case most runs never hit.
+
+**`norm_gate()` promised a score that `check_coverage()` then took away.** It ran before the column
+gate by design -- declining a scheme empties a background panel, and every downstream fact reads the
+resolved panel -- so it could not see the column verdict, and it ended "Those clocks are scored from
+the raw betas instead". Because a scoring panel is a **subset** of its background, any uniformly
+thinned matrix trips both gates, which made the contradictory pair the ordinary case rather than an
+edge: a half-sampled `DunedinPACE` background prints "scored from the raw betas instead" and then
+"This clock scores `NA` for every sample" four lines later.
+
+**The bullet was deleted, not reworded, and the ordering was not touched.** Moving `norm_gate()`
+after the column gate was rejected outright -- the ordering is what keeps declining a scheme a flag
+flip instead of a branch (DECISIONS 2026-08-06, the norm gate entry). Deferring the warning until
+the column verdict exists was rejected as machinery bought for one sentence. Deleting it costs
+nothing: the lead line already says the clocks have too few normalization CpGs **to normalize**, so
+the outcome is stated where it cannot be withdrawn, and R4 bans exactly this kind of
+"scoring continues" reassurance anyway. The two remaining bullets are both advice, and both still
+work when the column gate also fires -- lowering `min_clocks_coverage` fixes both panels at once.
+
+**`rbind` blamed coverage for a difference the caller made.** `gate_same_normalized()` computed
+`forced` as "did any record decline anything", not "was a clock that actually differs declined", so
+an unrelated decline anywhere in any batch flipped the message to the coverage wording and
+suppressed the branch that would have helped. Bind a batch that asked for `Horvath1` (declined, no
+bmiq background) against one that passed `normalize = c(DunedinPACE = FALSE)`, and the refusal --
+whose whole cause is `DunedinPACE` -- advised lowering `min_clocks_coverage`, which cannot fix it.
+This is the exact mis-attribution `normalize_requested` was added to prevent, one gate away from
+where the field was added. `normalized_diff()` now returns the clocks `gate_same_set()` will refuse
+on, and `forced` is measured against those. Both branches were re-checked as reachable after the
+change; the coverage wording still fires when a batch really did decline the clock that differs.
+
+### "floor" is dev vocabulary and had leaked into the manual
+
+R8's test is mechanical -- a word that is not a function name, an argument name, a component name, a
+column name, or already in a message the user sees is ours, not the reader's. **"floor" fails it**,
+and it is the single most-used word for these two arguments in `CLAUDE.md`, this log and the branch
+plan, which is exactly why it leaked: three user-facing places, all added by this branch. It is now
+in R8's example list in `dev/WRITING.md` so the next agent does not re-import it. Say
+`min_clocks_coverage`, or "either argument", or "either value".
+
+Swept in the same read and fixed: `clock_cpgs()`'s `@details` still described normalization that "is
+part of its definition" and "is optional", which the same branch had retired; `calc_clocks()`
+claimed "the call does not stop", which is R4's other banned shape and is now defined by what
+happens rather than by what does not; "the raw betas" became "the beta values", the form the `DNAm`
+param already uses.
+
+### The suite growth stays, minus two expectations
+
+799 -> 878 was the number to justify. The verdict is that it is proportional and it stays: +330/-79
+test lines, of which one new file (114 lines) is a **new exported verb with a five-value returned
+vocabulary**, and most of the rest is `test-coverage-gate.R` rewritten for inverted behaviour rather
+than added to. Two expectations were genuinely vacuous and are gone -- a full-panel
+`expect_silent()` that every other silent call in the suite already proves, and a `mc_batch_id`
+uniqueness check implied by the `sort(gaps$id)` assertion above it. **The third candidate on the
+list was rejected on inspection**: the `expect_silent()` at floors of `0.5` is not a full-panel
+test, it is the only proof that the warn band **moves with** its floor, and the block was renamed to
+say so. Final: 876 pass / 0 fail / 0 error / 0 warning / 2 skip, `NOT_CRAN=true`.
+
+## 2026-08-06 -- A `NaN` is not a missing score, `min_samples_coverage` grades one panel everywhere, and the zero-CpG rule needed a test per axis
+
+Three defects found by reviewing the branch as a finished thing. All three are consequences of the
+same shape: a rule was changed in one place and a second reader of that rule was left behind.
+
+**`score_gaps()` treated a `NaN` as a gap it had to explain, and died when it could not.**
+`is.na(NaN)` is `TRUE` in R, so `na_mat <- is.na(scores)` swept in a value `check_score_values()`
+deliberately **warns about and returns** rather than refuses. No member of the closed reason set can
+claim one, so the blind-cell guard fired and the exported accessor a user calls to find out why a
+score is missing died with "This is a package bug -- please report it." Reproduced at the default
+floors on `Zhang2019EN` and on both `DNAmSex_Wang_Chr*` arms by setting one sample row to all zeros:
+`(cpg_contrib - m * csum)` and `s` are then both exactly `0`, so the sample z-score is `0/0`.
+
+D3's premise was the root cause and was wrong on R's semantics: "degenerate arithmetic here yields
+`NaN` or `Inf`, a different value that `check_score_values()` already owns" is true of `Inf` and
+false of `NaN`. The fix keeps the reason set closed rather than widening it. `missing_scores()` is
+`is.na(m) & !is.nan(m)`, read at both sites, so a non-finite score is treated the way `Inf` already
+was -- reported once by the value gate, and not a row in the gap frame. **Do not add a sixth reason
+for it.** The vocabulary is API and it would duplicate a warning the caller has already had.
+
+**`score_Zhang2019()` had no note channel where its sibling had one.** `split_moments()` sets a
+sample's mean and sd to `NA` below 2 observed values on the moment domain, and
+`score_DNAmSex_Wang()` answers that with `note_scoring_failure()`. The Zhang branch, which shares
+the same `sample_scale` machinery, did not, so at `min_samples_coverage = 0` -- the value parity
+runs at -- a sample with one observed cell scored a silent `NA` that no gate and no note could
+explain, and landed in the same blind bucket. It now takes the note. It does **not** also take
+Wang's bare `warning()`: that message is about the caller's matrix, so by the audience rule it
+belongs on the cli side, and copying a call that breaks the rule is worse than not copying it.
+
+**`samples_coverage()` still graded the norm rows against `min_samples_coverage`.** On `main`
+`row_coverage()` read the background panel where a clock declared one, so warning on a
+`panel == "norm"` row was coherent. The entry below moved the row gate to the scoring panel alone
+and `say_low_samples()` was left reading both. Reproduced: a `DunedinPACE` run with 40% of the
+background-only CpGs absent for one sample scores every sample, leaves `score_gaps()` empty, and
+still warns "1 of 12 rows is under `min_samples_coverage` = 0.75". The warning now reads the score
+rows only, and its count, its denominator and its filter example all moved together -- a lead line
+counting one panel beside an example that selects both is the same defect one layer down.
+
+**The zero-CpG rule is two clauses and the suite pinned neither.** `clock_gate_verdict()`'s
+`present == 0` and `row_gate_one()`'s `cov == 0` are independent, and the only block testing them
+set **both** floors to 0, where either one alone satisfies `all(is.na(...))`. Mutation-confirmed in
+an isolated copy: deleting either clause left the suite green. The block is now two, one per axis,
+each holding the other floor away from 0 and asserting `score_gaps()$reason` rather than `is.na` --
+the reason names which gate decided, which is the only assertion the other clause cannot satisfy.
+Both mutations now fail. **Do not merge them back into one block**, and do not assert `is.na` alone:
+that is exactly what made the old block vacuous.
+
 ## 2026-08-06 -- The record keeps the normalization request beside the result, because `rbind` could not otherwise say who caused a mismatch
 
 Making the norm gate able to decline a scheme (entry below) put a machine decision into
@@ -128,6 +365,17 @@ wrong number rather than `NA`. The seed is mandatory: a `NULL` entry makes `as.n
 return `numeric(0)` and silently shrinks a dependent's score vector. Rows cannot be skipped, because
 one matmul scores the cohort, so the mask goes in the dispatch loop where dependents have not yet
 read `results`, and cross-sample clocks are masked in their raws before those enter `pending`.
+
+**Two branch-level aborts went the same way, and one of them had to.** `zscore_raws()`
+(`R/score_PhysAge.R`) stopped the whole call on `n < 2` and on any surrogate constant across the
+cohort; `scan_missing_cpgs()` stopped it on a sample with no observed CpG on any scoring panel. Both
+are this entry's abort one layer down, and the PhysAge one was actively incompatible with the row
+gate: a surrogate whose samples are all gated is a constant column, so the stop would have let one
+under-covered sample kill a run the gate had just decided to score `NA`. Both now yield `NA`.
+`scale()` na.rm's its moments, so a masked sample leaves every other sample's z-score alone, and a
+constant column has no z-score to give at all -- which covers a single-sample cohort and a surrogate
+that observed none of its CpGs with one rule instead of two messages. The `score_union` argument to
+`scan_missing_cpgs()` and `mc_spec()` went with the second abort, since nothing else read it.
 
 **The ratio and the zero rule read different panels, and that asymmetry is deliberate.**
 `row_coverage()` measures on the normalization panel where a clock declares one, so a `DunedinPACE`

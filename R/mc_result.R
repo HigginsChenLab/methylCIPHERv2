@@ -128,9 +128,8 @@ construct_mc_result <- function(
         covariates_used = covariates_used,
         # which clocks were actually normalized
         normalized = normalized,
-        # what the caller asked for, keyed by batch like the floors. the norm
-        # gate can decline a scheme this batch's background could not support,
-        # so two batches may differ here honestly and nothing reconciles it.
+        # what the caller asked for, keyed by batch like the floors. two
+        # batches may differ here, and nothing reconciles them.
         normalize_requested = stats::setNames(list(normalize_requested), batch),
         # the gates this batch was scored under, keyed by batch like per_clock
         min_clocks_coverage = stats::setNames(min_clocks_coverage, batch),

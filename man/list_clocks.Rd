@@ -43,8 +43,8 @@ differs from \code{clock_id} for a clock that only another clock can request.
 samples scored with it.
 \item \code{normalize} names the background normalization scheme a clock declares,
 and is empty for a clock that declares none. \code{"quantile"} is on by
-default and \code{"bmiq"} is off, and the \code{normalize} argument of
-\code{\link[=calc_clocks]{calc_clocks()}} moves either one.
+default and \code{"bmiq"} is off. The \code{normalize} argument of \code{\link[=calc_clocks]{calc_clocks()}}
+turns either one on or off.
 }
 }
 \examples{

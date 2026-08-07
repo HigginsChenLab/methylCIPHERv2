@@ -14,10 +14,8 @@ gate_label <- function(id, routed = sex_routed_members()) {
 # the column gate and the row gate both read it, so their tiers cannot drift.
 warn_band <- function(threshold) min(1, threshold * 1.1)
 
-# one gate bullet. interpolated labels, so braces cannot become a cli template,
-# and gate_label() so a sex-routed model prints as the alias the caller may ask
-# for. counts are scalars: every gate has them, the resolved panels are one
-# caller's shape.
+# one gate bullet. labels are interpolated, so a brace in one cannot become a
+# cli template.
 panel_line <- function(id, present, needed, label, routed) {
   cli::format_inline(
     "{gate_label(id, routed)}: {present}/{needed}
@@ -28,7 +26,7 @@ panel_line <- function(id, present, needed, label, routed) {
 # verdicts that blank a column. "dead" is the floor-independent one.
 GATE_NA <- c("na", "dead")
 
-# the column gate's verdict on one clock's counts. shared with score_gaps(),
+# the column gate's verdict on one clock's counts. shared with gap_reasons(),
 # so the gate and the reason a cell is given for it cannot drift.
 clock_gate_verdict <- function(present, needed, threshold) {
   if (needed == 0L) {
@@ -93,13 +91,27 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(fail)) {
     # a clock with no observed CpG is NA at every floor, so the advice splits
     observed <- graded[fail] == "na"
+    # gate_label() prints a sex-routed clock under one model, and only the
+    # samples of that sex lose the score, so the two cannot share a bullet.
+    plain <- setdiff(fail, names(routed[["alias"]]))
+    modelled <- setdiff(fail, plain)
     cli::cli_warn(
       c(
         "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
          score ({.arg min_clocks_coverage} = {format(threshold)}):",
         capped_bullets(fail, score_lines),
-        "i" = "{cli::qty(fail)}{?This clock scores/These clocks score}
-               {.code NA} for every sample.",
+        if (length(plain)) {
+          c(
+            "i" = "{cli::qty(plain)}{?This clock scores/These clocks score}
+                   {.code NA} for every sample."
+          )
+        },
+        if (length(modelled)) {
+          c(
+            "i" = "Each clock with a model scores {.code NA} for the samples
+                   of that sex."
+          )
+        },
         if (any(observed)) {
           c("i" = "Lower {.arg min_clocks_coverage} to score more clocks.")
         },
@@ -133,14 +145,14 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
 }
 
 # normalization gate: the clocks whose background is too thin to normalize
-# against. it declines the scheme, it never blanks a score -- the clock is
-# still scored, from its raw betas. run before the panels are resolved.
+# against. it declines the scheme rather than blanking a score, and runs
+# before the panels are resolved.
 norm_gate <- function(panels, usable, threshold = 0.75) {
   routed <- sex_routed_members()
   ids <- panels[["clock_id"]]
   # graded once per distinct background, then mapped back through the panel
   # index. a clock that does not normalize has an empty panel, which
-  # clock_gate_verdict() grades "" -- so declining needs no separate test.
+  # clock_gate_verdict() grades "".
   uniq <- panels[["norm"]][["uniq"]]
   at <- panels[["norm"]][["idx"]]
   needed <- lengths(uniq)
@@ -172,8 +184,7 @@ norm_gate <- function(panels, usable, threshold = 0.75) {
        {.arg DNAm} to normalize ({.arg min_clocks_coverage} =
        {format(threshold)}):",
       capped_bullets(drop, lines),
-      "i" = "{cli::qty(length(drop))}{?That clock is/Those clocks are} scored
-             from the raw betas instead.",
+      # no claim about the score here: this gate runs before the column gate.
       "i" = "Supply the background CpGs, or lower {.arg min_clocks_coverage},
              to normalize {cli::qty(length(drop))}{?it/them}.",
       "i" = "Call {.fn clock_cpgs} with {.code normalize = TRUE} to list the
@@ -184,27 +195,14 @@ norm_gate <- function(panels, usable, threshold = 0.75) {
   drop
 }
 
-# per-sample observed fraction of the scoring panel, the one the arithmetic
-# reads. a thin normalization background is the norm gate's business, and it
-# declines the scheme for the whole cohort rather than blanking a row.
-row_coverage <- function(cov, score_miss) {
-  if (is.null(cov)) {
-    return(NULL)
-  }
-  # needed is a scalar count, so 0 is the only empty
-  needed <- cov[["score_needed"]]
-  if (is.null(score_miss) || needed == 0L) {
-    return(NULL)
-  }
-  panel_ratio(cov[["score_present"]], score_miss, needed)
-}
-
-# one clock's per-sample verdicts, or NULL when nothing is below the band
+# one clock's per-sample verdicts, or NULL when nothing is below the band.
+# measured on the scoring panel; both arguments are keyed by covered_ids().
 row_gate_one <- function(cov_rec, score_miss, threshold) {
-  rc <- row_coverage(cov_rec, score_miss)
-  if (is.null(rc)) {
-    return(NULL)
-  }
+  rc <- panel_ratio(
+    cov_rec[["score_present"]],
+    score_miss,
+    cov_rec[["score_needed"]]
+  )
   cov <- rc[["cov"]]
   # na already: a row this clock's sex did not score
   seen <- !is.na(cov)
@@ -220,8 +218,7 @@ row_gate_one <- function(cov_rec, score_miss, threshold) {
     cov = cov,
     scored = sum(seen),
     na = na,
-    # a subset of na, kept apart because it survives a floor of 0, where
-    # `cov < threshold` cannot fire, and reads as a count rather than a percent
+    # a subset of na, kept apart so it reads as a count rather than a percent
     dead = dead,
     near = near,
     needed = rc[["needed"]]
@@ -253,8 +250,7 @@ check_row_coverage <- function(gate, threshold = 0.75) {
   tier <- function(field) Filter(function(s) any(s[[field]]), gate)
 
   # one line per clock, strings only for the ids that survive the cap. a near
-  # sample is never dead (row_gate_one() takes na out first), so the near tier
-  # reaches only the thin half of this.
+  # sample is never dead, so the near tier reaches only the thin half.
   lines_for <- function(hit, field) {
     function(these) {
       vapply(

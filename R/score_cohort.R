@@ -229,8 +229,8 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
       spec[["sequence"]],
       function(cid) clock_norm_cpgs(cid, normalize[[cid]])
     ))
-    # a declined background is read by nothing now, so it leaves the position
-    # axis and the cohort-mean cache instead of being carried at cohort height
+    # a declined background is read by nothing, so it leaves the position axis
+    # and the cohort-mean cache
     keep <- panels_union(panels)
     mna[["usable_cols"]] <- intersect(mna[["usable_cols"]], keep)
     mna[["col_mean"]] <- mna[["col_mean"]][names(mna[["col_mean"]]) %in% keep]
@@ -391,8 +391,8 @@ mc_block <- function(DNAm, spec, facts) {
   block
 }
 
-# blank the rows the sample gate refused. one matmul scored them all, and
-# reading the gate here is what keeps every writer into results/pending honest.
+# blank the rows the sample gate refused. one matmul scored them all, so the
+# mask goes on every writer into results and pending.
 mask_gated_rows <- function(out, gate, id) {
   low <- gate[[id]][["na"]]
   if (is.null(low) || !any(low)) {
@@ -424,8 +424,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
   }
   scoreable <- setdiff(clock_sequence, na_clocks)
 
-  # one pass: the column gate decided above, the row stat follows it and
-  # nothing is re-derived from the cells this blanks.
+  # one pass, skipping the clocks the column gate already blanked
   gate <- row_gate(coverage, min_samples_coverage, skip = na_clocks)
 
   # resolved once here, shared by the pack filter and the dispatch below
