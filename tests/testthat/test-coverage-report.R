@@ -104,7 +104,6 @@ test_that("samples_coverage coverage is the observed fraction of the panel", {
 })
 
 test_that("samples_coverage gives a normalizing clock a score and a norm row", {
-  skip_if_not_installed("betanorm")
   norm_panel <- names(clock_norm_target("DunedinPACE"))
   score_panel <- clock_scoring_cpgs("DunedinPACE")
   DNAm <- random_betas(norm_panel, n = 4L)
@@ -122,7 +121,6 @@ test_that("samples_coverage gives a normalizing clock a score and a norm row", {
 
 test_that("min_samples_coverage reads the score rows and not the norm rows", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   gold <- names(clock_norm_target("DunedinPACE"))
   bg_only <- setdiff(gold, clock_scoring_cpgs("DunedinPACE"))
   DNAm <- random_betas(gold, n = 4L)
@@ -210,7 +208,6 @@ test_that("a clocks_coverage column appears only when the record has that fact",
   )
 
   # the norm block: only when a clock normalizes
-  skip_if_not_installed("betanorm")
   DNAm <- random_betas(names(clock_norm_target("DunedinPACE")), n = 4L)
   norm <- clocks_coverage(calc_clocks(DNAm, "DunedinPACE"))
   expect_true(all(c("normalizes", "norm_needed") %in% names(norm)))

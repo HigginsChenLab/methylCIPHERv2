@@ -199,7 +199,8 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
   if (length(labels) > 1L) {
     cat(
       "\n",
-      fmt_section("provenance", plural_count(length(labels), "batch", "es")),
+      # the labels, not the component that stores them: $provenance is internal
+      fmt_named_section(MC_BATCH, plural_count(length(labels), "batch", "es")),
       "\n",
       paste(labels, collapse = ", "),
       "\n",

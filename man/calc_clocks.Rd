@@ -50,7 +50,7 @@ non-interactive session.}
 }
 \value{
 An \code{mc_result} object. It holds the scores, the narrowed \code{pheno},
-the coverage counts, and the provenance of the run.
+and the coverage counts for the run.
 }
 \description{
 Scores CpG-based epigenetic clocks on a matrix of methylation beta values.

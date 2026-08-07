@@ -28,9 +28,14 @@ fmt_header <- function(cls, n, n_noun, k, k_noun) {
   )
 }
 
+# "mc_batch_id [2 batch(es)]". a section that is not a component of the record.
+fmt_named_section <- function(name, ...) {
+  sprintf("%s [%s]", name, paste(c(...), collapse = ", "))
+}
+
 # "$scores [6 of 10 row(s), 3 of 3 clock(s)]"
 fmt_section <- function(name, ...) {
-  sprintf("$%s [%s]", name, paste(c(...), collapse = ", "))
+  fmt_named_section(paste0("$", name), ...)
 }
 
 # one component block. cut_cols = false when columns stay whole.

@@ -88,12 +88,15 @@ test_that("a sample the moments cannot describe is reported as a fit failure", {
   DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
   DNAm[2, -1] <- NA_real_
 
-  res <- suppressMessages(calc_clocks(
-    DNAm,
-    "Zhang2019EN",
-    min_clocks_coverage = 0,
-    min_samples_coverage = 0
-  ))
+  # the branch says so as well as noting it, like score_DNAmSex_Wang()
+  expect_warning(
+    res <- suppressMessages(calc_clocks(
+      DNAm,
+      "Zhang2019EN",
+      min_clocks_coverage = 0,
+      min_samples_coverage = 0
+    ))
+  )
   expect_true(is.na(res$scores[2, "Zhang2019EN"]))
   expect_equal(
     res$provenance$scoring_failures$Zhang2019EN,

@@ -16,13 +16,12 @@ test_that("DunedinPoAm38 vendor-fills fully-absent CpGs (score_imputed_full)", {
 # always-on proof that normalization is applied. reference golden is in test-fixtures-parity.R.
 test_that("DunedinPACE quantile-normalizes the gold panel before the linear score", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   gold <- clock_norm_target("DunedinPACE")
   panel <- names(gold)
   DNAm <- random_betas(panel, n = 5L) # full gold-panel coverage, no gates/fill
   res <- calc_clocks(DNAm, "DunedinPACE")
 
-  norm <- betanorm::quantile_norm(
+  norm <- quantile_norm(
     DNAm[, panel, drop = FALSE],
     target = as.numeric(gold[panel])
   )
@@ -42,7 +41,6 @@ test_that("DunedinPACE quantile-normalizes the gold panel before the linear scor
 # normalizing clock keeps score- and norm-panel partial fills apart
 test_that("DunedinPACE reports score and norm panel miss separately", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   norm_panel <- names(clock_norm_target("DunedinPACE"))
   score_panel <- clock_scoring_cpgs("DunedinPACE")
   norm_only <- setdiff(norm_panel, score_panel)
@@ -66,7 +64,6 @@ test_that("DunedinPACE reports score and norm panel miss separately", {
 # qn needs the whole background panel, so an absent one is filled, not dropped
 test_that("DunedinPACE counts fully-absent norm CpGs as norm_imputed_full", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   norm_panel <- names(clock_norm_target("DunedinPACE"))
   score_panel <- clock_scoring_cpgs("DunedinPACE")
   norm_only <- setdiff(norm_panel, score_panel)

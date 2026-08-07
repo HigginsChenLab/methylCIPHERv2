@@ -48,7 +48,7 @@
 #' other columns.
 #'
 #' @returns An `mc_result` object. It holds the scores, the narrowed `pheno`,
-#'   the coverage counts, and the provenance of the run.
+#'   and the coverage counts for the run.
 #'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")

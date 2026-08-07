@@ -10,6 +10,64 @@ Rcpp::Rostream<true>&  Rcpp::Rcout = Rcpp::Rcpp_cout_get();
 Rcpp::Rostream<false>& Rcpp::Rcerr = Rcpp::Rcpp_cerr_get();
 #endif
 
+// scan_finite_unit_interval_cpp
+void scan_finite_unit_interval_cpp(const Rcpp::NumericVector& x, std::string name, bool require_open);
+RcppExport SEXP _methylCIPHERv2_scan_finite_unit_interval_cpp(SEXP xSEXP, SEXP nameSEXP, SEXP require_openSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type x(xSEXP);
+    Rcpp::traits::input_parameter< std::string >::type name(nameSEXP);
+    Rcpp::traits::input_parameter< bool >::type require_open(require_openSEXP);
+    scan_finite_unit_interval_cpp(x, name, require_open);
+    return R_NilValue;
+END_RCPP
+}
+// gather_sample_block_cpp
+Rcpp::NumericMatrix gather_sample_block_cpp(const Rcpp::NumericMatrix& x, int first_sample, int sample_count);
+RcppExport SEXP _methylCIPHERv2_gather_sample_block_cpp(SEXP xSEXP, SEXP first_sampleSEXP, SEXP sample_countSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type x(xSEXP);
+    Rcpp::traits::input_parameter< int >::type first_sample(first_sampleSEXP);
+    Rcpp::traits::input_parameter< int >::type sample_count(sample_countSEXP);
+    rcpp_result_gen = Rcpp::wrap(gather_sample_block_cpp(x, first_sample, sample_count));
+    return rcpp_result_gen;
+END_RCPP
+}
+// scatter_sample_block_cpp
+void scatter_sample_block_cpp(Rcpp::NumericMatrix destination, const Rcpp::NumericMatrix& block, int first_sample);
+RcppExport SEXP _methylCIPHERv2_scatter_sample_block_cpp(SEXP destinationSEXP, SEXP blockSEXP, SEXP first_sampleSEXP) {
+BEGIN_RCPP
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type destination(destinationSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type block(blockSEXP);
+    Rcpp::traits::input_parameter< int >::type first_sample(first_sampleSEXP);
+    scatter_sample_block_cpp(destination, block, first_sample);
+    return R_NilValue;
+END_RCPP
+}
+// beta_mixture_em_cpp
+Rcpp::List beta_mixture_em_cpp(const Rcpp::NumericVector& y, const Rcpp::NumericMatrix& initial_responsibility, int nL, int maxiter, double tol, int beta_maxit, int beta_max_halving, double beta_score_tol, double min_shape, double armijo, bool debug);
+RcppExport SEXP _methylCIPHERv2_beta_mixture_em_cpp(SEXP ySEXP, SEXP initial_responsibilitySEXP, SEXP nLSEXP, SEXP maxiterSEXP, SEXP tolSEXP, SEXP beta_maxitSEXP, SEXP beta_max_halvingSEXP, SEXP beta_score_tolSEXP, SEXP min_shapeSEXP, SEXP armijoSEXP, SEXP debugSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type y(ySEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type initial_responsibility(initial_responsibilitySEXP);
+    Rcpp::traits::input_parameter< int >::type nL(nLSEXP);
+    Rcpp::traits::input_parameter< int >::type maxiter(maxiterSEXP);
+    Rcpp::traits::input_parameter< double >::type tol(tolSEXP);
+    Rcpp::traits::input_parameter< int >::type beta_maxit(beta_maxitSEXP);
+    Rcpp::traits::input_parameter< int >::type beta_max_halving(beta_max_halvingSEXP);
+    Rcpp::traits::input_parameter< double >::type beta_score_tol(beta_score_tolSEXP);
+    Rcpp::traits::input_parameter< double >::type min_shape(min_shapeSEXP);
+    Rcpp::traits::input_parameter< double >::type armijo(armijoSEXP);
+    Rcpp::traits::input_parameter< bool >::type debug(debugSEXP);
+    rcpp_result_gen = Rcpp::wrap(beta_mixture_em_cpp(y, initial_responsibility, nL, maxiter, tol, beta_maxit, beta_max_halving, beta_score_tol, min_shape, armijo, debug));
+    return rcpp_result_gen;
+END_RCPP
+}
 // col_stats
 List col_stats(NumericMatrix obj, Nullable<IntegerVector> cols, Nullable<List> moment_sets);
 RcppExport SEXP _methylCIPHERv2_col_stats(SEXP objSEXP, SEXP colsSEXP, SEXP moment_setsSEXP) {
@@ -34,10 +92,27 @@ BEGIN_RCPP
     return R_NilValue;
 END_RCPP
 }
+// qnorm_target_rows_cpp
+Rcpp::NumericMatrix qnorm_target_rows_cpp(const Rcpp::NumericMatrix& obj, const Rcpp::NumericVector& target);
+RcppExport SEXP _methylCIPHERv2_qnorm_target_rows_cpp(SEXP objSEXP, SEXP targetSEXP) {
+BEGIN_RCPP
+    Rcpp::RObject rcpp_result_gen;
+    Rcpp::RNGScope rcpp_rngScope_gen;
+    Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type obj(objSEXP);
+    Rcpp::traits::input_parameter< const Rcpp::NumericVector& >::type target(targetSEXP);
+    rcpp_result_gen = Rcpp::wrap(qnorm_target_rows_cpp(obj, target));
+    return rcpp_result_gen;
+END_RCPP
+}
 
 static const R_CallMethodDef CallEntries[] = {
+    {"_methylCIPHERv2_scan_finite_unit_interval_cpp", (DL_FUNC) &_methylCIPHERv2_scan_finite_unit_interval_cpp, 3},
+    {"_methylCIPHERv2_gather_sample_block_cpp", (DL_FUNC) &_methylCIPHERv2_gather_sample_block_cpp, 3},
+    {"_methylCIPHERv2_scatter_sample_block_cpp", (DL_FUNC) &_methylCIPHERv2_scatter_sample_block_cpp, 3},
+    {"_methylCIPHERv2_beta_mixture_em_cpp", (DL_FUNC) &_methylCIPHERv2_beta_mixture_em_cpp, 11},
     {"_methylCIPHERv2_col_stats", (DL_FUNC) &_methylCIPHERv2_col_stats, 3},
     {"_methylCIPHERv2_fill_imp_col", (DL_FUNC) &_methylCIPHERv2_fill_imp_col, 2},
+    {"_methylCIPHERv2_qnorm_target_rows_cpp", (DL_FUNC) &_methylCIPHERv2_qnorm_target_rows_cpp, 2},
     {NULL, NULL, 0}
 };
 

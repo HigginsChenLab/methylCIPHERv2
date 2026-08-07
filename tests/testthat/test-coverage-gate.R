@@ -96,7 +96,6 @@ test_that("the gate names a clock the caller is allowed to request", {
 })
 
 test_that("a sparse normalization panel declines the scheme, it does not blank", {
-  skip_if_not_installed("betanorm")
   gold <- names(clock_norm_target("DunedinPACE"))
   model <- clock_scoring_cpgs("DunedinPACE")
 

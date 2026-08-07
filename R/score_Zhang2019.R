@@ -19,9 +19,14 @@ score_Zhang2019 <- function(id, cpgs, block, results) {
   csum <- sum(coef[present])
   z_sum <- (as.numeric(lp[["cpg_contrib"]]) - m * csum) / s
 
-  # n < 2 on the domain leaves the moments NA, so the sample has no z-score.
+  # the sample_scale domain is every column of DNAm, not this clock's panel, so
+  # a sample needs 2 observed values in the whole matrix or its sd is NA.
   # same shape as score_DNAmSex_Wang(), and gap_reasons() reads the note.
-  note_scoring_failure(block, id, block[["sample_id"]][is.na(s)])
+  failed <- block[["sample_id"]][is.na(s)]
+  if (length(failed)) {
+    note_scoring_failure(block, id, failed)
+    say_moment_failure(id, failed)
+  }
 
   score_matrix(clock_intercept(id) + z_sum, block[["sample_id"]], id)
 }
