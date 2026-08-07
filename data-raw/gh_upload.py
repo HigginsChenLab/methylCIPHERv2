@@ -1,4 +1,4 @@
-"""Publish content-addressed external qs2 assets to GitHub Releases via PyGithub.
+"""Publish content-addressed external clock-data assets to GitHub Releases via PyGithub.
 
 Called from data-raw/sync.R (upload = TRUE) as:
 

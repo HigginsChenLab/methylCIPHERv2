@@ -24,10 +24,10 @@ fake_asset <- function(dir, group = "FakeGroup", payload = NULL) {
   dir.create(dir, recursive = TRUE, showWarnings = FALSE)
 
   phash <- digest::digest(payload, algo = "sha256")
-  file <- sprintf("%s-%s.qs2", tolower(group), phash)
-  rtag <- sub("\\.qs2$", "", file) # tag = filename stem (bare hex tags rejected by github)
+  file <- sprintf("%s-%s.rds", tolower(group), phash)
+  rtag <- sub("\\.rds$", "", file) # tag = filename stem (bare hex tags rejected by github)
   src <- file.path(dir, file)
-  qs2::qs_save(payload, src)
+  saveRDS(payload, src, compress = "gzip", version = 3L)
   list(
     group_id = group,
     release_tag = rtag,
@@ -90,7 +90,7 @@ local_assets <- function(
 stage_superseded <- function(assets, group = "FakeGroup") {
   path <- file.path(
     assets,
-    sprintf("%s-%s.qs2", tolower(group), strrep("a", 64))
+    sprintf("%s-%s.rds", tolower(group), strrep("a", 64))
   )
   writeLines("an older pack", path)
   path
@@ -225,12 +225,31 @@ test_that("a failed fetch leaves nothing behind", {
   expect_length(list.files(assets), 0)
 })
 
-test_that("load_mc_assets() rejects a corrupt staged file via the qs2 checksum", {
+test_that("load_mc_assets() rejects a damaged staged file", {
   skip_on_cran()
   assets <- withr::local_tempdir()
   row <- fake_asset(withr::local_tempdir())
   local_fake_registry(row)
-  writeLines("not a qs2 file", file.path(assets, row$file))
+  staged <- file.path(assets, row$file)
+
+  writeLines("not an rds file", staged)
+  expect_error(load_mc_assets("FakeGroup", ext_data = assets))
+
+  # some flipped bits are only a warning from readRDS(), which then hands back
+  # a wrong object. find the first such bit rather than pin a byte offset.
+  bytes <- readBin(row$.src, "raw", file.size(row$.src))
+  flip <- function(i) {
+    b <- bytes
+    b[i] <- as.raw(bitwXor(as.integer(b[i]), 1L))
+    writeBin(b, staged)
+    tryCatch(
+      !identical(suppressWarnings(readRDS(staged)), row$.payload),
+      error = function(e) FALSE
+    )
+  }
+  quiet_damage <- Position(flip, seq_along(bytes))
+
+  expect_false(is.na(quiet_damage))
   expect_error(load_mc_assets("FakeGroup", ext_data = assets))
 })
 
@@ -288,7 +307,7 @@ test_that("clear_mc_assets() reclaims the current and superseded packs only", {
   # neither of these is ours: a foreign stem, and a file with no content address
   bystanders <- file.path(
     assets,
-    c(sprintf("othergroup-%s.qs2", strrep("b", 64)), "notes.txt")
+    c(sprintf("othergroup-%s.rds", strrep("b", 64)), "notes.txt")
   )
   for (f in bystanders) {
     writeLines("keep me", f)

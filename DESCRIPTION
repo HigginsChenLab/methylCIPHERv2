@@ -23,7 +23,6 @@ Imports:
     cli,
     digest,
     fs,
-    qs2,
     Rcpp,
     stats,
     tools,
