@@ -308,17 +308,43 @@ note_scoring_failure <- function(block, id, sample_id) {
 
 # every branch that scores NA for named samples says it this way. `reason` is
 # the already-rendered lead line, so each branch supplies only what differs.
+# no-ops on an empty vector like note_scoring_failure(), so a branch pairs the
+# two with no guard of its own.
 # points at samples_coverage(), never at the note it just wrote: the collector
 # is internal and the `reason` column is the same fact where a user can read it.
+# names that column and no value in it -- gap_masks() takes the first match in
+# list order and `fit` is last, so a sample that also fails a gate reads as the
+# gate instead.
 say_scored_na <- function(id, failed, reason) {
+  if (!length(failed)) {
+    return(invisible(NULL))
+  }
   cli::cli_warn(
     c(
       reason,
       capped_bullets(failed, val_lines),
       "i" = "{.val {id}} scores {.code NA} for
              {cli::qty(failed)}{?this sample/these samples}.",
-      "i" = "{.fn samples_coverage} marks {cli::qty(failed)}{?it/them} with
-             {.field reason} {.val fit}."
+      "i" = "{.fn samples_coverage} gives the {.field reason} for each missing
+             score."
+    ),
+    call = NULL
+  )
+}
+
+# H skipped: the sample is scored, so this claims no NA and no reason. it takes
+# no note for the same reason -- a note would read as an NA it does not have.
+say_partial_calibration <- function(id, partial) {
+  if (!length(partial)) {
+    return(invisible(NULL))
+  }
+  cli::cli_warn(
+    c(
+      "BMIQ did not fully calibrate {length(partial)} sample{?s} for
+       {.val {id}}:",
+      capped_bullets(partial, val_lines),
+      "i" = "{cli::qty(partial)}{?That sample/Those samples} still {?has/have}
+             a score, from a partial calibration."
     ),
     call = NULL
   )
@@ -417,7 +443,9 @@ mc_block <- function(DNAm, spec, facts) {
     cached_mask = cached_mask,
     sample_id = rownames(DNAm),
     # write-only collector for scoring-time failures
-    notes = new_notes()
+    notes = new_notes(),
+    # calibrated background panels, keyed by cpg_list's norm_panel_key
+    norm_cache = new.env(parent = emptyenv())
   )
   block[["partial_cache"]] <- build_partial_cache(
     DNAm,

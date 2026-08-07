@@ -192,6 +192,40 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   expect_equal(cov$score_used, cov$score_needed)
 })
 
+# Horvath1 and Knight declare one background, so it is calibrated once and the
+# fit is shared. parity scores a single clock per call and cannot see this.
+test_that("two clocks on one background score as if scored alone", {
+  skip_on_cran()
+  both <- c("Horvath1", "Knight")
+  score <- unique(unlist(lapply(both, clock_scoring_cpgs)))
+  panel <- c(score, setdiff(names(GOLD), score)[seq_len(1000L)])
+  DNAm <- methylation_betas()[, panel, drop = FALSE]
+
+  pair <- calc_clocks(
+    DNAm,
+    both,
+    normalize = c(Horvath1 = TRUE, Knight = TRUE),
+    min_clocks_coverage = 0,
+    min_samples_coverage = 0
+  )
+  alone <- vapply(
+    both,
+    function(id) {
+      res <- calc_clocks(
+        DNAm,
+        id,
+        normalize = stats::setNames(TRUE, id),
+        min_clocks_coverage = 0,
+        min_samples_coverage = 0
+      )
+      as.numeric(res$scores[, id])
+    },
+    numeric(nrow(DNAm))
+  )
+
+  expect_equal(unname(pair$scores[, both]), unname(alone))
+})
+
 # absent background CpGs are dropped from the fit, never filled from the target
 test_that("BMIQ drops absent background CpGs rather than filling them", {
   skip_on_cran()

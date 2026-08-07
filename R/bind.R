@@ -76,7 +76,7 @@ gate_same_pheno_id <- function(recs) {
   if (!all(ids == ref_id)) {
     cli::cli_abort(
       c(
-        "{.fn calc_clocks} scored these records with different
+        "{.fn calc_clocks} scored these {.cls mc_result} objects with different
          {.arg pheno_id} columns: {.val {capped_vals(unique(ids))}}.",
         "i" = "Call {.fn calc_clocks} again with one {.arg pheno_id} column
                for every batch."
@@ -94,8 +94,8 @@ run_bind_gates <- function(recs) {
     recs,
     "clocks",
     "score columns",
-    "Bind only records that {.fn calc_clocks} scored from the same
-     {.arg clocks} request."
+    "Bind only {.cls mc_result} objects that {.fn calc_clocks} scored from the
+     same {.arg clocks} request."
   )
   gate_same_pheno_id(recs)
   gate_same_normalized(recs)
@@ -133,7 +133,7 @@ gate_same_normalized <- function(recs) {
     "normalized clocks",
     if (forced) {
       "At least one batch had too few normalization CpGs, so it was scored
-       without the scheme. Call {.fn clocks_coverage} to compare the
+       without normalization. Call {.fn clocks_coverage} to compare the
        normalization panels, then supply the missing background CpGs or lower
        {.arg min_clocks_coverage}."
     } else {
@@ -173,11 +173,11 @@ say_pending <- function(x) {
     return(invisible(NULL))
   }
   cli::cli_inform(c(
-    "!" = "The returned value holds {n_batch} separate values for
-           {cli::qty(ids)}column{?s} {.val {ids}}, one value per batch.",
-    "i" = "{cli::qty(ids)}{?This/These} score{?s} {cli::qty(ids)}{?is/are}
-           computed from all the samples together, and {.fn calc_clocks}
-           scored each batch on its own.",
+    "!" = "After {.fn rbind}, {cli::qty(ids)}column{?s} {.val {ids}}
+           {cli::qty(ids)}{?holds/hold} one value per batch, across
+           {n_batch} batches.",
+    "i" = "{cli::qty(ids)}{?That clock uses/Those clocks use} every sample at
+           once, and {.fn calc_clocks} scored each batch on its own.",
     "i" = "Call {.fn refinalize_clocks} to compute {cli::qty(ids)}{?it/them}
            again from all {nrow(x[['scores']])} samples."
   ))
@@ -309,7 +309,32 @@ rbind.mc_result <- function(..., deparse.level = 1) {
   out
 }
 
-# recompute cohort-reducing clocks over every sample. leaves pending so calls compose.
+# reduce every retained intermediate over the samples in `x`, and say nothing.
+# leaves pending so calls compose. returns the record and the columns it rewrote.
+reduce_pending <- function(x) {
+  done <- finalize_cross_sample(list(), x[["provenance"]][["pending"]])
+  x[["provenance"]][["scoring_failures"]] <- merge_notes(
+    x[["provenance"]][["scoring_failures"]],
+    done[["notes"]]
+  )
+  ids <- intersect(names(done[["scores"]]), colnames(x[["scores"]]))
+  for (id in ids) {
+    col <- done[["scores"]][[id]]
+    # match by name, not row order. a batch that gated this clock contributed
+    # no intermediates, so its rows have none to reduce and stay NA.
+    rows <- id_index(
+      rownames(x[["scores"]]),
+      rownames(col),
+      "reduce_pending",
+      unmatched = "na"
+    )
+    x[["scores"]][, id] <- col[rows, 1L]
+  }
+  list(x = x, ids = ids)
+}
+
+# recompute cohort-reducing clocks over every sample. the speaking wrapper over
+# reduce_pending(): an explicit call reports, an exit's silent re-reduction does not.
 #' Scores Recomputed From All Samples
 #'
 #' Recalculates every clock that depends on sample-wise information, such as
@@ -318,14 +343,14 @@ rbind.mc_result <- function(..., deparse.level = 1) {
 #' @inheritParams mc-params
 #'
 #' @details
-#' A clock of that kind is calculated once from every sample in a
+#' Such a clock is calculated once from every sample in a
 #' `calc_clocks()` call, not one sample at a time. After `rbind()` combines
 #' several such values, each score still holds the value its own input
 #' calculated. `refinalize_clocks()` calculates it again from every sample in
 #' `x`.
 #'
 #' `refinalize_clocks()` changes nothing, and returns `x` unchanged, when
-#' `x` holds no clock of that kind.
+#' `x` holds no such clock.
 #'
 #' @returns An `mc_result` object. The same as `x`, with any score that is
 #'   computed from all its samples together computed again from every
@@ -356,31 +381,16 @@ refinalize_clocks <- function(x) {
   if (!length(pending)) {
     cli::cli_inform(
       c(
-        "i" = "{.fn refinalize_clocks} changes only clocks that are scored
-               from all the samples together. {.arg x} has none."
+        "i" = "No clock in {.arg x} is scored from every sample at once, so
+               {.fn refinalize_clocks} made no change."
       )
     )
     return(invisible(x))
   }
 
-  done <- finalize_cross_sample(list(), pending)
-  x[["provenance"]][["scoring_failures"]] <- merge_notes(
-    x[["provenance"]][["scoring_failures"]],
-    done[["notes"]]
-  )
-  ids <- intersect(names(done[["scores"]]), colnames(x[["scores"]]))
-  for (id in ids) {
-    col <- done[["scores"]][[id]]
-    # match by name, not row order. a batch that gated this clock contributed
-    # no intermediates, so its rows have none to reduce and stay NA.
-    rows <- id_index(
-      rownames(x[["scores"]]),
-      rownames(col),
-      "refinalize_clocks",
-      unmatched = "na"
-    )
-    x[["scores"]][, id] <- col[rows, 1L]
-  }
+  done <- reduce_pending(x)
+  ids <- done[["ids"]]
+  x <- done[["x"]]
   cli::cli_inform(c(
     "v" = "{cli::qty(ids)}{?Column/Columns} {.val {ids}}
            {cli::qty(ids)}{?is/are} now computed from all

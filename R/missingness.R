@@ -26,12 +26,11 @@ check_col_values <- function(scan, cols) {
     cli::cli_warn(
       c(
         "{.arg DNAm} contains infinite values.",
-        "i" = "An infinite value counts as missing.",
-        "i" = "The cohort mean fills it where the probe is partly observed.",
-        "i" = "The probe counts as absent where no sample observes it.",
-        "i" = "An infinite beta is often a divide by zero earlier in the
-               pipeline.",
-        "i" = "{.fn clocks_coverage} reports what the fill replaced."
+        "i" = "An infinite value is treated as missing, then filled or dropped
+               like any other missing value.",
+        "i" = "{.fn clocks_coverage} reports what was filled or dropped. An
+               infinite beta is often a divide by zero earlier in the
+               pipeline."
       ),
       call = NULL
     )
@@ -46,10 +45,7 @@ check_col_values <- function(scan, cols) {
         "x" = "The smallest is {.val {signif(lo, 4)}}, in column
                {.val {cols[scan[['min_col']]]}}.",
         "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
-               {.val {1}}.",
-        "i" = "An M-value matrix is a common cause. The resulting ages are not
-               meaningful.",
-        "i" = "Convert an M-value matrix with {.code beta <- 2^m / (2^m + 1)}."
+               {.val {1}}. An M-value matrix is a common cause."
       ),
       call = NULL
     )
@@ -63,12 +59,8 @@ check_col_values <- function(scan, cols) {
                {.val {cols[scan[['max_col']]]}}.",
         "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
                {.val {1}}.",
-        "i" = "The resulting ages are not meaningful.",
         if (hi > PERCENT_SCALE_AT) {
-          c(
-            "i" = "Percent methylation is the usual cause at this size.",
-            "i" = "Convert percent methylation with {.code DNAm / 100}."
-          )
+          c("i" = "Percent methylation is a common cause at this size.")
         } else {
           c("i" = "Check the scale of {.arg DNAm}.")
         }
@@ -135,9 +127,8 @@ check_score_values <- function(scores) {
        score{?s}:",
       capped_bullets(names(bad), bad_lines),
       hint,
-      "i" = "A {.code NaN} or an {.code Inf} usually means a non-finite value
-             reached the score calculation.",
-      "i" = "Check {.arg DNAm} rather than the score."
+      "i" = "A {.code NaN} or {.code Inf} usually means a non-finite value
+             reached the calculation. Check {.arg DNAm}."
     ),
     call = NULL
   )

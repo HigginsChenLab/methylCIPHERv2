@@ -78,8 +78,8 @@ resolve_clocks <- function(clocks) {
             character(1L)
           )
         }),
-        "i" = "Request the family alias.",
-        "i" = "The alias reads the sex of each sample from {.arg pheno}."
+        "i" = "The group name reads each sample's sex from {.arg pheno} and
+               picks the model."
       ),
       call = NULL
     )
@@ -105,13 +105,17 @@ resolve_clocks <- function(clocks) {
       hits <- lapply(tag, resolve_member)
       dead <- tag[vapply(hits, is.null, logical(1L))]
       if (length(dead)) {
-        cli::cli_abort(
-          c(
-            "The keyword {.val {tok}} names {cli::qty(dead)} clock{?s} that
-             the catalog does not contain: {.val {dead}}.",
-            "i" = "This is a bug in {.pkg methylCIPHERv2}. Report it."
+        stop(
+          sprintf(
+            paste0(
+              "Keyword '%s' names clock(s) missing from the catalog: %s. ",
+              "The tag registry and the catalog are out of step -- please ",
+              "report it."
+            ),
+            tok,
+            paste(dead, collapse = ", ")
           ),
-          call = NULL
+          call. = FALSE
         )
       }
       return(unique(unlist(hits, use.names = FALSE)))
@@ -238,13 +242,16 @@ resolve_normalize <- function(normalize, clock_sequence) {
       # unknown scheme is an error, declining an undeclared one is redundant
       unusable <- nm[normalize & !(schemes[nm] %in% NORM_SCHEMES)]
       if (length(unusable)) {
-        declared <- unique(unname(schemes[unusable]))
         cli::cli_abort(
           c(
-            "Cannot normalize {.val {capped_vals(unusable)}}.",
-            "i" = "{cli::qty(declared)}The declared scheme{?s} {?is/are}
-                   {.val {declared}}. Only {.val {NORM_SCHEMES}} are
-                   expressible as a declared panel plus a vendored target."
+            "Cannot turn on {.arg normalize} for
+             {.val {capped_vals(unusable)}}.",
+            "i" = "This package can apply only the {.val {NORM_SCHEMES}}
+                   normalization methods, which
+                   {cli::qty(unusable)}{?that clock does/those clocks do} not
+                   use.",
+            "i" = "{cli::qty(unusable)}Leave {?it/them} out of
+                   {.arg normalize}, or set {?it/them} to {.code FALSE}."
           ),
           call = NULL
         )
@@ -317,9 +324,17 @@ resolve_cpgs <- function(usable_cols, panels) {
   score_parts <- split_panels(panels[["score"]])
   norm_parts <- split_panels(panels[["norm"]])
 
+  # a background two clocks share is calibrated once, so it needs a key. keyed
+  # only where it is shared: a lone normalizing clock then retains nothing.
+  norm_shared <- tabulate(
+    panels[["norm"]][["idx"]],
+    nbins = length(norm_parts)
+  ) > 1L
+
   per_clock <- lapply(seq_along(clock_sequence), function(i) {
     s <- score_parts[[panels[["score"]][["idx"]][[i]]]]
-    nm <- norm_parts[[panels[["norm"]][["idx"]][[i]]]]
+    j <- panels[["norm"]][["idx"]][[i]]
+    nm <- norm_parts[[j]]
     list(
       clock_id = clock_sequence[[i]],
       score_needed = s[["needed"]],
@@ -332,7 +347,11 @@ resolve_cpgs <- function(usable_cols, panels) {
       norm_present_idx = nm[["present_idx"]],
       norm_absent = nm[["absent"]],
       # does this clock count over a norm panel?
-      normalizes = length(nm[["needed"]]) > 0L
+      normalizes = length(nm[["needed"]]) > 0L,
+      # NULL where the calibration has no second reader to reuse it
+      norm_panel_key = if (norm_shared[[j]] && length(nm[["needed"]])) {
+        as.character(j)
+      }
     )
   })
   names(per_clock) <- clock_sequence

@@ -375,8 +375,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   routing targets (the 14 sex-resolved DNAmFitAge members) are internal machinery: scored, kept for
   coverage, **never a score column**, and a hard error if requested by name, pointing at their
   alias. A sex-routed family returns exactly one column per alias, populated for every sample --
-  never a male column, a female column and NAs. The pool, the refusal, its suggestion and the output
-  filter (`drop_routed_members()`) all derive from one source (`sex_routed_members()`).
+  never a male column, a female column and NAs. The pool, the refusal, its suggestion, the output
+  filter (`drop_routed_members()`) and the `list_clocks()` menu all derive from one source
+  (`sex_routed_members()`).
+  - **`list_clocks()` lists what `clocks =` accepts and nothing else**, so a routed member is not a
+    row there and there is no `callable` column to mark one -- it would be constant, and so would
+    `request_as`, which existed only to name a member's alias (DECISIONS 2026-08-07, reversing
+    2026-07-23). **Not extended to the coverage frames, and it must not be**: an alias has no
+    `per_clock` record, so the member rows in `clocks_coverage()` / `samples_coverage()` are the
+    only place a routed family's CpG counts exist. Untypeable and visible in coverage is the
+    intended state, not an inconsistency to iron out; `sex_routed_members()` and
+    `clock_reads_cpgs()` are deliberately different partitions.
 - **No network at install/build/check/CRAN test.** Double-precision coefficients only.
 - **No commit SHA / pin as result provenance.** Correctness is proven by fixtures.
 - **Correlation is never a numeric gate. Anywhere, for anything.** Not in parity, not in a unit

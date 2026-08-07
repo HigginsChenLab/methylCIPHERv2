@@ -5,7 +5,10 @@ finalized <- function(x) {
   multi <- n_batches(x) > 1L
   pending <- x[["provenance"]][["pending"]]
   if (length(pending) && multi) {
-    x <- refinalize_clocks(x)
+    # silent. rbind's say_pending() already named these columns once, at the
+    # bind that created the per-batch values, so an exit re-announcing its own
+    # reduction says the same thing again at every exit the caller reaches.
+    x <- reduce_pending(x)[["x"]]
   }
   x
 }
@@ -313,10 +316,8 @@ say_fill_batch <- function(x, rhs_vars) {
   }
   cli::cli_inform(c(
     "!" = "The returned value has {n_batch} batch{?es}, and
-           {.fn calc_clocks} filled some absent CpGs with a mean taken inside
-           each batch.",
-    "i" = "A fill of that kind can shift the scores of one batch against
-           another.",
+           {.fn calc_clocks} filled some absent CpGs with a per-batch mean.",
+    "i" = "That fill can shift the scores of one batch against another.",
     "i" = "Add {.field {MC_BATCH}} to {.arg formula} so the model accounts for
            the batch."
   ))
