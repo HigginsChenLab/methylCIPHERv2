@@ -1,12 +1,9 @@
-# why a score is NA. every reason is derived from the finished record, so
-# nothing about a gap is stored and nothing can drift from the gate that made it.
+# why a score is NA (derived from the finished result, not stored).
 
-# the cells this function must explain. `is.na()` is TRUE for NaN, which is a
-# computed value check_score_values() already reports, not a missing score.
+# NA scores to explain (NaN is a value issue, not a missing score).
 missing_scores <- function(m) is.na(m) & !is.nan(m)
 
-# an all-NA character matrix on another matrix's axes. one row per sample,
-# one column per clock, so shape_scores() melts it like any score matrix.
+# character matrix shaped like scores (sample x clock), all NA.
 reason_matrix <- function(m) {
   matrix(
     NA_character_,
@@ -16,8 +13,7 @@ reason_matrix <- function(m) {
   )
 }
 
-# one batch's coverage in the shape row_gate() reads (id-keyed, rows subset).
-# the row gate reads the scoring panel alone, so the norm panel is not needed.
+# one batch's coverage in row_gate() shape (scoring panel only).
 batch_gate_input <- function(x, per_clock, rows) {
   ids <- covered_ids(per_clock)
   # one row subset for the panel, not one per clock
@@ -28,8 +24,7 @@ batch_gate_input <- function(x, per_clock, rows) {
   )
 }
 
-# reason -> clock id -> logical over this batch's samples. every clock the run
-# computed, not just the ones it returned. the list order is the precedence.
+# reason -> clock id -> logical over batch samples (list order = precedence).
 gap_masks <- function(x, gated, gate, rows, ids) {
   sample_id <- x[["provenance"]][["sample_id"]][rows]
   failures <- x[["provenance"]][["scoring_failures"]]
@@ -54,9 +49,7 @@ gap_masks <- function(x, gated, gate, rows, ids) {
   lapply(test, function(f) stats::setNames(lapply(ids, f), ids))
 }
 
-# walk every computed clock in dependency order, carrying where it is NA and
-# why. a returned clock reads its own column for the first; masks is keyed by
-# seq_ids and dependencies precede dependents, so every lookup is populated.
+# walk computed clocks in dependency order; fill NA reason per cell.
 gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
   routed <- sex_routed_members()
   sex <- sex_rows(x[["pheno"]][["Female"]][rows], length(rows))
@@ -75,8 +68,7 @@ gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
         lapply(clock_depends_on(id), function(d) na[[d]]),
         own
       )
-      # a routed member is absent outside its own sex by construction, not by
-      # a gap. masking here is what lets its alias take the dependency rule.
+      # mask routed members outside their sex so the alias owns the dependency rule.
       key <- routed[["sex"]][[id]]
       if (!is.null(key)) {
         gone <- gone & sex[[key]]
@@ -89,8 +81,7 @@ gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
     }
     for (d in clock_depends_on(id)) {
       take <- is.na(r) & gone & na[[d]]
-      # a dependency that never reaches the frame hands over its own reason,
-      # so every row the reader gets names a clock they can find in it.
+      # map dep reasons onto returned clocks the reader can find.
       r[take] <- if (d %in% returned) "dependency" else why[[d]][take]
     }
     na[[id]] <- gone
@@ -105,8 +96,7 @@ batch_gaps <- function(x, b, rows, seq_ids) {
   prov <- x[["provenance"]]
   clock_floor <- prov[["min_clocks_coverage"]][[b]]
 
-  # the column gate first: at score time it decided which clocks the row gate
-  # was even asked about, and skipping them here keeps the two the same shape.
+  # skip column-gated clocks so row_gate matches score time.
   gated <- Filter(
     function(id) {
       rec <- per_clock[[id]]
@@ -155,14 +145,13 @@ batch_gaps <- function(x, b, rows, seq_ids) {
   out
 }
 
-# one row per NA score, as (id, clock_id, reason). internal: samples_coverage()
-# joins it onto its score rows, and must pass an already finalized `x`.
+# one row per NA score (id, clock_id, reason); caller must finalize x first.
 gap_reasons <- function(x) {
   batch <- x[["provenance"]][[MC_BATCH]]
   scores <- x[["scores"]]
 
   reasons <- reason_matrix(scores)
-  # nothing to explain: the walk never runs over a record with every score
+  # nothing to explain
   if (any(missing_scores(scores))) {
     seq_ids <- resolve_clocks_sequence(x[["provenance"]][["requested"]])
     # positions, so a batch subsets its own rows and not the whole record

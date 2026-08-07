@@ -5,9 +5,7 @@ finalized <- function(x) {
   multi <- n_batches(x) > 1L
   pending <- x[["provenance"]][["pending"]]
   if (length(pending) && multi) {
-    # silent. rbind's say_pending() already named these columns once, at the
-    # bind that created the per-batch values, so an exit re-announcing its own
-    # reduction says the same thing again at every exit the caller reaches.
+    # silent: say_pending() already named these at rbind.
     x <- reduce_pending(x)[["x"]]
   }
   x

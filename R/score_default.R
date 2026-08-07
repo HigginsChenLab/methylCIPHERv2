@@ -53,8 +53,7 @@ component_present <- function(coef, cpgs, label) {
       paste(utils::head(extra, 5L), collapse = ", ")
     )
   }
-  # hash the component, not the panel. cols follows the panel's order, which
-  # is what keeps it aligned with idx.
+  # hash the component; cols follow panel order (aligned with idx).
   keep <- cpgs[["score_present"]] %in% names(coef)
   list(
     cols = cpgs[["score_present"]][keep],

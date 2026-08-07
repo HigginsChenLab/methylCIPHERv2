@@ -251,8 +251,7 @@ mc_ask_yes_no <- function(header, labels, sizes, dir, question) {
   isTRUE(utils::askYesNo(question))
 }
 
-# read a pack. zlib reports a damaged stream as a warning and readRDS() then
-# returns a wrong object, so both conditions abort here.
+# read a pack; warning or error from readRDS aborts (damaged stream).
 mc_read_pack <- function(path, group_id) {
   damaged <- function(cnd) {
     cli::cli_abort(

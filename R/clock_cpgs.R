@@ -1,4 +1,4 @@
-# every CpG a clocks= request needs measured -- panels plus declared moment refs
+# every CpG a clocks= request needs (panels + moment refs)
 
 #' CpGs Required To Score Clocks
 #'

@@ -236,8 +236,7 @@ clock_sample_rows <- function(x, id, rec, batch, rows) {
   do.call(rbind, out)
 }
 
-# a clock assembled from other clocks' scores counts no CpGs of its own, so it
-# gets one score row per sample with no figures, as clocks_coverage() does.
+# composite clocks: one score row per sample, all counts NA.
 composite_sample_rows <- function(id, batch, sample_id) {
   panel_rows(
     id,
@@ -272,8 +271,7 @@ finalize_samples_gate <- function(x) {
 
 # re-warn on the assembled frame, so a bound record says it once under one floor
 say_low_samples <- function(out, threshold) {
-  # a norm row is never read against this floor, and a composite row has no
-  # figure to grade.
+  # grade score rows only (not norm or composite).
   out <- out[
     out[["panel"]] == "score" & !is.na(out[["coverage"]]), ,
     drop = FALSE
@@ -360,8 +358,7 @@ say_low_samples <- function(out, threshold) {
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)
-  # a finalizer: `reason` reads the NA pattern of the scores, and a
-  # cross-sample column is entirely NA until its reduction runs
+  # finalizer: reason reads NA scores (cross-sample cols need reduction first).
   x <- finalized(x)
   batch <- x[["provenance"]][[MC_BATCH]]
   # one row per (sample, clock, panel). batch masks rows. label withheld when single-batch.
@@ -390,8 +387,7 @@ samples_coverage <- function(x) {
     )
   }
 
-  # drop na coverage rows (routed member on a sex it did not score). only the
-  # counted half is graded -- a composite row is all NA by construction.
+  # drop NA coverage on the counted half (routed member, wrong sex).
   counted <- do.call(rbind, counted)
   counted <- counted[!is.na(counted[["coverage"]]), , drop = FALSE]
 
@@ -402,8 +398,7 @@ samples_coverage <- function(x) {
   attach_reasons(drop_single_batch(out, batch), gap_reasons(x))
 }
 
-# why each missing score is missing, against the score row that holds it. a
-# norm row is a background count and never a score cell, so it takes no reason.
+# attach reason to score rows only.
 attach_reasons <- function(out, gaps) {
   key <- function(id, clock) paste(id, clock, sep = "\r")
   hit <- match(

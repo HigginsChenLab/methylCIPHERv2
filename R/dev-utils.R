@@ -105,7 +105,6 @@ require_dev_ns <- function(pkg, who = "write_sim_DNAm()") {
 }
 
 # --- roxygen doc lint ------------------------------------------------------
-# enforces @param form from dev/WRITING.md. inherited params checked at the donor only.
 
 # the type vocabulary. every @param opens with one of these.
 DOC_TYPES <- c(
@@ -264,7 +263,6 @@ doc_squish <- function(x) {
 }
 
 # --- @seealso cross-reference lint -----------------------------------------
-# closed @seealso groups from dev/WRITING.md. every link must be two-way. reads man/.
 
 # every \link target under a node. the target is in Rd_option for \link[=x]{y}.
 rd_link_targets <- function(node) {

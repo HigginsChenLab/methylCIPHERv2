@@ -118,7 +118,7 @@ pack_groups_needed <- function(clock_sequence) {
 resolve_moment_domains <- function(clock_sequence) {
   out <- list()
   for (id in clock_sequence) {
-    # key first: two clocks on one ref must not resolve its CpGs twice
+    # key first so shared refs resolve once
     key <- clock_moment_key(id)
     if (is.null(key) || key %in% names(out)) {
       next
@@ -162,8 +162,7 @@ mc_spec <- function(
     clock_ids = clock_ids,
     sequence = clock_sequence,
     output_ids = output_ids,
-    # the requested pair. mc_cohort()'s norm gate can decline a scheme the data
-    # cannot support, so read facts[["normalize"]] for what a run did.
+    # requested normalize flags; facts[["normalize"]] is what the run applied.
     normalize = normalize,
     covariates = covariates,
     pheno_id = pheno_id,
@@ -216,21 +215,18 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
     spec[["needed_union"]],
     moment_domains = spec[["moment_domains"]]
   )
-  # the norm gate runs first, because declining a scheme empties that clock's
-  # background panel and every downstream fact reads the resolved panel.
+  # norm gate first (declining empties the background before resolve).
   normalize <- spec[["normalize"]]
   panels <- spec[["panels"]]
   declined <- norm_gate(panels, mna[["usable_cols"]], min_clocks_coverage)
   if (length(declined)) {
     normalize[declined] <- FALSE
-    # only the norm half can move: declining empties a background panel and
-    # leaves every scoring panel exactly as mc_spec() resolved it
+    # declining only empties norm panels; score panels stay as resolved.
     panels[["norm"]] <- dedup_panels(lapply(
       spec[["sequence"]],
       function(cid) clock_norm_cpgs(cid, normalize[[cid]])
     ))
-    # a declined background is read by nothing, so it leaves the position axis
-    # and the cohort-mean cache
+    # drop declined background CpGs from usable_cols and the fill cache.
     keep <- panels_union(panels)
     mna[["usable_cols"]] <- intersect(mna[["usable_cols"]], keep)
     mna[["col_mean"]] <- mna[["col_mean"]][names(mna[["col_mean"]]) %in% keep]
@@ -306,15 +302,7 @@ note_scoring_failure <- function(block, id, sample_id) {
   invisible(NULL)
 }
 
-# every branch that scores NA for named samples says it this way. `reason` is
-# the already-rendered lead line, so each branch supplies only what differs.
-# no-ops on an empty vector like note_scoring_failure(), so a branch pairs the
-# two with no guard of its own.
-# points at samples_coverage(), never at the note it just wrote: the collector
-# is internal and the `reason` column is the same fact where a user can read it.
-# names that column and no value in it -- gap_masks() takes the first match in
-# list order and `fit` is last, so a sample that also fails a gate reads as the
-# gate instead.
+# warn that samples scored NA; reason is the lead line. empty failed is a no-op.
 say_scored_na <- function(id, failed, reason) {
   if (!length(failed)) {
     return(invisible(NULL))
@@ -332,8 +320,7 @@ say_scored_na <- function(id, failed, reason) {
   )
 }
 
-# H skipped: the sample is scored, so this claims no NA and no reason. it takes
-# no note for the same reason -- a note would read as an NA it does not have.
+# BMIQ H step skipped; sample still scored (no NA, no note).
 say_partial_calibration <- function(id, partial) {
   if (!length(partial)) {
     return(invisible(NULL))
@@ -350,8 +337,7 @@ say_partial_calibration <- function(id, partial) {
   )
 }
 
-# a sample_scale clock needs 2 observed values on its domain or the per-sample
-# sd is NA. the domain is declared, so read it rather than naming the clocks.
+# sample_scale: need 2 observed values on the declared domain or sd is NA.
 say_moment_failure <- function(id, failed) {
   where <- if (clock_needs_full_panel(id)) {
     cli::format_inline("every column of {.arg DNAm}")
@@ -368,8 +354,7 @@ say_moment_failure <- function(id, failed) {
   )
 }
 
-# union two clock-keyed note lists, name-sorted. also the collector -> list
-# conversion, as merge_notes(list(), as.list(env)).
+# union clock-keyed note lists (also env collector -> list).
 merge_notes <- function(a, b) {
   if (!length(b)) {
     return(a)
@@ -424,7 +409,7 @@ mc_block <- function(DNAm, spec, facts) {
       call. = FALSE
     )
   }
-  # a panel's cached CpGs are read off this by position, never by name
+  # panel cache is indexed by position, not name
   cached_mask <- NULL
   if (length(fill_idx)) {
     cached_mask <- logical(length(usable))
@@ -455,8 +440,7 @@ mc_block <- function(DNAm, spec, facts) {
   block
 }
 
-# blank the rows the sample gate refused. one matmul scored them all, so the
-# mask goes on every writer into results and pending.
+# blank sample-gate refusals on every results/pending writer.
 mask_gated_rows <- function(out, gate, id) {
   low <- gate[[id]][["na"]]
   if (is.null(low) || !any(low)) {
@@ -480,8 +464,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
   # per-sample intermediates for cohort-reducing clocks
   pending <- list()
 
-  # gated columns are seeded, not scored. a null entry would shrink a dependent
-  # to numeric(0) instead of carrying the NA into it.
+  # seed gated columns as NA so dependents keep shape.
   na_clocks <- intersect(clock_sequence, facts[["na_clocks"]])
   for (p in na_clocks) {
     results[[p]] <- score_matrix(NA_real_, block[["sample_id"]], p)
@@ -563,8 +546,7 @@ finalize_cross_sample <- function(scores, pending) {
       )
     )
     scores[[p]] <- col
-    # a sample with intermediates but no score lost it in the reduction. one
-    # with none was already blanked upstream, and needs no second reason.
+    # note reduction losses only when intermediates existed.
     lost <- rownames(raws)[rowSums(!is.na(raws)) > 0L & is.na(col[, 1L])]
     if (length(lost)) {
       notes[[p]] <- lost

@@ -53,26 +53,16 @@ bmiq_panel <- function(obs, target, id, block, key) {
     )
   )
 
-  # h.applied stays NA unless the sample calibrated, so FALSE is the one state
-  # that means H was skipped on a sample that scored.
+  # h.applied == FALSE means H was skipped on a sample that still scored.
   partial <- block[["sample_id"]][fit[["h.applied"]] %in% FALSE]
   say_partial_calibration(id, partial)
 
   fit[["calibrated"]]
 }
 
-# calibration costs about 80 ms a sample, so this is roughly two seconds of
-# work. under it the run ends before a reader looks up.
 BMIQ_SAY_AT <- 25L
 
-# one calibration per (scheme, background panel) in a block. `key` is NULL where
-# no second clock can reuse it, so a lone normalizing clock retains nothing.
-#
-# the betas are not in `args` and do not need to be: within one block the panel
-# index fixes norm_present and norm_present_idx, so it fixes what
-# observed_panel() returns. everything else the kernel reads is in `args`, which
-# is stored beside the result and compared whole. a tuning argument cannot join
-# the call without joining the key, which a hand-listed key cannot promise.
+# one calibration per (scheme, background) in a block; key is NULL if unshared.
 norm_cached <- function(block, key, args, compute) {
   cache <- block[["norm_cache"]]
   hit <- if (is.null(key)) NULL else cache[[key]]
@@ -87,9 +77,7 @@ norm_cached <- function(block, key, args, compute) {
   value
 }
 
-# the calibration is a fact about the background, not about the clock, so two
-# clocks on one background share it. the reporting above stays per clock: each
-# one really does score NA for a sample the calibration could not fit.
+# shared background cache; NA reporting stays per clock.
 bmiq_fit <- function(obs, target, id, block, key) {
   betas <- obs[["values"]]
   args <- list(

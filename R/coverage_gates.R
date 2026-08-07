@@ -10,12 +10,10 @@ gate_label <- function(id, routed = sex_routed_members()) {
   )
 }
 
-# the band just above a floor, where a clock still scores but only barely.
-# the column gate and the row gate both read it, so their tiers cannot drift.
+# warn band just above the coverage threshold (shared by column and row gates).
 warn_band <- function(threshold) min(1, threshold * 1.1)
 
-# one gate bullet. labels are interpolated, so a brace in one cannot become a
-# cli template.
+# one gate bullet (labels pre-formatted for cli).
 panel_line <- function(id, present, needed, label, routed) {
   cli::format_inline(
     "{gate_label(id, routed)}: {present}/{needed}
@@ -26,8 +24,7 @@ panel_line <- function(id, present, needed, label, routed) {
 # verdicts that blank a column. "dead" is the floor-independent one.
 GATE_NA <- c("na", "dead")
 
-# the column gate's verdict on one clock's counts. shared with gap_reasons(),
-# so the gate and the reason a cell is given for it cannot drift.
+# column-gate verdict for one clock (shared with gap_reasons()).
 clock_gate_verdict <- function(present, needed, threshold) {
   if (needed == 0L) {
     return("")
@@ -51,8 +48,7 @@ clock_gate_verdict <- function(present, needed, threshold) {
 check_coverage <- function(cpg_list, threshold = 0.75) {
   # threshold is min_clocks_coverage, already validated at the front door
   routed <- sex_routed_members()
-  # only the clocks that read CpGs. one assembled from other clocks' scores has
-  # no coverage of its own, and inherits NA through them.
+  # only clocks that read CpGs (composites inherit NA through deps).
   per_clock <- cpg_list[["per_clock"]]
   per_clock <- per_clock[vapply(
     names(per_clock),
@@ -91,8 +87,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(fail)) {
     # a clock with no observed CpG is NA at every floor, so the advice splits
     observed <- graded[fail] == "na"
-    # gate_label() prints a sex-routed clock under one model, and only the
-    # samples of that sex lose the score, so the two cannot share a bullet.
+    # sex-routed clocks: one model label; only that sex loses the score.
     plain <- setdiff(fail, names(routed[["alias"]]))
     modelled <- setdiff(fail, plain)
     cli::cli_warn(
@@ -141,15 +136,11 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   fail
 }
 
-# normalization gate: the clocks whose background is too thin to normalize
-# against. it declines the scheme rather than blanking a score, and runs
-# before the panels are resolved.
+# decline normalize when the background panel is too thin (before resolve).
 norm_gate <- function(panels, usable, threshold = 0.75) {
   routed <- sex_routed_members()
   ids <- panels[["clock_id"]]
-  # graded once per distinct background, then mapped back through the panel
-  # index. a clock that does not normalize has an empty panel, which
-  # clock_gate_verdict() grades "".
+  # grade each distinct background once; empty norm panel grades "".
   uniq <- panels[["norm"]][["uniq"]]
   at <- panels[["norm"]][["idx"]]
   needed <- lengths(uniq)
@@ -192,8 +183,7 @@ norm_gate <- function(panels, usable, threshold = 0.75) {
   drop
 }
 
-# one clock's per-sample verdicts, or NULL when nothing is below the band.
-# measured on the scoring panel; both arguments are keyed by covered_ids().
+# per-sample scoring-panel verdicts, or NULL if nothing is near/below the band.
 row_gate_one <- function(cov_rec, score_miss, threshold) {
   rc <- panel_ratio(
     cov_rec[["score_present"]],
@@ -203,8 +193,7 @@ row_gate_one <- function(cov_rec, score_miss, threshold) {
   cov <- rc[["cov"]]
   # na already: a row this clock's sex did not score
   seen <- !is.na(cov)
-  # no observed CpG is unscoreable at any floor, and `cov < threshold` cannot
-  # say so at a floor of 0, so the zero rule stays its own clause.
+  # zero observed CpGs is always unscoreable (even at threshold 0).
   dead <- seen & cov == 0
   na <- dead | (seen & cov < threshold)
   near <- seen & !na & cov < warn_band(threshold)
@@ -215,7 +204,7 @@ row_gate_one <- function(cov_rec, score_miss, threshold) {
     cov = cov,
     scored = sum(seen),
     na = na,
-    # a subset of na, kept apart so it reads as a count rather than a percent
+    # zero-CpG subset of na (count, not percent)
     dead = dead,
     near = near,
     needed = rc[["needed"]]
@@ -246,8 +235,7 @@ check_row_coverage <- function(gate, threshold = 0.75) {
   # the clocks with at least one sample in a tier, keyed by id
   tier <- function(field) Filter(function(s) any(s[[field]]), gate)
 
-  # one line per clock, strings only for the ids that survive the cap. a near
-  # sample is never dead, so the near tier reaches only the thin half.
+  # one line per clock for ids that pass the cap.
   lines_for <- function(hit, field) {
     function(these) {
       vapply(
@@ -255,8 +243,7 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         function(id) {
           s <- hit[[id]]
           low <- s[[field]]
-          # a dead sample has nothing to report a percentage of, so it is
-          # counted apart and named rather than given a figure of 0%.
+          # dead samples: count only, no 0% figure.
           gone <- low & s[["dead"]]
           thin <- low & !gone
           paste(

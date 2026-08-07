@@ -5,8 +5,7 @@
 #include <vector>
 using namespace Rcpp;
 
-// internal kernel. caller validates moment_sets (see check_moment_sets() in R).
-// moments on iff moment_sets non-NULL. K is 1..8. zero-count rows: mean 0 / m2 0 / count 0.
+// internal kernel; moments if moment_sets non-NULL (K 1..8). zero-count -> 0.
 
 // observed value range over scanned columns, seeded at beta bounds. `col` is 1-based within `cols`.
 struct value_range

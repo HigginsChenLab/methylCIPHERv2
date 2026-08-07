@@ -45,9 +45,7 @@ namespace
             sum_log1m_y += effective_weight * log1m_y;
         }
 
-        // Kish effective sample size: (sum w)^2 / sum w^2. A soft E-step gives
-        // almost every observation a positive but negligible responsibility, so
-        // positive_count is a poor size guard; n_eff is not.
+        // Kish n_eff = (sum w)^2 / sum w^2 (soft E-step size guard).
         double effective_size() const
         {
             if (!(sum_w2 > 0.0))
@@ -158,8 +156,7 @@ namespace
             return out;
         }
 
-        // Sufficient statistics are fixed for this MLE; only digamma/trigamma
-        // of the shapes change across Newton steps.
+        // Fixed sufficient stats; Newton updates shapes only.
         const double mean_log_y = stats.sum_log_y / stats.weight;
         const double mean_log1m_y =
             stats.sum_log1m_y / stats.weight;
@@ -274,7 +271,7 @@ namespace
 
 } // anonymous namespace
 
-// NumericVector deliberately accepts both vectors and numeric matrices.
+// NumericVector accepts vectors and numeric matrices.
 // [[Rcpp::export]]
 void scan_finite_unit_interval_cpp(
     const Rcpp::NumericVector &x,
@@ -314,11 +311,7 @@ void scan_finite_unit_interval_cpp(
     }
 }
 
-// Gather a contiguous run of sample rows out of a samples x probes matrix into
-// a probes x sample_count block. R matrices are column-major, so a sample
-// (row) is strided; the returned block stores each sample contiguously, which
-// makes the per-sample work and the scatter back cache-friendly without paying
-// for a full transpose.
+// Gather sample rows into a probes x block matrix (contiguous per sample).
 // [[Rcpp::export]]
 Rcpp::NumericMatrix gather_sample_block_cpp(
     const Rcpp::NumericMatrix &x,
@@ -360,10 +353,7 @@ Rcpp::NumericMatrix gather_sample_block_cpp(
     return block;
 }
 
-// Scatter a probes x sample_count block back into a samples x probes matrix.
-// This deliberately mutates `destination` in place, which is safe only when it
-// is a freshly allocated private matrix (never an alias of the caller's input);
-// bmiq_calibration() allocates `calibrated` for exactly this reason.
+// Scatter block into destination in place (must be a private matrix).
 // [[Rcpp::export]]
 void scatter_sample_block_cpp(
     Rcpp::NumericMatrix destination,
@@ -449,10 +439,7 @@ Rcpp::List beta_mixture_em_cpp(
         log1m_y[i] = std::log1p(-y_ptr[i]);
     }
 
-    // Allocate and copy rather than assigning the NumericMatrix directly.
-    // Direct assignment aliases the caller's SEXP and the E-step would mutate
-    // initial_responsibility. A fresh allocation also mirrors Armadillo's
-    // attribute-dropping deep copy more closely than Rcpp::clone().
+    // Deep-copy responsibilities (assignment would alias the caller's SEXP).
     Rcpp::NumericMatrix responsibility(
         initial_responsibility.nrow(),
         initial_responsibility.ncol());
@@ -513,14 +500,11 @@ Rcpp::List beta_mixture_em_cpp(
     {
         Rcpp::checkUserInterrupt();
 
-        // Retain the previous iteration's component shapes so the M-step below
-        // can refuse a candidate that would lower a component's weighted
-        // log-likelihood (generalized-EM ascent guard).
+        // Previous shapes for the GEM ascent guard in the M-step.
         prev_a = a;
         prev_b = b;
 
-        // One pass: component weights (eta) and Beta sufficient stats.
-        // stats[k].weight == sum_i responsibility(i, k).
+        // One pass: eta and Beta sufficient stats.
         std::vector<BetaStats> stats(
             static_cast<std::size_t>(K));
 
@@ -566,14 +550,7 @@ Rcpp::List beta_mixture_em_cpp(
                     fit.reason);
             }
 
-            // Generalized-EM ascent guard: accept the candidate only if it does
-            // not lower this component's weighted log-likelihood relative to the
-            // previous iteration's shapes under the current responsibilities.
-            // Each M-step re-initializes from method-of-moments, so a stalled
-            // Newton fit could otherwise decrease the objective and break the
-            // monotonicity that "usable" fits are assumed to preserve. eta is
-            // always the closed-form maximizer, so guarding the Beta shapes is
-            // enough to keep the outer log-likelihood non-decreasing.
+            // GEM guard: keep candidate only if weighted loglik does not fall.
             bool retained = false;
 
             if (iter > 0)
@@ -723,8 +700,7 @@ Rcpp::List beta_mixture_em_cpp(
         }
     }
 
-    // Preserve the old RcppArmadillo return shapes:
-    // a, b, and mu are K x 1 matrices; eta is a bare vector.
+    // Return shapes: a, b, mu as K x 1; eta as a vector.
     Rcpp::NumericMatrix a_matrix(nL, 1);
     Rcpp::NumericMatrix b_matrix(nL, 1);
     Rcpp::NumericMatrix mu_matrix(nL, 1);

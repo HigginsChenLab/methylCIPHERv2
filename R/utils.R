@@ -34,9 +34,7 @@ capped <- function(x, n = MC_MSG_CAP) {
   paste(utils::head(x, n), collapse = ", ")
 }
 
-# index that reindexes an id-keyed right side into `key`'s order. `what` names
-# the call site for the defect message.
-# unmatched: "stop" a package bug, "drop" keep the matches, "na" caller's own.
+# reindex id-keyed right side into key order; unmatched: stop | drop | na.
 id_index <- function(key, id, what, unmatched = c("stop", "drop", "na")) {
   unmatched <- match.arg(unmatched)
   bug <- function(fmt, ...) {
