@@ -28,15 +28,12 @@ Imports:
     tools,
     utils
 Suggests:
-    betanorm,
     knitr,
     rmarkdown,
     testthat (>= 3.0.0),
     withr
 VignetteBuilder:
     knitr
-Remotes:
-    hhp94/betanorm
 biocViews:
 Config/Needs/website: reactable
 Config/testthat/edition: 3

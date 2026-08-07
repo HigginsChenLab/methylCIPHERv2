@@ -4,7 +4,6 @@ score_Dunedin <- function(id, cpgs, block, results) {
   if (!cpgs[["normalizes"]]) {
     return(linear_score(cpgs, block))
   }
-  require_betanorm(id)
 
   sample_id <- block[["sample_id"]]
   n <- length(sample_id)
@@ -31,7 +30,7 @@ score_Dunedin <- function(id, cpgs, block, results) {
     panel[, absent] <- rep(target[absent], each = n)
   }
 
-  norm <- betanorm::quantile_norm(panel, target = as.numeric(target[needed]))
+  norm <- quantile_norm(panel, target = as.numeric(target[needed]))
   dimnames(norm) <- dimnames(panel)
 
   model <- cpgs[["score_needed"]]

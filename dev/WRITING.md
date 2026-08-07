@@ -43,8 +43,15 @@ so a bug report can be located from pasted text with no stack trace. Not necessa
 string, but the fixed part leads.
 
 Today: assets lifecycle, discovery printers, public S3 refusals, and the whole `calc_clocks()`
-front door are cli. Accessors, score branches, pack dispatch, catalog bugs and citation internals
-are `stop()`.
+front door are cli. Accessors, pack dispatch, catalog bugs and citation internals are `stop()`.
+
+**A score branch is on both sides, and the message decides, not the file.** Its `stop()` calls are
+defects (a missing dispatch branch, an unbanked moment set) and stay plain. Its **warnings are
+about the user's own samples** -- calibration failed, too few observed CpGs -- so they are
+`cli_warn()`. Listing "score branches" as wholly `stop()` was the enumeration drifting from the
+rule above it, the same way the pre-2026-08-03 keep-set did, and it cost these four messages their
+markup, their plural handling, and any cover from the `--` / `;` lint, which scans cli calls only
+(DECISIONS 2026-08-07).
 
 ---
 
@@ -89,9 +96,26 @@ no first person, no contractions, no `--`, no `;`. See section 10 for what else 
   "gate"**. The last two leaked into three shipped topics before anyone read for them (DECISIONS
   2026-08-06): say `min_clocks_coverage`, or "either argument", or "either value".
   The test is mechanical: if the word is not a function name, an argument name, a component name
-  (`$scores`, `$pheno`, `$coverage`, `$provenance`), a column name in a returned frame, or a word
-  already in a message the user sees, it is jargon. Say "the returned value" or "an `mc_result`
-  object", never "the record".
+  (`$scores`, `$pheno`, `$coverage`), a column name in a returned frame, or a word already in a
+  message the user sees, it is jargon. Say "the returned value" or "an `mc_result` object", never
+  "the record".
+
+  **`$provenance` is internal and is not on that list.** No message, no roxygen line and no printed
+  section may name it. It is the run's bookkeeping -- batch labels, retained intermediates, the
+  floors each batch ran under -- and every fact in it that a reader needs has an exit that presents
+  the same fact better: `samples_coverage()` for a failed sample, `clocks_coverage()` for the
+  panel counts, the `mc_batch_id` column for the labels. `print.mc_result()` heads its batch block
+  `mc_batch_id`, not `$provenance`, for that reason. Tests may still read it, because a test is not
+  a reader (DECISIONS 2026-08-07).
+
+  **A component name describes, it never directs.** "Where to look next" is always an **exit
+  function** -- `samples_coverage()`, `clocks_coverage()`, `as.data.frame()`, `calc_accel()`,
+  `cite_clocks()` -- because that is the whole surface a reader works through. A component path
+  needs them to know the object's internals, and `rbind()` and `refinalize_clocks()` restructure it
+  under them. A warning about samples that scored `NA` points at `samples_coverage()` and its
+  `reason` column, never at the collector that column is derived from. This is R4 ("name the
+  function to call next") applied to R8's own whitelist, and it was written down after a message
+  shipped pointing at exactly such a path.
 
   **"panel" passes the test and is allowed.** An earlier draft of this rule banned it. That was
   wrong on the rule's own terms: `samples_coverage()` returns a column literally named `panel`,

@@ -26,7 +26,7 @@ horvath1_score <- function(m) {
 }
 
 bmiq_calibrated <- function(m) {
-  betanorm::bmiq_calibration(
+  bmiq_calibration(
     m,
     goldstandard.beta = as.numeric(GOLD[colnames(m)]),
     nfit = ncol(m),
@@ -109,7 +109,6 @@ test_that("a clock with no norm panel keeps its entry rather than losing it", {
 # normalized arithmetic is in test-fixtures-parity.R. this file covers the record half.
 test_that("a normalized run says on the record that it normalized", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   # record-only: gates off because a thinned background is deliberately short
   res <- calc_clocks(
     methylation_betas(background = 1000L),
@@ -137,7 +136,6 @@ test_that("a normalized run says on the record that it normalized", {
 # the record keeps both facts, so a difference can be attributed to one of them
 test_that("a declined scheme is on the record beside the request", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   # the scoring panel alone: nowhere near enough background to normalize with
   DNAm <- random_betas(clock_scoring_cpgs("Horvath1"), n = 4L)
   res <- suppressWarnings(
@@ -170,7 +168,6 @@ test_that("a declined scheme is on the record beside the request", {
 # unfit BMIQ sample: NA score + notes entry (coverage still full)
 test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   # the failure is a property of the unfittable sample, not of the width
   DNAm <- methylation_betas(background = 1000L)
   DNAm[2, ] <- 0.5
@@ -198,7 +195,6 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
 # absent background CpGs are dropped from the fit, never filled from the target
 test_that("BMIQ drops absent background CpGs rather than filling them", {
   skip_on_cran()
-  skip_if_not_installed("betanorm")
   full <- methylation_betas()
   # drop background-only probes: the scoring panel stays whole, so no gate fires
   norm_only <- setdiff(names(GOLD), clock_scoring_cpgs("Horvath1"))

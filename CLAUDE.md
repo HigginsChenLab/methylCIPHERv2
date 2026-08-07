@@ -22,7 +22,7 @@ contribute.
 ```r
 # from the package root, in R:
 install.packages("pak")
-pak::local_install_deps(dependencies = TRUE)  # reads DESCRIPTION incl. GitHub-only Remotes
+pak::local_install_deps(dependencies = TRUE)  # every dep is on CRAN; there is no Remotes:
 pkgbuild::compile_dll(".", force = TRUE)  # only after editing src/*.cpp -- load_all() reuses a stale dll
 devtools::load_all()   # attach for interactive work
 devtools::document()   # regenerates NAMESPACE + man/ from tags; needed for the Rcpp wiring
@@ -32,14 +32,24 @@ devtools::test()       # always-on tiers (cohort parity auto-skips if not staged
 `devtools::check()` / `R CMD check` is **maintainer-on-demand only** -- see the invariant below.
 The package has compiled code (`src/`), so a working toolchain is required -- Rtools on Windows.
 Soft deps back specific paths only and skip when absent. **A dep is declared for code, not for
-tests**: `betanorm` is in `Suggests` because `R/` reads it (guarded by `require_betanorm()` in
-`R/score_normalized.R`), while `duckdb`, `DBI` and `DunedinPACE` are **not declared at all** -- all
-three are read only by `test-fixtures-parity.R`, which is `.Rbuildignore`d and so never reaches a
-tarball for the unstated-dependency scan to see. `DBI` was dropped from `Suggests` on 2026-08-04
-once that was true; it was never read by `R/`, contrary to what this file used to say.
+tests**: `duckdb`, `DBI` and `DunedinPACE` are **not declared at all** -- all three are read only by
+`test-fixtures-parity.R`, which is `.Rbuildignore`d and so never reaches a tarball for the
+unstated-dependency scan to see. `DBI` was dropped from `Suggests` on 2026-08-04 once that was true;
+it was never read by `R/`, contrary to what this file used to say.
 `withr` stays in `Suggests` for the same static-scan reason but is effectively free -- testthat
 `Imports` it, so anything that can run the suite already has it, and it needs no
 `skip_if_not_installed()` (DECISIONS 2026-08-04).
+
+**Normalization is not a soft dep any more, and there is no `Remotes:`.** Both schemes are this
+package's own code as of 2026-08-07: `R/normalize_bmiq.R` and `R/normalize_quantile.R`, vendored
+from `hhp94/betanorm` and kept **internal** so `calc_clocks()` stays the one public beta reader.
+`require_betanorm()` is gone, and so is every `skip_if_not_installed("betanorm")` -- the smoke tier
+now scores the quantile-normalizing clocks unconditionally. **The whole `src/` is plain Rcpp, and
+`LinkingTo:` is `Rcpp` alone**: `src/bmiq_norm.cpp` was Armadillo for one day, and upstream shipped
+an Armadillo-free backend the same day (`arma::vec` -> `std::vector<double>`, `arma::mat` ->
+`Rcpp::NumericMatrix` with explicit `i + n * k` indexing). Verified **bit-identical** across 18000
+calibrated cells before the swap, not merely within tolerance. Do not re-add `RcppArmadillo` to
+build a kernel here without measuring what it buys (DECISIONS 2026-08-07).
 
 ## Non-negotiable invariants
 
@@ -110,6 +120,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     (DECISIONS 2026-08-06).
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double), `$pheno`,
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
+  **`$provenance` is internal, and that is a rule about the user-facing surface, not about the
+  code.** No cli message, no roxygen line and no printed section may name it: every fact in it that
+  a reader needs has an exit that presents it better, so a message about a failed sample points at
+  `samples_coverage()` and its `reason` column rather than at
+  `$provenance$scoring_failures`, which is the collector that column is derived from. `R/` reads it
+  freely and **tests may assert it**, because a test is not a reader. `dev/WRITING.md` R8 carries
+  the wording rule (DECISIONS 2026-08-07).
   `$provenance` carries the per-sample `mc_batch_id` (aligned to `sample_id`), the retained
   `pending` intermediates that make an opt-in `refinalize_clocks()` exact, and **both coverage
   floors keyed by batch label** like `$coverage$per_clock`. `rbind` keeps one floor per batch and
@@ -211,9 +228,14 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     and `clocks_coverage()` route through it, and `finalized()` calls it **before** the `pending`
     test so `&&` cannot short-circuit past the check. Never read either count directly.
   - **Every `print.mc_*` method shares one grammar, built in `R/print.R`**: a `<class> A x B` header,
-    a `$component [what is shown]` line per list element, then `... N more <axis>`. The builders
+    a `$component [what is shown]` line per shown element, then `... N more <axis>`. The builders
     return strings, so a cli printer and a `cat` printer emit identical text without moving the cli
-    boundary. A new record class reuses them (DECISIONS 2026-07-29).
+    boundary. A new record class reuses them (DECISIONS 2026-07-29). **Not every component is
+    shown, and one shown block is not a component.** `$coverage` has never printed, and the
+    multi-batch block is headed `mc_batch_id`, via `fmt_named_section()` rather than
+    `fmt_section()`, because what it lists is the labels and `$provenance` is internal. `$` in this
+    grammar therefore means "this is a component you may reach for", which is exactly the
+    distinction the header now respects (DECISIONS 2026-08-07).
 - **Scores only, and the record remembers its inputs.** `$scores` is scores -- no auto-appended
   phenotype columns. Separately, `$pheno` carries the *aligned* pheno narrowed to the id column plus
   the covariates the run actually required. **It is never `NULL`**: with no `pheno =` supplied,
@@ -691,7 +713,9 @@ refactor is too tight -- loosen or delete it.
   fixture, that fixture owns the numeric golden and only a smoke stays.
 - **Coverage counts and provenance flags are output** -- asserting
   `res$coverage$per_clock[["Hannum"]]$score_imputed_full` or `res$provenance$dependencies` is fair
-  game.
+  game. **`$provenance` being internal does not reach this line**: it bars the component from
+  messages, docs and printed output, where the reader is a user, and a test is not. Where an exit
+  presents the same fact, prefer the exit -- it tests what a user can actually see.
 - **Minimize test-helper files.** A fixture builder/mock lives atop the one test file that uses it;
   promote to `helper-*.R` only when >= 2 files genuinely share it. `helper-fixtures.R` is the one
   such file: `mc_pheno()` / `mc_ages()` (9 files), `mc_fake_cpgs()`, and the `grip_fixture()` /
@@ -729,8 +753,13 @@ replaced an enumerated cli keep-set, which had put messages about a `calc_clocks
 
 So today: assets lifecycle, discovery printers, public S3 refusals, and the whole `calc_clocks`
 front door (token resolution, `validate_inputs.R`, coverage gates, `missingness.R`, `mc_cohort`,
-`clock_cpgs`, `resolve_normalize`) are cli. Accessors, score branches, pack dispatch, catalog/sync
-bugs and citation internals are `stop()`. **`list_clock_tags()` is not a printer** -- it returns the
+`clock_cpgs`, `resolve_normalize`) are cli. Accessors, pack dispatch, catalog/sync bugs and
+citation internals are `stop()`. **A score branch is split by the message, not by the file**: its
+`stop()`s are defects and stay plain, its **warnings are about the user's own samples** and are
+`cli_warn()`, emitted through `say_scored_na()` / `say_moment_failure()` in `R/score_cohort.R`
+beside the `note_scoring_failure()` that records the same event. Naming score branches as wholly
+`stop()` was the enumeration drifting from its own rule a second time (DECISIONS 2026-08-07).
+**`list_clock_tags()` is not a printer** -- it returns the
 registry as a value and prints nothing (DECISIONS 2026-07-29).
 
 A defect message is **hard-coded and greppable**: a fixed prefix leading, values appended after it,

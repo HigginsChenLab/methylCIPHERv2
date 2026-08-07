@@ -306,6 +306,42 @@ note_scoring_failure <- function(block, id, sample_id) {
   invisible(NULL)
 }
 
+# every branch that scores NA for named samples says it this way. `reason` is
+# the already-rendered lead line, so each branch supplies only what differs.
+# points at samples_coverage(), never at the note it just wrote: the collector
+# is internal and the `reason` column is the same fact where a user can read it.
+say_scored_na <- function(id, failed, reason) {
+  cli::cli_warn(
+    c(
+      reason,
+      capped_bullets(failed, val_lines),
+      "i" = "{.val {id}} scores {.code NA} for
+             {cli::qty(failed)}{?this sample/these samples}.",
+      "i" = "{.fn samples_coverage} marks {cli::qty(failed)}{?it/them} with
+             {.field reason} {.val fit}."
+    ),
+    call = NULL
+  )
+}
+
+# a sample_scale clock needs 2 observed values on its domain or the per-sample
+# sd is NA. the domain is declared, so read it rather than naming the clocks.
+say_moment_failure <- function(id, failed) {
+  where <- if (clock_needs_full_panel(id)) {
+    cli::format_inline("every column of {.arg DNAm}")
+  } else {
+    "the z-score reference"
+  }
+  say_scored_na(
+    id,
+    failed,
+    cli::format_inline(
+      "{length(failed)} sample{?s} {cli::qty(failed)}{?has/have} fewer than
+       2 observed CpGs in {where}:"
+    )
+  )
+}
+
 # union two clock-keyed note lists, name-sorted. also the collector -> list
 # conversion, as merge_notes(list(), as.list(env)).
 merge_notes <- function(a, b) {

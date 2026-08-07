@@ -14,6 +14,247 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-07 -- BMIQ drops RcppArmadillo; `LinkingTo:` is `Rcpp` alone
+
+`src/bmiq_norm.cpp` was vendored earlier the same day as Armadillo code, and `LinkingTo:
+RcppArmadillo` was recorded in `CLAUDE.md` as the accepted cost of bringing BMIQ in-house. Upstream
+then shipped an Armadillo-free backend in `hhp94/betanorm`, and that is the version the package now
+carries. The dependency is gone, so the cost was not paid at all.
+
+**The strip is mechanical, and the arithmetic is untouched.** `arma::vec` becomes
+`std::vector<double>`, `arma::mat` becomes `Rcpp::NumericMatrix` with explicit column-major
+`i + n * k` indexing, `arma::uword` becomes `R_xlen_t`, and the two Armadillo reductions
+(`arma::max(arma::abs(...))` over the parameter state) become an explicit loop. Nothing in the EM,
+the Newton step, or the Armijo backtracking moved. The return shapes are preserved deliberately:
+`a`, `b` and `mu` stay K x 1 matrices and `eta` stays a bare vector, so
+`canonicalize_em_components()` and `em_diagnostics()` keep reading `em[["a"]][, 1L]` unchanged.
+
+**One R-side change, and it is the signature.** `scan_finite_unit_interval_cpp()` took an
+`arma::mat`, so the gold-standard call site wrapped its vector in `matrix(..., ncol = 1L)`. The
+parameter is now `Rcpp::NumericVector`, which accepts a vector and a numeric matrix alike, so the
+wrap is deleted. `datM` still passes as a matrix through the same parameter.
+
+**Verified bit-identical, not merely within tolerance.** The always-on tier cannot catch a numeric
+regression here: `test-normalize.R` keeps only the record half (`provenance[["normalized"]]`,
+`cov[["normalizes"]]`, the `sample_miss[["norm"]]` column), and the BMIQ numeric golden lives in the
+parity tier as `parity (horvath normalized)`, which is maintainer-gated. So both backends were built
+and run against one fixed trimodal 6 x 3000 panel: **max abs diff 0, max rel diff 0,
+`identical()` TRUE over all 18000 calibrated cells**, with matching `success` and `h.applied`
+vectors. A checksum agreeing to 17 digits is not the gate; the element-wise `max` is, per the
+correlation-is-never-a-gate rule. The Armadillo build was reconstructed from `betanorm` at HEAD,
+confirmed equal to what was vendored by diffing HEAD-to-worktree against vendored-to-worktree.
+
+**`src/Makevars` is deliberately left alone.** It carries `$(LAPACK_LIBS) $(BLAS_LIBS) $(FLIBS)`
+beside the OpenMP flags, and after the strip nothing in `src/` calls BLAS -- but nothing did before
+BMIQ either. The flags arrived with the original Rcpp kernels commit, not with Armadillo, so
+removing them is a separate question about boilerplate and not a consequence of this change.
+
+## 2026-08-07 -- the vendored BMIQ code raises no warnings; its caller owns both
+
+`bmiq_calibration()` shipped two `warning()` calls written for betanorm's public API, and both
+pointed at the object betanorm returned. Through `calc_clocks()` neither destination exists: a
+scoring caller never sees `result$failures` or `result$h.applied`. Both are deleted from
+`R/normalize_bmiq.R`. The vendored function now computes `failures` and `h.applied` and says
+nothing -- **only `bmiq_panel()` knows the clock id and the user's own sample ids**, which is what a
+message about them has to name.
+
+**The failure warning is simply dropped**, not moved: `bmiq_panel()` already raised its own,
+naming the clock, the sample ids and `$provenance$scoring_failures`. One event was producing two
+warnings, the vaguer one first.
+
+**The H-skip warning moves to `bmiq_panel()` and deliberately takes no note.** A skipped H step is
+not a failure: the sample is scored, with the intermediate probes left uncalibrated, so the number
+returned is quietly unlike a fully calibrated one. Routing it through `note_scoring_failure()` was
+the obvious-looking move and is wrong twice over -- `gap_reasons()` reads
+`$provenance$scoring_failures` as *the reason a score is NA*, so a scored sample landing there would
+be an unexplainable entry, and `test-normalize.R` asserts that list is empty on a clean run. So it
+warns and records nothing.
+
+**A provenance field for "scored but degraded" was considered and rejected on reach.** The branch
+needs a sample with no methylated probe at or above the fitted M-component mean, or a degenerate
+conformal map. Measured on the Horvath1 gold panel: 6 clean samples over the full 21k panel and
+over the thinned 1000-probe panel skip H zero times, and a sweep of 40 samples under monotone
+M-compression, U-tail inflation and profile shifts also skips zero times. Samples distorted far
+enough to starve the upper-M tail fail calibration outright first and take the failure path
+instead. A new `mc_result` component, an `rbind` rule and a finalizer question is a lot of standing
+surface for a path that plausible data does not reach; a warning is proportionate. Revisit if a
+real cohort ever raises it.
+
+The message shipped as a plain `warning()` matching the failure warning beside it. That was
+reversed the same day: see "score-branch warnings are cli" below.
+
+## 2026-08-07 -- `$provenance` is internal across the board, and print says `mc_batch_id`
+
+Extends the entry below from "not a destination" to "not named at all" in anything a user reads.
+Three sites moved, and the audit that found them now comes back empty except for one known false
+positive (`cov[cov$panel == "score", ]`, a column on a frame the reader holds).
+
+- The `say_scored_na()` hint already pointed at `samples_coverage()`.
+- `calc_clocks()`'s `@returns` said the object holds "the coverage counts, and the provenance of
+  the run". It now stops at the coverage counts. `man/calc_clocks.Rd` regenerated.
+- `print.mc_result()` headed its multi-batch block `$provenance [2 batch(es)]`. It now reads
+  `mc_batch_id [2 batch(es)]`.
+
+**The print change is the one with a rule behind it.** The grammar is `$component [what is shown]`,
+so the old header was correct by that grammar and wrong by this one. The resolution is not an
+exception, it is that **`$` in the grammar means "a component you may reach for"**, and the block
+was never showing the component -- it shows the labels, under the name they carry in both coverage
+frames, both finalizer frames and the `calc_accel()` formula namespace. `fmt_named_section()` is
+the un-prefixed builder and `fmt_section()` now delegates to it, so the two stay one grammar.
+`$coverage` has never printed either, so "one line per list element" was already not literal.
+
+**Tests are explicitly not in scope, and the `CLAUDE.md` line saying so was kept.** 53 assertions
+across 10 files read `$provenance`, and `provenance$normalized` in particular has no exit that
+presents it. Rewriting them would either lose that coverage or invent an exit to justify a wording
+rule, which is backwards. The rule is about **who is reading**: a message, a doc page and a printed
+line are read by a user, and a test is not. The test-altitude line now says that rather than
+appearing to contradict the invariant, with a preference for the exit where one exists.
+
+## 2026-08-07 -- a component name describes, it never directs: point at the exit function
+
+`say_scored_na()` shipped an hour earlier pointing at `{.field $provenance$scoring_failures}`. It
+now points at `{.fn samples_coverage}` and its `reason` column, which carries `"fit"` for exactly
+these samples. `dev/WRITING.md` R8 gained the rule, because R8 is what made the first version look
+legal: it whitelists component names as acceptable vocabulary, and says nothing about the
+difference between naming a component and **sending the reader to one**.
+
+**The two uses are not the same, and only one is a problem.** Describing the returned object is
+fine. Telling a reader where to look is a promise about the supported surface, and the supported
+surface is the exit functions. A component path needs the reader to know the object's internals,
+and `refinalize_clocks()` / `rbind` restructure `$provenance` under them. `$provenance` looks like
+the exception because `print()` renders a section with that name, so the word is not hidden -- it
+is still never a destination, because everything worth reading in it has an exit that presents the
+same fact. Here the exit is strictly better: `samples_coverage()` already joins the collector to
+the sample ids and labels it, which is what `gap_reasons()`'s `fit` branch is built from.
+
+**The audit found one other thing and it is not this.** A parse-token scan of every string inside a
+cli call, every roxygen line, and both prose files turned up two more hits, both fine.
+`coverage_report.R` shows `cov[cov$panel == "score", ]`, which is a column on a frame the reader
+already holds. `calc_clocks()`'s `@returns` says the object "holds the scores, the narrowed
+`pheno`, the coverage counts, and the provenance of the run" -- a description of the four sections
+`print()` displays, not a destination, and left alone. **`CLAUDE.md` disagrees on the wider point
+and was not changed**: its test-altitude section calls provenance flags "output" and blesses
+asserting `res$provenance$dependencies` in a test. That is about what a *test* may read, not about
+where a *message* may send a user, and the two can stand together. Revisit if that stops being
+true.
+
+## 2026-08-07 -- score-branch warnings are cli, and a score branch is split by the message
+
+All four `warning()` calls in scoring branches are now `cli_warn()`, and no `warning()` remains in
+`R/score_*.R`. The enumeration in `dev/WRITING.md` section 1 (and its copy in `CLAUDE.md`) no
+longer lists "score branches" as wholly `stop()`.
+
+**The enumeration had drifted from the rule printed four lines above it, for the second time.**
+The rule is "audience, not transport": user input is cli, a package defect is plain. The
+enumeration said score branches are `stop()`. Both applied to these four, which are about the
+user's own samples, so a reader could pick whichever supported what they were about to do. This is
+the identical failure DECISIONS 2026-08-03 replaced the previous keep-set for. The fix is not a
+longer list -- **a score branch is on both sides, and the message decides**: its `stop()`s are
+defects (missing dispatch, an unbanked moment set) and stay plain, its warnings are about the
+user's data and are cli.
+
+**Three concrete things the plain form was costing, none of them cosmetic.** No `{.arg}` / `{.val}`
+/ `{.field}` markup, against R6. Hand-written `"sample(s)"` and hand-written id joins, where cli
+has `cli::qty()` and `capped_bullets()` -- one of these four had shipped an uncapped id list hours
+earlier for exactly that reason. And **invisibility to the only automated check on user-facing
+text**: `banned_msg_sites()` collects strings inside `MSG_CALLS`, which is seven cli functions, so
+R3's ban on `--` and `;` was unenforced on precisely these strings. All four are now scanned.
+
+**One emitter, because the tail was the same fact three times.** `say_scored_na(id, failed, reason)`
+in `R/score_cohort.R` owns "these samples score `NA`" plus "`$provenance$scoring_failures` lists
+them", and each branch passes only its own lead line. It sits beside `note_scoring_failure()`,
+which records the same event -- `say_*` prints, `note_*` records, and a branch calls both. The
+BMIQ H-skip warning is deliberately **not** routed through it: the sample is scored, so it must not
+claim `NA` and must not point at a list it is correctly absent from.
+
+**`say_moment_failure()` reads the domain off the declaration, never a clock list.** Wang and
+Zhang2019 reach the same state from very different sets, and the message has to say which, so it
+branches on `clock_needs_full_panel()`: "every column of `DNAm`" for a `moment_key` of `"full"`,
+"the z-score reference" otherwise. That phrase is reused verbatim from the Wang warning it
+replaces, and an earlier draft naming the clock inside the lead was dropped for repeating the id
+the hint already carries.
+
+Rendered and checked at 1 and at N for every branch, because a `{?}` marker not immediately
+preceded by its quantity binds silently to the wrong value. Suite unchanged at 883 pass / 0 fail /
+0 error / 0 warn / 2 skip. Parity was not run.
+
+## 2026-08-07 -- the same undefined-moment failure now warns in both branches, and both id lists cap
+
+Two follow-ups to the entry above, found while reviewing it.
+
+**`capped()` now applies to both lists in `bmiq_panel()`.** The H-skip warning used `capped()` and
+the failure warning beside it used a bare `paste(collapse = ", ")`, so a cohort with 300 failed
+samples printed 300 ids while 300 H-skips printed 10. `dev/WRITING.md` R5 settles it: cap the list,
+and add no "and N more" tail, because the true total already leads the sentence. Measured: 14
+failures now report 14 in the lead and list 10.
+
+**`score_Zhang2019()` warns, where it used to record the note silently.** It and
+`score_DNAmSex_Wang()` reach the same state -- fewer than 2 observed values on the `sample_scale`
+domain leaves the per-sample sd `NA`, so the score is `NA` and `gap_reasons()` reads `"fit"` -- but
+only Wang said so. `check_score_values()` could not cover the gap either: it counts `NaN` and `Inf`
+and deliberately skips `NA`, so the sample really was silent. The asymmetry was an oversight, not a
+design.
+
+**The two branches reach that state on very different sets, and the message has to say which.**
+Wang's domain is a declared 442,533-CpG `zscore_ref`. Zhang2019's `moment_key` is `"full"` with no
+declared cpgs, which `resolve_moment_sets()` turns into `seq_along(cpgs)` -- **every column of the
+supplied `DNAm`, not the clock's own panel**. So the Zhang message says "in DNAm" and the source
+comment now says so too; the old comment read "n < 2 on the domain", which invites the reader to
+think of the Zhang panel. This is the same fact `calc_clocks()` already states in cli when it scores
+a full-panel clock, so the two agree.
+
+`test-gap-reasons.R` already constructed this exact case and now asserts the warning with
+`expect_warning()` rather than letting it go unhandled. Suite: 882 pass / 0 fail / 0 error /
+0 warn / 2 skip. Parity was not run.
+
+## 2026-08-07 -- betanorm is vendored, internal, and `Remotes:` is gone
+
+`bmiq_calibration()` and `quantile_norm()` now live in `R/normalize_bmiq.R` and
+`R/normalize_quantile.R`, with `src/bmiq_norm.cpp` and `src/quantile_norm.cpp` beside them.
+`betanorm` leaves `Suggests`, `Remotes: hhp94/betanorm` is deleted, and `require_betanorm()` is
+deleted with it.
+
+**Both functions moved, not just BMIQ, and that is the whole point.** Moving BMIQ alone would have
+bought nothing on the dependency side: `score_Dunedin.R` reads `quantile_norm()` for the PACE
+background, so `betanorm` would have stayed in `Suggests` and `Remotes:` would have stayed with it.
+**CRAN does not resolve `Remotes:`**, so a GitHub-only dependency backing a scoring path is a
+release blocker whatever tier it sits in, and the `Suggests` placement only made the blocker quiet.
+`quantile_norm` cost 23 lines of R over a plain-Rcpp kernel to take, against a dependency it was
+the sole remaining reason to keep.
+
+**Internal, not exported.** `bmiq_calibration()` takes a beta matrix, so exporting it here would put
+a third public beta reader beside `calc_clocks()` and `predict_sex()` and reopen exactly the
+"second beta reader" question the pre-flight invariant closes. `NAMESPACE` and `man/` are unchanged
+by the move -- that is the check that it stayed internal. The roxygen blocks became plain `#`
+comments and the two `bmiq_calibration_result` S3 methods (`print`, `as.matrix`) were dropped: the
+one caller takes `[["success"]]` and `[["calibrated"]]` directly, and an unexported S3 method on an
+unreachable class is dead weight. `betanorm` keeps its own public API; this is a copy, not a
+deletion upstream.
+
+**The `$` conversion was done by the parser, not by a text match.** `R/` bans `$` and
+`test-source-hygiene.R` enforces it on parse tokens, so 103 sites had to move to `[[`. A regex over
+1365 lines would have been a guess. Instead `getParseData()` located each `'$'` token and its
+following `SYMBOL`, and the rewrite was applied right-to-left by column. The check that it was exact
+is that mapping `[["x"]]` back to `$x` reproduces the betanorm source with **zero** diff outside the
+four intended edits. Do not re-do this kind of conversion by hand or by `sed`; a `$` inside a string
+or comment is indistinguishable to a text tool and a wrong one here silently scores wrong betas.
+
+**Cost and non-cost.** `LinkingTo` gains `RcppArmadillo` (the EM kernel is Armadillo). `src/Makevars`
+needed **no** change: it already carried `$(SHLIB_OPENMP_CXXFLAGS)` and `$(LAPACK_LIBS)
+$(BLAS_LIBS) $(FLIBS)`, byte-identical to betanorm's, so the two packages were already built for the
+same kernel. The four bare `stats::`/`utils::` calls betanorm left unqualified were qualified to
+match this package's convention; the rest were already qualified.
+
+**No tests came across.** betanorm's five files (590 lines) mostly exercise an `nL` / geometry /
+ordering argument surface that one internal caller never varies. What gates this code here is what
+already gated it: the `test-normalize.R` BMIQ and record blocks, the parity `horvath normalized`
+block, the DunedinPACE reference golden, and the smoke tier -- which now runs the
+quantile-normalizing clocks **unconditionally**, since there is no longer an optional package to
+skip on. Baseline and post-move suites are identical at **882 pass / 0 fail / 0 error / 0 warn /
+2 skip**, per-file across all 29 files, measured against a worktree at `HEAD`. Parity was not run.
+
+---
+
 ## 2026-08-06 -- qs2 dropped for gzipped rds, and the checksum it took with it is replaced by promoting a warning
 
 External packs are now `<group>-<payload_hash>.rds`, written by `saveRDS(compress = "gzip")` and

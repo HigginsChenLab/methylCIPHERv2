@@ -39,18 +39,7 @@ score_DNAmSex_Wang <- function(id, cpgs, block, results) {
   failed <- block[["sample_id"]][is.na(mom[["sd"]])]
   if (length(failed)) {
     note_scoring_failure(block, id, failed)
-    warning(
-      sprintf(
-        paste0(
-          "%s: %d sample(s) have fewer than 2 observed CpGs on the ",
-          "z-score reference. Scored NA. ",
-          "Also recorded in $provenance$scoring_failures."
-        ),
-        id,
-        length(failed)
-      ),
-      call. = FALSE
-    )
+    say_moment_failure(id, failed)
   }
 
   score_matrix(score, block[["sample_id"]], id)
