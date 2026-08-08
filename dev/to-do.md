@@ -62,16 +62,21 @@ the rendered file before deploy, or accepting it. A CI guard was written and rev
 maintenance debt that breaks when either pkgdown or the file set moves. `CLAUDE.local.md` is
 gitignored and never reaches the runner, so the tracked `CLAUDE.md` is the whole exposure.
 
-### A3. Test suite trim and audit, with the first `R CMD check`
+### A3. The first `R CMD check`
 
-Deferred to immediately pre-alpha (DECISIONS 2026-08-03), and it lands together with the first
-check run. Direction: assert what `calc_clocks()` produces, not how it is wired; no
-`expect_identical`; no internal dispatch-tag tables; errors asserted as *that* and not by wording;
-in-test re-derivation only where parity does not already own the golden. The last one is the
-largest reduction, since anything parity covers should be a smoke here.
+Deferred to immediately pre-alpha (DECISIONS 2026-08-03). Check has never been run here: it is
+maintainer-on-demand by invariant, so the first run is its own piece of work and will surface
+things nothing else can, starting with the unstated-dependency scan and the examples.
 
-`DESCRIPTION` is no longer part of this item. `Title:`, `Description:`, `URL:` and `BugReports:`
-were settled 2026-08-04.
+**The trim already happened and is not part of this item.** 1284 expectations were cut to 801 on
+2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
+`expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
+where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
+there. The suite has grown to 915 since, so a second trim may be worth it, but that is a judgement
+to make against the budget rule, not a queued task.
+
+`DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
+`BugReports:` were settled 2026-08-04.
 
 ### A4. `codebook()`. BLOCKED UPSTREAM
 
@@ -86,9 +91,11 @@ returning `NA` for most of the catalog reads as a package defect.
 
 ### A5. README, at submission
 
-Restore the CRAN install block, deliberately absent while the package is not on CRAN. The three
-counts quoted in the coverage prose follow the seed and the `remove = 100` argument, so a change to
-either has to be carried into the sentences.
+Restore the CRAN install block, deliberately absent while the package is not on CRAN.
+
+The chunks are evaluated at knit time under `set.seed(1)`, and the missingness example depends on
+`remove = 10` plus a 20-cell `sample.int()` draw, so a change to the seed or to either number moves
+the printed output. The prose itself quotes no counts, so nothing has to be edited by hand to match.
 
 ---
 
@@ -182,5 +189,5 @@ needs an equivalent or it will not transfer. And a fitted model is weights: it b
 
 ## Housekeeping
 
-- [data-raw/build_clock_reference.R:98](data-raw/build_clock_reference.R:98) comments `sex_coef` as
+- [data-raw/build_clock_reference.R:91](data-raw/build_clock_reference.R:91) comments `sex_coef` as
   "male vs female"; the estimated level is female. Comment only, the numbers are correct.
