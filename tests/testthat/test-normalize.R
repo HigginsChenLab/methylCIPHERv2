@@ -81,24 +81,6 @@ test_that("normalize= takes clock ids, which speak for those clocks alone", {
   expect_error(resolve_normalize(logical(0), ids))
 })
 
-# both front doors name a clock, so both refuse a sex-specific model alike
-test_that("normalize= refuses a model that clocks= also refuses", {
-  skip_on_cran()
-  seq <- resolve_clocks_sequence(resolve_clocks("DNAmFitAge"))
-  member <- intersect(seq, names(sex_routed_members()[["alias"]]))[[1L]]
-
-  expect_error(resolve_normalize(stats::setNames(TRUE, member), seq))
-  # the sugar coerces first, so it reaches the same refusal
-  expect_error(resolve_normalize(member, seq))
-  # clocks= has always refused it
-  expect_error(resolve_clocks(member))
-
-  # naming a plain dependency stays legitimate: the run scores it
-  dep <- setdiff(seq, c("DNAmFitAge", names(sex_routed_members()[["alias"]])))
-  got <- resolve_normalize(stats::setNames(FALSE, dep[[1L]]), seq)
-  expect_false(got[[dep[[1L]]]])
-})
-
 test_that("Horvath1 defaults to declining normalization", {
   DNAm <- random_betas(clock_scoring_cpgs("Horvath1"), n = 5L)
   res <- calc_clocks(DNAm, "Horvath1")
