@@ -112,39 +112,6 @@ Do not act before deciding what a partial calibration means to a user who did no
 internals. If it changes nothing they can act on, it may not belong in any user-facing surface at
 all.
 
-### Q7. `normalize =` accepts the 14 clock ids that `clocks =` refuses
-
-**Numbered Q7 because Q3 is burned, not free.** Q3 was the "requestable versus internal" partition
-question, closed and deleted 2026-08-07 with its central rule rejected on its merits: a sex-routed
-member is untypeable and necessarily visible in coverage, so no single partition spans both axes.
-Do not renumber this into Q3, and do not read it as reopening that. It is one argument validating
-against a set nobody chose.
-
-There are exactly two places a user names a clock, and they disagree. `resolve_clocks()` refuses a
-sex-routed member by name and points at its alias. `resolve_normalize()` (`R/resolve_inputs.R`)
-validates `names(normalize)` with `setdiff(nm, clock_sequence)`, and the sequence carries the
-members: measured on `clocks = "DNAmFitAge"`, **14 of the 30 clocks in the sequence are routed
-members**. So `normalize = c(DNAmFitAge_Female = TRUE)` clears the gate that `clocks =` would have
-refused. A survey of `assert_subset` and every `setdiff` against a clock set found these two sites
-and no others.
-
-**Latent, not live.** All 14 declare `scheme = none`, so they fall through to the `unusable` branch
-and are refused anyway, with a message about methods instead of about routing. **What makes it
-live:** a sync where a routed member declares `quantile` or `bmiq`. Then a clock is normalizable but
-not requestable.
-
-**The one-line fix is wrong, which is why this is queued rather than done.** Narrowing the valid set
-to `drop_routed_members(clock_sequence)` makes the existing message lie: it says the clock "is not
-being scored", and a routed member genuinely is. The fix worth building is the refusal
-`resolve_clocks()` already writes, which names the alias to request instead, so the two front-door
-arguments refuse the same input the same way. That is a cli message and a `sex_routed_members()`
-lookup, not a set change.
-
-**Do not widen it into a general rule.** The sequence-versus-request distinction is otherwise
-correct: naming a *dependency* in `normalize` is legitimate, because the run scores it and
-normalizing it moves the output. Only the routed members are wrong, and only because they are
-unnameable everywhere else.
-
 ### Q1. Chunked front end. PARKED
 
 Every piece exists: batch-wise fill regimes, derived batch labels, `rbind`, retained `pending`,
