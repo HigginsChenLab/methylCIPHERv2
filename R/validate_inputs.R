@@ -157,7 +157,9 @@ check_pheno <- function(
   if (is.null(pheno)) {
     return(invisible(NULL))
   }
-  checkmate::assert_data_frame(pheno, min.rows = 1)
+  # NA is allowed on purpose: a missing covariate warns and scores NA below,
+  # rather than refusing the whole cohort
+  checkmate::assert_data_frame(pheno, min.rows = 1, any.missing = TRUE)
   # front-door pheno structure (cli).
   if (!ID %in% names(pheno)) {
     cli::cli_abort(
