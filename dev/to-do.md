@@ -90,7 +90,38 @@ Restore the CRAN install block, deliberately absent while the package is not on 
 counts quoted in the coverage prose follow the seed and the `remove = 100` argument, so a change to
 either has to be carried into the sentences.
 
-### A6. Audit every `checkmate` site for the flags that decide empty, `NULL` and `NA`
+### A6. Write the chosen `checkmate` flags down at the sites that take defaults
+
+**The defect half of this item is done (2026-08-08); what is left is the write-it-down half.**
+The sweep probed the exported surface with empty, `NULL`, `NA`, non-integer and multi-element
+values and found **four** real gaps, all now fixed and tested in `test-check-dnam.R`:
+
+- `check_DNAm()` accepted `NA` and `""` **sample ids**, while `check_pheno()` refuses `NA` in the
+  pheno id column -- the two halves of one join key, held to different rules. An `NA` id reached
+  the score rownames, where nothing can join on it. Same fix for CpG names, which can never match
+  a declared panel.
+- `calc_clocks(pheno_id = "")` built a record whose id column had **no name**, which `as.data.frame()`
+  then emitted as a column named `""`. `assert_string()` needed `min.chars = 1L`, which its own
+  sibling `sim_DNAm(suffix =)` already had.
+- `sim_DNAm(n =)` is documented as a single whole number and was gated by **nothing**, so `2.7` and
+  `c(3, 4)` died inside `matrix()` with an error about `dimnames` extent. Its neighbours `remove`
+  and `suffix` were both asserted.
+
+**What the sweep did not find is worth recording too.** The other front-door sites are correct:
+`resolve_clocks()` is the fully-specified model (`min.len` + `any.missing` + `min.chars` +
+`.var.name`), `mc_resolve_groups()` handles empty with an early return *above* the assert rather
+than a flag, `recorded_from_female()`'s permissive `any.missing = TRUE` is load-bearing (a missing
+covariate scores `NA` and warns, it does not abort), and all 13 `assert_flag` sites are right --
+none legitimately takes `NULL`, as this item predicted. `list_clocks(group =)` is already closed-set
+validated downstream, so `""` was refused before the sweep.
+
+**The remainder:** write the flag down at the ~19 front-door sites that currently take a default,
+even where the default is correct, so the next reader sees a decision instead of an omission. This
+is a zero-behavior-change pass and should be verified as such. Excluded by the front-door scope
+note below: `normalize_bmiq.R` / `normalize_quantile.R` (15 sites, vendored from `betanorm`) and
+`dev-utils.R` (4 sites, `.Rbuildignore`d).
+
+Original framing, kept because the reasoning still applies:
 
 48 `checkmate::assert_*` calls across `R/`, and only 4 files pass `empty.ok` or `null.ok` anywhere.
 The rest take the defaults, and **the defaults were never chosen** -- they are whatever `checkmate`

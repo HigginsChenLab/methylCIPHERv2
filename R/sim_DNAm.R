@@ -49,6 +49,7 @@ sim_DNAm <- function(
   ask = TRUE,
   suffix = NULL
 ) {
+  checkmate::assert_count(n, positive = TRUE)
   checkmate::assert_flag(Age)
   checkmate::assert_flag(Female)
   checkmate::assert_int(remove, lower = 0)
