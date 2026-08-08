@@ -389,7 +389,14 @@ calc_accel <- function(
   long = TRUE
 ) {
   check_mc_result(x)
-  checkmate::assert_data_frame(data, min.rows = 1, null.ok = TRUE)
+  # NA allowed for the same reason as check_pheno: a gap drops that sample
+  # from the fit, and is not a reason to refuse the frame
+  checkmate::assert_data_frame(
+    data,
+    min.rows = 1,
+    any.missing = TRUE,
+    null.ok = TRUE
+  )
   checkmate::assert_flag(long)
   type <- match.arg(type)
   formula <- accel_formula(formula, type)
