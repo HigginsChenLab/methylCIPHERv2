@@ -209,8 +209,18 @@ resolve_normalize <- function(normalize, clock_sequence) {
   # quantile is on by default, bmiq is opt-in. both can be declined.
   out <- stats::setNames(schemes %in% NORM_DEFAULT_ON, clock_sequence)
 
-  if (!is.null(normalize) && length(normalize)) {
-    checkmate::assert_logical(normalize, any.missing = FALSE)
+  if (!is.null(normalize)) {
+    # a character vector names the clocks to turn on: sugar for c(<id> = TRUE)
+    if (is.character(normalize)) {
+      checkmate::assert_character(
+        normalize,
+        any.missing = FALSE,
+        min.len = 1L,
+        min.chars = 1L
+      )
+      normalize <- stats::setNames(rep(TRUE, length(normalize)), normalize)
+    }
+    checkmate::assert_logical(normalize, any.missing = FALSE, min.len = 1L)
     nm <- names(normalize)
 
     if (is.null(nm)) {

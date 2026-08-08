@@ -26,6 +26,7 @@ random_betas <- function(cpgs, n = 10L) {
 #'   given.
 #'
 #' @inheritSection mc-params The assets directory
+#' @inheritSection mc-params Normalization
 #'
 #' @returns An `mc_sim` object. It holds the simulated `DNAm` matrix, the
 #'   matching `pheno` data.frame, the `clocks` argument as given, and the

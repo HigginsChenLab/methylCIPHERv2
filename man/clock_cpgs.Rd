@@ -11,8 +11,7 @@ clock_cpgs(clocks, normalize = NULL, ext_data = NULL, ask = TRUE)
 group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
-or off for the clocks that support it. Default is \code{NULL}, which leaves
-each clock at its own default: on for \code{quantile}, off for \code{bmiq}.}
+or off for the clocks that declare a method. Default is \code{NULL}.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}
@@ -31,8 +30,7 @@ for normalization.
 }
 \details{
 A clock built from other clocks also needs their CpGs. A clock adds its
-background panel when its normalization scheme is on. \code{normalize} turns a
-scheme on or off, and each clock has its own default.
+background panel when its normalization method is on.
 }
 \section{The assets directory}{
 
@@ -47,12 +45,35 @@ is an error.
 }
 }
 
+\section{Normalization}{
+
+Some clocks declare a background normalization method. \code{normalize} accepts
+four forms.
+\itemize{
+\item \code{NULL} leaves every clock at its own default. A clock that declares
+\code{quantile} is normalized, and a clock that declares \code{bmiq} is not.
+\item \code{TRUE} or \code{FALSE} sets every clock that declares a method.
+\item A character vector of clock ids turns normalization on for those clocks,
+and leaves every other clock at its default.
+\item A named logical vector sets the clocks it names, and leaves every other
+clock at its default.
+}
+
+The character form only turns normalization on. To turn a method off, name
+the clock in a named logical vector.
+
+Normalization needs a background panel that is much larger than the scoring
+panel, so a matrix cut down to the scoring CpGs cannot supply it. The
+\code{normalize} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
+method each clock declares.
+}
+
 \examples{
 cpgs <- clock_cpgs(c("Horvath1", "Hannum"))
 length(cpgs)
 
 # normalizing Horvath1 adds its background panel to the union
-norm_cpgs <- clock_cpgs(c("Horvath1", "Hannum"), normalize = c(Horvath1 = TRUE))
+norm_cpgs <- clock_cpgs(c("Horvath1", "Hannum"), normalize = "Horvath1")
 length(norm_cpgs)
 
 }
