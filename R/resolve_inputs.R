@@ -45,6 +45,35 @@ suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
   })))
 }
 
+# sex-routed members are internal. one refusal, so clocks= and normalize=
+# turn the same input away the same way.
+refuse_routed_members <- function(toks, arg) {
+  routed <- sex_routed_members()
+  asked <- intersect(toks, names(routed[["alias"]]))
+  if (!length(asked)) {
+    return(invisible(NULL))
+  }
+  cli::cli_abort(
+    c(
+      "{length(asked)} sex-specific model{?s} cannot be named in {.arg {arg}}:",
+      capped_bullets(asked, function(toks) {
+        vapply(
+          toks,
+          function(tok) {
+            cli::format_inline(
+              "{.val {tok}}. Name {.val {routed[['alias']][[tok]]}} instead."
+            )
+          },
+          character(1L)
+        )
+      }),
+      "i" = "The group name reads each sample's sex from {.arg pheno} and
+             picks the model."
+    ),
+    call = NULL
+  )
+}
+
 # user tokens -> catalog clock_ids (all > tag > group_id > clock_id)
 resolve_clocks <- function(clocks) {
   checkmate::assert_character(
@@ -59,32 +88,8 @@ resolve_clocks <- function(clocks) {
   clock_ids <- mc_index[["clock_id"]]
 
   # sex-routed members are internal -- request the alias
-  routed <- sex_routed_members()
-  asked_routed <- intersect(clocks, names(routed[["alias"]]))
-  if (length(asked_routed)) {
-    cli::cli_abort(
-      c(
-        "{length(asked_routed)} sex-specific model{?s} cannot be requested by
-         name:",
-        capped_bullets(asked_routed, function(toks) {
-          vapply(
-            toks,
-            function(tok) {
-              cli::format_inline(
-                "{.val {tok}}. Request {.val {routed[['alias']][[tok]]}}
-                 instead."
-              )
-            },
-            character(1L)
-          )
-        }),
-        "i" = "The group name reads each sample's sex from {.arg pheno} and
-               picks the model."
-      ),
-      call = NULL
-    )
-  }
-  callable <- setdiff(clock_ids, names(routed[["alias"]]))
+  refuse_routed_members(clocks, "clocks")
+  callable <- setdiff(clock_ids, names(sex_routed_members()[["alias"]]))
 
   resolve_member <- function(tok) {
     if (!is.null(members[[tok]])) {
@@ -249,6 +254,10 @@ resolve_normalize <- function(normalize, clock_sequence) {
           call = NULL
         )
       }
+      # after the run check, because a model outside this run gets the more
+      # immediate answer. before the scheme check, so routing is not reported
+      # as a missing method.
+      refuse_routed_members(nm, "normalize")
       # unknown scheme is an error, declining an undeclared one is redundant
       unusable <- nm[normalize & !(schemes[nm] %in% NORM_SCHEMES)]
       if (length(unusable)) {
