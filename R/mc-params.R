@@ -11,6 +11,9 @@
 #'   group id, or tag. See [list_clocks()].
 #' @param pheno A data.frame. The sample metadata, with one row for each
 #'   sample. Default is `NULL`.
+#' @param covariates A named character vector. Points a covariate at the column
+#'   that holds it, for metadata that names its columns something else. Default
+#'   is `NULL`.
 #' @param normalize A named logical vector. Turns background normalization on
 #'   or off for the clocks that declare a method. Default is `NULL`.
 #' @param ext_data A string. The path to the directory that holds the clock
@@ -57,6 +60,23 @@
 #' panel, so a matrix cut down to the scoring CpGs cannot supply it. The
 #' `normalize` column of [list_clocks()] with `all_columns = TRUE` gives the
 #' method each clock declares.
+#'
+#' @section Covariate columns:
+#' Some clocks read a covariate from the sample metadata. A clock names the
+#' covariate it reads, and looks for a column of that name.
+#'
+#' `covariates` points a covariate at a column that holds it under another
+#' name. Write the covariate on the left and your own column on the right, as
+#' in `covariates = c(Age = "age_yrs")`. Only a covariate this call reads can
+#' be pointed at a column, and each one may be pointed once.
+#'
+#' A covariate that is already a column of the metadata needs no entry. The
+#' `covariates` column of [list_clocks()] with `all_columns = TRUE` gives the
+#' covariates each clock reads.
+#'
+#' A pointer moves the name and nothing else. `Female` pointed at a column that
+#' holds `1` for male scores every clock that reads sex, and scores all of them
+#' wrong, so check what the column means before you point at it.
 #'
 #' @section Clocks that use all the samples:
 #' Some clocks depend on information from all the samples, such as a z-score.

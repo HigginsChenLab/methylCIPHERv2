@@ -334,6 +334,7 @@ say_fill_batch <- function(x, rhs_vars) {
 #' @param data A data.frame. Extra sample metadata, joined to the `pheno` in `x`
 #'   by sample id. Default is `NULL`.
 #'
+#' @inheritSection mc-params Covariate columns
 #' @inheritSection mc-params Clocks that use all the samples
 #'
 #' @details
@@ -384,6 +385,7 @@ calc_accel <- function(
   formula = NULL,
   type = c("accel", "diff"),
   data = NULL,
+  covariates = NULL,
   long = TRUE
 ) {
   check_mc_result(x)
@@ -399,6 +401,9 @@ calc_accel <- function(
   vars <- unique(c(if (type == "diff") "Age", rhs_vars))
   say_fill_batch(x, rhs_vars)
 
+  # before the merge: a canonical data column overlaps $pheno, so the merge's
+  # "may add a column, may not change one" check sees it instead of two names
+  data <- canonicalize_covariates(data, covariates, vars, arg = "data")
   pheno <- merge_accel_data(x[["pheno"]], data, pheno_id)
   pheno[[MC_BATCH]] <- x[["provenance"]][[MC_BATCH]][
     id_index(pheno[[pheno_id]], sample_id, "calc_accel batch")

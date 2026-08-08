@@ -9,6 +9,7 @@ calc_clocks(
   clocks,
   pheno = NULL,
   pheno_id = "ID",
+  covariates = NULL,
   min_clocks_coverage = 0.75,
   min_samples_coverage = 0.75,
   normalize = NULL,
@@ -28,6 +29,10 @@ sample. Default is \code{NULL}.}
 
 \item{pheno_id}{A string. The name of the column in \code{pheno} that holds the
 sample ids. Default is \code{"ID"}.}
+
+\item{covariates}{A named character vector. Points a covariate at the column
+that holds it, for metadata that names its columns something else. Default
+is \code{NULL}.}
 
 \item{min_clocks_coverage}{A number between 0 and 1. The smallest fraction
 of a clock's CpGs that must be present for that clock to score. Default is
@@ -88,6 +93,25 @@ missing. Use \code{\link[=set_mc_assets_dir]{set_mc_assets_dir()}} to choose tha
 is an error.
 \item Assets already in memory from \code{\link[=load_mc_assets]{load_mc_assets()}} are used directly.
 }
+}
+
+\section{Covariate columns}{
+
+Some clocks read a covariate from the sample metadata. A clock names the
+covariate it reads, and looks for a column of that name.
+
+\code{covariates} points a covariate at a column that holds it under another
+name. Write the covariate on the left and your own column on the right, as
+in \code{covariates = c(Age = "age_yrs")}. Only a covariate this call reads can
+be pointed at a column, and each one may be pointed once.
+
+A covariate that is already a column of the metadata needs no entry. The
+\code{covariates} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
+covariates each clock reads.
+
+A pointer moves the name and nothing else. \code{Female} pointed at a column that
+holds \code{1} for male scores every clock that reads sex, and scores all of them
+wrong, so check what the column means before you point at it.
 }
 
 \section{Normalization}{

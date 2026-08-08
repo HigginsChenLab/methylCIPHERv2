@@ -14,6 +14,64 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-08 -- `covariates =` is a named map only, canonicalized above every check, and positional sugar is refused on a measurement
+
+Builds `dev/to-do.md` Q5. The shape is the one that item designed --
+`covariates = c(Age = "age_yrs")`, one named map per front door, canonicalize rather than restore --
+with two corrections to it and one question it did not ask.
+
+**The rename goes above `check_pheno()`, not inside `resolve_pheno()`.** The item said to rename
+inside `resolve_pheno()` because it already materializes a fresh subset, so a rename there touches a
+names attribute and never the caller's object. That reasoning is right and the placement is wrong:
+`mc_cohort()` calls `check_pheno()` at `R/score_cohort.R:205` and `resolve_pheno()` at 211, so a
+rename at 211 arrives six lines after every gate that reads the covariate by name. It would have
+silently disabled the missing-covariate abort, the `Female` 0/1 assert, `warn_age_units()` and
+`warn_missing_covariates()` **for exactly the callers who used the map** -- the failure looks like
+the feature working. Canonicalizing at the top of the front door instead keeps the fresh-frame
+property (the helper assigns into its own local `pheno`) and costs nothing downstream. Both doors
+have a clean top: `calc_clocks()` between `mc_spec()` and `mc_cohort()`, where `spec[["covariates"]]`
+first exists, and `calc_accel()` before `merge_accel_data()`, which the item had already identified
+for its own reason. `tests/testthat/test-covariates.R` pins all three gates against the map, because
+this is a bug that passes every score test.
+
+**The map is validated against what the call reads, not against the catalog's two names.** The item
+said `assert_subset()` against `clock_covariates_required()` over the resolved sequence, which is
+right for `calc_clocks()` and does not generalize -- `calc_accel()`'s covariates are `Age` plus the
+formula's own terms, which are not catalog facts. Stating the rule as *a covariate this call reads*
+covers both doors with one helper, and picks up `~ Age + smoking` for free: a caller may point
+`smoking` at `smoke_status` under the same rule, with no special case.
+
+**Positional sugar is refused, and the reason is measured rather than stylistic.** The ask was for
+something shorter than `c(Age = "age_yrs", Female = "sex_f")` -- positional (`c("age_yrs", "sex_f")`)
+or numeric column indices. The blocker is that the two covariate domains **overlap in one
+direction**: `Female` values `0/1` pass `check_pheno()`'s `assert_numeric(finite = TRUE)` for `Age`
+silently, while `Age` values correctly fail `assert_integerish(lower = 0, upper = 1)` for `Female`.
+So the dangerous mis-binding is the quiet one. Position is resolved against the run's required set,
+which is derived from `clocks =` -- 17 catalog clocks read `Age` alone and 8 read `Female` alone --
+so adding one clock to `clocks =` re-binds the positions and turns `Age` into a 0/1 column, which
+still scores, still returns finite numbers, and is entirely wrong. That is the standing risk the
+item already flagged, except positional *manufactures* it instead of permitting it. It is also the
+same class as the partial-match ban: resolving a token to something the caller did not name.
+Numeric indices fail on a second axis, breaking on any column reorder.
+
+**No sugar was added, because the named form already is the sugar.** `c(Age = "age_yrs")` is
+verbatim `dplyr::rename()` syntax, new name left and old name right, so there is nothing to learn;
+and the length complaint is mostly about a call that is not the common one -- only 8 clocks read
+both covariates, against 25 that read `Age` at all, so the modal call is the one-entry map. If the
+ergonomics do bite later, the additive move is Q6's shape (a coercion at the front of the same
+helper), which nothing here forecloses.
+
+Two refusals the item did not specify and the helper needs: pointing at a column `pheno` does not
+have (the message names the caller's own word, not the canonical one), and pointing a covariate at a
+column whose canonical name is **already** a separate column, which would leave two columns with one
+name. `.var.name = "names(covariates)"` on the subset assert, because the deparse says `nm`.
+
+The standing risk stated in the item is unchanged and is now in the manual: a pointer moves the name
+and not the contract, so `Female` aimed at a `1 = male` column scores every sex-reading clock
+silently wrong.
+
+---
+
 ## 2026-08-08 -- `normalize =` takes clock ids, not scheme names, and everything except a bare scalar is a partial override
 
 **Reverses the shape proposed in `dev/to-do.md` Q6**, which was a character vector of *scheme*

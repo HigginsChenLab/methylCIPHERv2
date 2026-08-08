@@ -15,6 +15,10 @@ group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
 \item{pheno}{A data.frame. The sample metadata, with one row for each
 sample. Default is \code{NULL}.}
 
+\item{covariates}{A named character vector. Points a covariate at the column
+that holds it, for metadata that names its columns something else. Default
+is \code{NULL}.}
+
 \item{normalize}{A named logical vector. Turns background normalization on
 or off for the clocks that declare a method. Default is \code{NULL}.}
 
@@ -74,6 +78,25 @@ Normalization needs a background panel that is much larger than the scoring
 panel, so a matrix cut down to the scoring CpGs cannot supply it. The
 \code{normalize} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
 method each clock declares.
+}
+
+\section{Covariate columns}{
+
+Some clocks read a covariate from the sample metadata. A clock names the
+covariate it reads, and looks for a column of that name.
+
+\code{covariates} points a covariate at a column that holds it under another
+name. Write the covariate on the left and your own column on the right, as
+in \code{covariates = c(Age = "age_yrs")}. Only a covariate this call reads can
+be pointed at a column, and each one may be pointed once.
+
+A covariate that is already a column of the metadata needs no entry. The
+\code{covariates} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
+covariates each clock reads.
+
+A pointer moves the name and nothing else. \code{Female} pointed at a column that
+holds \code{1} for male scores every clock that reads sex, and scores all of them
+wrong, so check what the column means before you point at it.
 }
 
 \section{Clocks that use all the samples}{

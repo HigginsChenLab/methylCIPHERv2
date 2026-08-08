@@ -124,6 +124,7 @@ DOC_TYPES <- c(
   "An `mc_assets` object.",
   "A one-sided formula.",
   "A named logical vector.",
+  "A named character vector.",
   "One of ",
   # a catch-all S3 method argument, and a method that only ever throws
   "Any object.",
