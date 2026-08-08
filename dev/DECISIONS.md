@@ -14,44 +14,21 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
-## 2026-08-08 -- one refusal for sex-routed members, shared by `clocks =` and `normalize =`
+## 2026-08-08 -- `normalize =` may name a sex-routed member, and that stays
 
-Builds `dev/to-do.md` Q7. The two places a user names a clock disagreed: `resolve_clocks()` refused
-a sex-routed member and pointed at its alias, while `resolve_normalize()` validated
-`names(normalize)` against the resolved *sequence*, which carries the members -- 14 of the 30 entries
-on `clocks = "DNAmFitAge"`. So `normalize = c(DNAmFitAge_Female = TRUE)` cleared a gate `clocks =`
-would have refused.
+`normalize =` validates `names(normalize)` against the resolved sequence, which carries the
+sex-routed members, so `normalize = c(DNAmFitAge_Female = TRUE)` clears a gate `clocks =` would
+refuse. **Built as one shared refusal and reverted the same day. Do not build it again.**
 
-**Extracted rather than duplicated.** `refuse_routed_members(toks, arg)` in `R/resolve_inputs.R` is
-now the one refusal, parameterized on the argument name, which is what keeps the two doors from
-drifting. This follows the existing rule that the pool, the refusal, the output filter and the
-`list_clocks()` menu all derive from `sex_routed_members()`; the refusal was the one piece of that
-set written out by hand.
+The hole is entirely latent. All 14 members declare `scheme = none`, so the scheme check already
+refuses every one of them, and the fix changed no outcome -- only which message the user reads.
+It made that message worse: it pointed at the alias, and the alias declares `scheme = none` too,
+so the advice led to a second error. The prior message was terminal and true.
 
-**The `clocks =` wording changed, deliberately.** "cannot be requested by name" / "Request X
-instead" became "cannot be named in `{arg}`" / "Name X instead", because one wording has to serve
-both doors and "request" does not describe what `normalize =` does. Safe because tests assert *that*
-a call errors and never its wording, and it satisfies R1's one-word-for-one-meaning.
-
-**Ordering: after the run check, before the scheme check.** A member outside the run keeps the
-"not being scored" message, because that is the more immediate and more actionable fact -- the
-routing message would otherwise point at an alias that is equally absent from the run. A member
-*inside* the run gets the routing message rather than the scheme message, so the refusal names the
-real reason instead of reporting a missing normalization method. Note this is the opposite order
-from `resolve_clocks()`, which checks routing first; there is no conflict, because in that function
-the request *is* the run and no "not being scored" state exists.
-
-**Not a set change, and the boundary from the item holds.** Narrowing the valid set to
-`drop_routed_members(clock_sequence)` was rejected: it would make the existing message say the
-clock "is not being scored", which is false -- a routed member genuinely is scored. And naming a
-plain **dependency** in `normalize` stays legitimate, because the run scores it and normalizing it
-moves the output. Only the members are refused, and only because they are unnameable everywhere
-else. Verified: 15 non-routed dependencies on that sequence remain nameable.
-
-Still **latent**. All 14 members declare `scheme = none`, so before this they fell through to the
-scheme refusal and were rejected for the wrong reason. What makes it live is a sync where a routed
-member declares `quantile` or `bmiq`, at which point a clock would be normalizable but not
-requestable.
+Reordering the two checks would have removed that regression, and the revert was still the right
+call. What is left after the reorder is a refusal that fires only in a catalog state that does not
+exist, against permanent maintenance cost. **A sync that gives a routed member `quantile` or `bmiq`
+is what makes it live, and that sync surfaces it** -- so there is no queued item, deliberately.
 
 ---
 
