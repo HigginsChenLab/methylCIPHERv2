@@ -70,7 +70,8 @@ calc_clocks <- function(
   ask = TRUE
 ) {
   # the boundary: everything downstream assumes these are already validated
-  checkmate::assert_string(pheno_id)
+  # an empty name cannot be a column, and reaches $pheno and every exit frame
+  checkmate::assert_string(pheno_id, min.chars = 1L)
   checkmate::assert_number(min_clocks_coverage, lower = 0, upper = 1)
   checkmate::assert_number(min_samples_coverage, lower = 0, upper = 1)
 

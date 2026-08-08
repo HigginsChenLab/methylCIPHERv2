@@ -100,7 +100,13 @@ check_DNAm <- function(DNAm) {
     min.rows = 1,
     min.cols = 1
   )
-  checkmate::assert_character(colnames(DNAm), unique = TRUE, null.ok = FALSE)
+  checkmate::assert_character(
+    colnames(DNAm),
+    any.missing = FALSE,
+    unique = TRUE,
+    min.chars = 1L,
+    null.ok = FALSE
+  )
   # sample ids are mandatory
   if (is.null(rownames(DNAm))) {
     cli::cli_abort(
@@ -113,7 +119,14 @@ check_DNAm <- function(DNAm) {
       call = NULL
     )
   }
-  checkmate::assert_character(rownames(DNAm), unique = TRUE, null.ok = FALSE)
+  # the other half of the pheno join key, held to the same rule as check_pheno's
+  checkmate::assert_character(
+    rownames(DNAm),
+    any.missing = FALSE,
+    unique = TRUE,
+    min.chars = 1L,
+    null.ok = FALSE
+  )
   invisible(NULL)
 }
 
