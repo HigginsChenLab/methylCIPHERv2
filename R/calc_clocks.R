@@ -15,17 +15,10 @@
 #'   Default is `0.75`.
 #'
 #' @inheritSection mc-params The assets directory
+#' @inheritSection mc-params Normalization
 #'
 #' @details
 #' [list_clocks()] and [list_clock_tags()] show every value `clocks` accepts.
-#'
-#' `normalize` turns a clock's declared scheme on or off. Each clock has its
-#' own default, which the `normalize` column of
-#' `list_clocks(all_columns = TRUE)` gives along with the scheme itself. A
-#' single unnamed `TRUE` or `FALSE` applies to every clock that declares a
-#' scheme. Normalization needs a background panel that is much larger than
-#' the scoring panel, so a matrix cut down to the scoring CpGs cannot supply
-#' it.
 #'
 #' `min_clocks_coverage` is read against both panels, and it decides
 #' differently on each. A clock under it on the scoring panel scores `NA`

@@ -62,6 +62,25 @@ test_that("normalize= resolves per clock, and every scheme can be declined", {
   expect_equal(unname(resolve_normalize(FALSE, ids)), c(FALSE, FALSE, FALSE))
 })
 
+test_that("normalize= takes clock ids, which speak for those clocks alone", {
+  ids <- c("Horvath1", "DunedinPACE", "Hannum")
+  # the character form is the named form with every value TRUE
+  expect_equal(
+    resolve_normalize("Horvath1", ids),
+    resolve_normalize(c(Horvath1 = TRUE), ids)
+  )
+  # naming one clock leaves every other clock at its own default
+  got <- resolve_normalize("Horvath1", ids)
+  expect_true(got[["Horvath1"]])
+  expect_true(got[["DunedinPACE"]])
+  # the two refusals the named form already makes, reached through the sugar
+  expect_error(resolve_normalize("Horvath1", "Hannum"))
+  expect_error(resolve_normalize("Hannum", "Hannum"))
+  # an empty request is a mistake, not a request for the defaults
+  expect_error(resolve_normalize(character(0), ids))
+  expect_error(resolve_normalize(logical(0), ids))
+})
+
 test_that("Horvath1 defaults to declining normalization", {
   DNAm <- random_betas(clock_scoring_cpgs("Horvath1"), n = 5L)
   res <- calc_clocks(DNAm, "Horvath1")

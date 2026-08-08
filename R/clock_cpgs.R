@@ -8,11 +8,11 @@
 #' @inheritParams mc-params
 #'
 #' @inheritSection mc-params The assets directory
+#' @inheritSection mc-params Normalization
 #'
 #' @details
 #' A clock built from other clocks also needs their CpGs. A clock adds its
-#' background panel when its normalization scheme is on. `normalize` turns a
-#' scheme on or off, and each clock has its own default.
+#' background panel when its normalization method is on.
 #'
 #' @returns A character vector. The CpGs needed to score `clocks`, with
 #'   duplicates removed.
@@ -27,7 +27,7 @@
 #' length(cpgs)
 #'
 #' # normalizing Horvath1 adds its background panel to the union
-#' norm_cpgs <- clock_cpgs(c("Horvath1", "Hannum"), normalize = c(Horvath1 = TRUE))
+#' norm_cpgs <- clock_cpgs(c("Horvath1", "Hannum"), normalize = "Horvath1")
 #' length(norm_cpgs)
 #'
 #' @export

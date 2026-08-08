@@ -90,6 +90,33 @@ Restore the CRAN install block, deliberately absent while the package is not on 
 counts quoted in the coverage prose follow the seed and the `remove = 100` argument, so a change to
 either has to be carried into the sentences.
 
+### A6. Audit every `checkmate` site for the flags that decide empty, `NULL` and `NA`
+
+48 `checkmate::assert_*` calls across `R/`, and only 4 files pass `empty.ok` or `null.ok` anywhere.
+The rest take the defaults, and **the defaults were never chosen** -- they are whatever `checkmate`
+ships, which for several assertions is the permissive answer.
+
+The failure mode is a silent no-op on an input the caller almost certainly did not mean. The
+instance that prompted this was `normalize = character(0)`, which fell through
+`resolve_normalize()`'s `!is.null(normalize) && length(normalize)` guard and returned the defaults
+without a word, so a caller who computed an empty vector was told the run was normal. **That one is
+fixed** (DECISIONS 2026-08-08). It was found by reading one function, which is the reason to read
+the other 47 rather than wait for the next one to surface.
+
+This is already the package's stated position and is not being invented here. `CLAUDE.md` picks
+`assert_subset()` over `match.arg(several.ok = TRUE)` partly because it "takes `empty.ok` as an
+explicit flag", and calls banning `character(0)` "one line to write ourselves". A6 is that line,
+applied everywhere rather than at the two sites that happened to get it.
+
+**The sweep, per site:** decide `empty.ok`, `null.ok`, `any.missing`, `min.len` and `min.chars`
+deliberately, and write the flag down even where it matches the default, so the next reader sees a
+decision instead of an omission. `assert_flag` (13 sites) is the one that likely needs nothing --
+it is already strict, and `CLAUDE.md` records `ask` failing closed as a rule.
+
+**Scope note:** this is a front-door sweep. `CLAUDE.md` puts `checkmate` at the exported surface and
+bare `stop()` in internals, so a site that turns out to be internal is evidence the check sits in
+the wrong frame, not a site to add a flag to.
+
 ---
 
 ## Open questions
@@ -155,37 +182,38 @@ the name but not the contract, so `Female` pointed at a `1 = male` column passes
 `assert_integerish(lower = 0, upper = 1)` and scores every GrimAge and every sex-routed clock
 silently wrong.
 
-### Q6. `normalize =` should accept scheme names
+### Q7. `normalize =` accepts the 14 clock ids that `clocks =` refuses
 
-`normalize = c(Horvath1 = FALSE, DunedinPACE = TRUE)` is the only per-clock form today, and it is
-cumbersome for what is nearly always a per-scheme wish. Measured 2026-08-07: the whole catalog is
-133 `none`, 2 `bmiq` (`Horvath1`, `Knight`), 1 `quantile` (`DunedinPACE`), 1 inexpressible `noob`.
+**Numbered Q7 because Q3 is burned, not free.** Q3 was the "requestable versus internal" partition
+question, closed and deleted 2026-08-07 with its central rule rejected on its merits: a sex-routed
+member is untypeable and necessarily visible in coverage, so no single partition spans both axes.
+Do not renumber this into Q3, and do not read it as reopening that. It is one argument validating
+against a set nobody chose.
 
-**The heterogeneity is scheme-shaped, with no residue.** A hand-written default list
-(`list(DunedinPACE = TRUE, Horvath1 = FALSE, Knight = FALSE)`) carries exactly the information in
-`NORM_DEFAULT_ON <- "quantile"` at three times the length: every `TRUE` in it is the quantile clock
-and every `FALSE` is a bmiq clock. It would also be the first hand-maintained clock list in the
-package, it needs the scheme rule as a fallback for a newly synced clock anyway (two sources for one
-decision), and it fails the argument's own validation: `resolve_normalize()` aborts on
-`setdiff(names(normalize), clock_sequence)` (`R/resolve_inputs.R`), so a default naming three clocks
-would abort on `calc_clocks(clocks = "Hannum")`.
+There are exactly two places a user names a clock, and they disagree. `resolve_clocks()` refuses a
+sex-routed member by name and points at its alias. `resolve_normalize()` (`R/resolve_inputs.R`)
+validates `names(normalize)` with `setdiff(nm, clock_sequence)`, and the sequence carries the
+members: measured on `clocks = "DNAmFitAge"`, **14 of the 30 clocks in the sequence are routed
+members**. So `normalize = c(DNAmFitAge_Female = TRUE)` clears the gate that `clocks =` would have
+refused. A survey of `assert_subset` and every `setdiff` against a clock set found these two sites
+and no others.
 
-**Proposal:** a fourth accepted form, a character vector of scheme names, `assert_subset()`ed
-against `NORM_SCHEMES`.
+**Latent, not live.** All 14 declare `scheme = none`, so they fall through to the `unusable` branch
+and are refused anyway, with a message about methods instead of about routing. **What makes it
+live:** a sync where a routed member declares `quantile` or `bmiq`. Then a clock is normalizable but
+not requestable.
 
-```r
-calc_clocks(DNAm, clocks = "all", normalize = "bmiq")                  # bmiq on, quantile off
-calc_clocks(DNAm, clocks = "all", normalize = c("quantile", "bmiq"))   # both
-```
+**The one-line fix is wrong, which is why this is queued rather than done.** Narrowing the valid set
+to `drop_routed_members(clock_sequence)` makes the existing message lie: it says the clock "is not
+being scored", and a routed member genuinely is. The fix worth building is the refusal
+`resolve_clocks()` already writes, which names the alias to request instead, so the two front-door
+arguments refuse the same input the same way. That is a cli message and a `sex_routed_members()`
+lookup, not a set change.
 
-This makes the roxygen line the call-site documentation that was wanted: **Default is
-`"quantile"`.** One word, exactly true, and it cannot drift because it is the constant. Keep the
-named-logical form for the case schemes cannot express, normalizing `Horvath1` but not `Knight`,
-which are both bmiq. Real, but rare, and it stops being the shape a caller meets first.
-
-Optional and weigh it separately: a derived `normalize_default` logical in
-`list_clocks(all_columns = TRUE)`, one line off `NORM_DEFAULT_ON`. It would be a fourth hidden
-column at 3 non-empty rows out of 123, against the wide-set argument in DECISIONS 2026-08-03.
+**Do not widen it into a general rule.** The sequence-versus-request distinction is otherwise
+correct: naming a *dependency* in `normalize` is legitimate, because the run scores it and
+normalizing it moves the output. Only the routed members are wrong, and only because they are
+unnameable everywhere else.
 
 ### Q1. Chunked front end. PARKED
 

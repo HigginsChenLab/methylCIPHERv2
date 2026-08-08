@@ -14,6 +14,76 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-08 -- `normalize =` takes clock ids, not scheme names, and everything except a bare scalar is a partial override
+
+**Reverses the shape proposed in `dev/to-do.md` Q6**, which was a character vector of *scheme*
+names (`normalize = "bmiq"`), `assert_subset()`ed against `NORM_SCHEMES`. The built form is a
+character vector of **clock ids**, and it is exact sugar for `c(<id> = TRUE)`. So `"bmiq"` and
+`"quantile"` are now rejected the same way `"wrong_string"` is: they are not clocks being scored.
+
+**One rule covers all four forms, and it was already the shipped semantics.** The bare scalar
+`TRUE` / `FALSE` overrides every clock that declares a method. **Anything that names something
+speaks for that thing alone**, and leaves every other clock at its default. That is not a new rule:
+the named-logical branch has always been `out[nm] <- normalize` on top of the defaults
+(`R/resolve_inputs.R`), so `c(Horvath1 = TRUE)` already left `DunedinPACE` alone. Stating it is what
+makes the character form unambiguous, and the ambiguity is real -- `clocks = c("Horvath1",
+"DunedinPACE")` with `normalize = "Horvath1"` reads equally well as "also turn on Horvath1" and as
+"normalize only Horvath1". The first is the answer, because the sugar must mean what it desugars to.
+
+**Why scheme names were declined**, having been the entry's whole proposal:
+
+- **Two namespaces in one argument.** The package has been bitten by this: `KNOWN_PARITY_GAP_GROUPS`
+  is a separate map from `KNOWN_PARITY_GAPS` because group ids and clock ids share a namespace and
+  one flat map could not say which a key meant. `normalize` would have had schemes and clock ids in
+  the same character vector.
+- **A scheme name acts at a distance.** Under the proposed absolute reading, `normalize = "bmiq"`
+  turns quantile *off*, so a request that includes `DunedinPACE` silently loses its normalization
+  and returns a materially different score. Since normalization stopped being constitutive
+  (DECISIONS 2026-08-06) that is a legal thing to ask for, which is exactly why it must be asked for
+  by name.
+- **The payoff is thin at catalog size.** "Turn on bmiq everywhere" is `c("Horvath1", "Knight")`.
+  Two names. **The condition that reopens this:** a sync that lands many more bmiq clocks makes
+  hand-listing unreasonable and earns schemes their place.
+
+**What was given up, and where it went instead.** Q6's stated motivation was the roxygen line
+"Default is `"quantile"`" -- one word, off `NORM_DEFAULT_ON`, incapable of drifting. Clock ids
+cannot deliver that, because in clock-id terms the default is a list that moves with every sync.
+**The scheme vocabulary belongs in the prose, not in the argument**: the donor's new
+`Normalization` section says a clock declaring `quantile` is normalized and a clock declaring `bmiq`
+is not, which is the same fact, derived from the same constant, and still cannot drift. Four
+accepted forms also crossed the union-type threshold in `dev/WRITING.md`, so the forms live in a
+donor `@section` pulled in by all three topics that take the argument (`calc_clocks`, `clock_cpgs`,
+`sim_DNAm`), on the `ext_data` precedent.
+
+**The implementation is a coercion, deliberately.** `is.character()` becomes
+`setNames(rep(TRUE, n), normalize)` *before* the existing named branch, so every gate and every
+message is inherited rather than rewritten. That is also why the valid set was **not** narrowed with
+`assert_subset()`: the current code already splits the two mistakes and says more about each one
+than a flat valid-set dump would. `"wrong_string"` is "not being scored"; `"Hannum"` is "cannot turn
+on `normalize` for Hannum. This package can apply only the quantile, bmiq normalization methods."
+
+**An empty request is now an error, on both types.** `character(0)` and `logical(0)` previously fell
+through `!is.null(normalize) && length(normalize)` and returned the defaults without a word, so a
+caller who computed an empty vector was told the run was normal. This is the position `CLAUDE.md`
+already takes when it prefers `assert_subset()` over `match.arg(several.ok = TRUE)` for taking
+`empty.ok` as an explicit flag. The wider sweep is `dev/to-do.md` A6.
+
+**One inconsistency was found and deliberately not fixed here.** `normalize`'s valid set is
+`clock_sequence`, which includes the 14 sex-routed members: measured on `clocks = "DNAmFitAge"`, 14
+of the 30 clocks in the sequence are members that `resolve_clocks()` refuses by name. So there is a
+set of clocks nameable in `normalize` but not in `clocks`. It is latent, not live -- all 14 declare
+`scheme = none` and are refused by the `unusable` branch anyway -- and narrowing the set with
+`drop_routed_members()` would make the *message* wrong, since a routed member genuinely is being
+scored. The fix worth building borrows `resolve_clocks()`'s own refusal, which names the alias, and
+that is a message rather than a one-line set change. Queued as `dev/to-do.md` Q7.
+
+**This is not the Q3 partition question, which stays closed.** That item was deleted the day before
+(DECISIONS 2026-08-07, `list_clocks()`), and its proposed rule was rejected on its merits: a routed
+member is untypeable and necessarily visible in coverage, so "requestable" and "shown" are different
+axes and no single partition spans them. What is queued here is smaller and does not reopen it --
+`resolve_normalize()` validates against a set nobody chose, while `resolve_clocks()` chose one. A
+survey of every site where a user names a clock found those two and no others.
+
 ## 2026-08-07 -- `list_clocks()` lists what `clocks =` accepts, and nothing else
 
 `list_clocks()` returned all 137 catalog entries, including the 14 sex-routed members, which

@@ -12,8 +12,7 @@
 #' @param pheno A data.frame. The sample metadata, with one row for each
 #'   sample. Default is `NULL`.
 #' @param normalize A named logical vector. Turns background normalization on
-#'   or off for the clocks that support it. Default is `NULL`, which leaves
-#'   each clock at its own default: on for `quantile`, off for `bmiq`.
+#'   or off for the clocks that declare a method. Default is `NULL`.
 #' @param ext_data A string. The path to the directory that holds the clock
 #'   assets. Default is `NULL`, which uses the assets directory.
 #' @param ask A boolean. Asks for confirmation before the assets directory
@@ -38,6 +37,26 @@
 #' - A path reads only that directory, and never downloads. A missing asset
 #'   is an error.
 #' - Assets already in memory from [load_mc_assets()] are used directly.
+#'
+#' @section Normalization:
+#' Some clocks declare a background normalization method. `normalize` accepts
+#' four forms.
+#'
+#' - `NULL` leaves every clock at its own default. A clock that declares
+#'   `quantile` is normalized, and a clock that declares `bmiq` is not.
+#' - `TRUE` or `FALSE` sets every clock that declares a method.
+#' - A character vector of clock ids turns normalization on for those clocks,
+#'   and leaves every other clock at its default.
+#' - A named logical vector sets the clocks it names, and leaves every other
+#'   clock at its default.
+#'
+#' The character form only turns normalization on. To turn a method off, name
+#' the clock in a named logical vector.
+#'
+#' Normalization needs a background panel that is much larger than the scoring
+#' panel, so a matrix cut down to the scoring CpGs cannot supply it. The
+#' `normalize` column of [list_clocks()] with `all_columns = TRUE` gives the
+#' method each clock declares.
 #'
 #' @section Clocks that use all the samples:
 #' Some clocks depend on information from all the samples, such as a z-score.
