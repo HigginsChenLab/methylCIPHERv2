@@ -15,6 +15,7 @@
 #'   Default is `0.75`.
 #'
 #' @inheritSection mc-params The assets directory
+#' @inheritSection mc-params Covariate columns
 #' @inheritSection mc-params Normalization
 #'
 #' @details
@@ -61,6 +62,7 @@ calc_clocks <- function(
   clocks,
   pheno = NULL,
   pheno_id = "ID",
+  covariates = NULL,
   min_clocks_coverage = 0.75,
   min_samples_coverage = 0.75,
   normalize = NULL,
@@ -73,6 +75,8 @@ calc_clocks <- function(
   checkmate::assert_number(min_samples_coverage, lower = 0, upper = 1)
 
   spec <- mc_spec(clocks, pheno_id, normalize, ext_data, ask)
+  # canonicalize before any pheno check, so every check reads one set of names
+  pheno <- canonicalize_covariates(pheno, covariates, spec[["covariates"]])
   facts <- mc_cohort(DNAm, spec, pheno, min_clocks_coverage)
   scored <- score_cohort(DNAm, spec, facts, min_samples_coverage)
   # shared with refinalize_clocks() -- a no-op when pending is empty

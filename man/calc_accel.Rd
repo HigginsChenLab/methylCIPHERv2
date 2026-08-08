@@ -9,6 +9,7 @@ calc_accel(
   formula = NULL,
   type = c("accel", "diff"),
   data = NULL,
+  covariates = NULL,
   long = TRUE
 )
 }
@@ -23,6 +24,10 @@ clock. Default is \code{"accel"}.}
 
 \item{data}{A data.frame. Extra sample metadata, joined to the \code{pheno} in \code{x}
 by sample id. Default is \code{NULL}.}
+
+\item{covariates}{A named character vector. Points a covariate at the column
+that holds it, for metadata that names its columns something else. Default
+is \code{NULL}.}
 
 \item{long}{A boolean. Returns one row for each sample and clock when
 \code{TRUE}, and one row for each sample, with one column for each clock, when
@@ -52,6 +57,25 @@ It may add a column, and it may repeat a column that scoring already used.
 \code{calc_accel()} stops when a repeated column disagrees with the value
 scoring used.
 }
+\section{Covariate columns}{
+
+Some clocks read a covariate from the sample metadata. A clock names the
+covariate it reads, and looks for a column of that name.
+
+\code{covariates} points a covariate at a column that holds it under another
+name. Write the covariate on the left and your own column on the right, as
+in \code{covariates = c(Age = "age_yrs")}. Only a covariate this call reads can
+be pointed at a column, and each one may be pointed once.
+
+A covariate that is already a column of the metadata needs no entry. The
+\code{covariates} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
+covariates each clock reads.
+
+A pointer moves the name and nothing else. \code{Female} pointed at a column that
+holds \code{1} for male scores every clock that reads sex, and scores all of them
+wrong, so check what the column means before you point at it.
+}
+
 \section{Clocks that use all the samples}{
 
 Some clocks depend on information from all the samples, such as a z-score.

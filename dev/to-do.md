@@ -139,49 +139,6 @@ Do not act before deciding what a partial calibration means to a user who did no
 internals. If it changes nothing they can act on, it may not belong in any user-facing surface at
 all.
 
-### Q5. `covariates =` name map on the front doors. DESIGNED, NOT BUILT
-
-A caller whose pheno has `age_yrs` / `sex_f` must rename to `Age` / `Female` before scoring. The
-ask is to accept a pointer instead. Requested by a senior collaborator; the counter is that it buys
-a one-line rename at a real maintenance cost, so the shape below is what makes it affordable.
-
-**One named map per front door, never one argument per covariate.**
-`covariates = c(Age = "age_yrs", Female = "sex_f")`, validated with `assert_subset()` on the names
-against `clock_covariates_required()` over the resolved sequence. `age_id` / `female_id` is the
-shape that becomes `tissue_id` and `bmi_id` one at a time. Keep the noun `covariates`: the package
-already uses it in `covariates_used`, `covariates_required`, `clock_covariates_coefs` and the
-`covariates` stack namespace, so `alt_cov` would read as a different concept.
-
-**Canonicalize, do not restore.** Rename inside `resolve_pheno()` (`R/validate_inputs.R`), which
-already materializes a fresh subset, so the rename touches a names attribute and never the user's
-object. Every downstream read is then untouched: `names(cov_coefs)` in `linear_predictor()`, the
-`covariates` stack namespace, `coverage.R`, `gap_reasons.R`, `predict_sex.R`, `score_routed.R`.
-Restoring the caller's names on the way out is the dead branch, for three reasons: `accel_label()`
-builds the output column name from `attr(terms(formula), "term.labels")`, so the default model
-would return `Age_accel` for one user and `age_yrs_accel` for another; `warn_age_units()` fires off
-`"Age" %in% extra_columns` and would go silent for exactly the callers who renamed; and rewriting
-user formula language is substitution into a call once `I(Age^2)` is in play, not a name swap.
-
-**Both `calc_clocks()` and `calc_accel()` need it.** `$pheno` carries `Age` only when a scored clock
-required it, so on a Horvath1 + Hannum record `$pheno` is the id column alone and the flagship
-`calc_accel(res, data = my_pheno)` reads `Age` out of `data`. That is the common call, not an edge
-case. `score_associations()` needs nothing: it already takes `age =` as a bare vector.
-
-**Do not carry the map in `$provenance`.** That was considered and is worse.
-`provenance$covariates_used` is today a catalog fact, which is why `rbind` can take
-`ref[["covariates_used"]]` flat and ungated (`R/bind.R`); a caller-chosen map is not derivable from
-the clocks, so it would have to become batch-keyed like `normalize_requested` and the two floors.
-Stateless is strictly smaller, and it closes the one new trap for free: canonicalize `data` *before*
-`merge_accel_data()` and `age_yrs` becomes `Age`, which now overlaps `$pheno`, so the existing "may
-add a column, may not change one" equality check fires instead of silently carrying the same values
-under two names.
-
-**Scope if built:** one helper, two call sites, two arguments, the front-door messages naming the
-caller's word, tests, a DECISIONS entry. The standing risk to state in that entry: a pointer moves
-the name but not the contract, so `Female` pointed at a `1 = male` column passes
-`assert_integerish(lower = 0, upper = 1)` and scores every GrimAge and every sex-routed clock
-silently wrong.
-
 ### Q7. `normalize =` accepts the 14 clock ids that `clocks =` refuses
 
 **Numbered Q7 because Q3 is burned, not free.** Q3 was the "requestable versus internal" partition

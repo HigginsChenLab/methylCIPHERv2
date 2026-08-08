@@ -306,6 +306,94 @@ warn_missing_covariates <- function(
   invisible(NULL)
 }
 
+# point the canonical covariate names at the caller's own columns.
+# runs at the top of a front door, so every downstream read sees canonical names.
+canonicalize_covariates <- function(pheno, covariates, reads, arg = "pheno") {
+  if (is.null(covariates)) {
+    return(pheno)
+  }
+  checkmate::assert_character(
+    covariates,
+    any.missing = FALSE,
+    min.len = 1L,
+    min.chars = 1L,
+    unique = TRUE
+  )
+  nm <- names(covariates)
+  if (is.null(nm) || !all(nzchar(nm))) {
+    cli::cli_abort(
+      c(
+        "Every {.arg covariates} element needs the covariate it points at as
+         its name.",
+        "i" = "Write {.code covariates = c(Age = \"age_yrs\")}, with the
+               covariate on the left and your own column on the right."
+      ),
+      call = NULL
+    )
+  }
+  if (is.null(pheno)) {
+    cli::cli_abort(
+      c(
+        "{.arg covariates} points at columns of {.arg {arg}}, which is
+         {.code NULL}.",
+        "i" = "Supply {.arg {arg}}, or drop {.arg covariates}."
+      ),
+      call = NULL
+    )
+  }
+  # only a covariate this call reads can be pointed anywhere
+  if (!length(reads)) {
+    cli::cli_abort(
+      c(
+        "{.arg covariates} names {.field {capped_vals(nm)}}, but this call
+         reads no covariate.",
+        "i" = "Drop {.arg covariates}."
+      ),
+      call = NULL
+    )
+  }
+  # deparse would say `nm`, which names nothing the caller wrote
+  checkmate::assert_subset(
+    nm,
+    reads,
+    empty.ok = FALSE,
+    .var.name = "names(covariates)"
+  )
+
+  # the caller's own words, so the message says what they wrote
+  absent <- covariates[!covariates %in% names(pheno)]
+  if (length(absent)) {
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} has no {cli::qty(absent)}column{?s}
+         {.val {capped_vals(unname(absent))}}.",
+        "i" = "{.arg covariates} points {.field {names(absent)[[1L]]}} at
+               {.val {absent[[1L]]}}.",
+        "i" = "{.arg {arg}} has {.field {capped_vals(names(pheno))}}."
+      ),
+      call = NULL
+    )
+  }
+  # renaming onto a column that is already there would make two of one name
+  clash <- nm[nm %in% setdiff(names(pheno), covariates)]
+  if (length(clash)) {
+    cli::cli_abort(
+      c(
+        "{.arg {arg}} already has {cli::qty(clash)}{?a /}column{?s}
+         {.field {capped_vals(clash)}}.",
+        "i" = "{.arg covariates} would give that name to
+               {.val {capped_vals(unname(covariates[clash]))}} as well.",
+        "i" = "Drop or rename the {.field {clash[[1L]]}} column of
+               {.arg {arg}}."
+      ),
+      call = NULL
+    )
+  }
+  # a names swap on a fresh frame -- the caller's object is never touched
+  names(pheno)[match(covariates, names(pheno))] <- nm
+  pheno
+}
+
 # align pheno by id-join. none supplied -> id column alone.
 resolve_pheno <- function(DNAm, pheno, pheno_id, keep) {
   sample_id <- rownames(DNAm)
