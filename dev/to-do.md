@@ -101,7 +101,61 @@ the printed output. The prose itself quotes no counts, so nothing has to be edit
 
 ## Open questions
 
+### Q5. QC digest. DESIGNED, NOT BUILT -- pick up here
+
+**Decided: post-flight, not pre-flight.** A pre-flight `report(DNAm)` arm was asked for and is
+refused. It is a second beta reader (see the one-entry-point invariant), and the measurement kills
+its rationale: on 50 x 323,499, everything up to normalization is 0.37s of a 3.03s call, and the
+scoring loop itself is 0.12s. BMIQ is 87% and sits *after* where a pre-flight stops, so it warns
+about nothing expensive and is pure overhead. It also cannot report `fit` failures, NaN scores,
+declined normalization, or which clocks came back `NA` -- none of that exists until scoring runs.
+Post-flight is a strict superset, and it describes the matrix that was actually scored.
+
+**The blocker: the front-door findings are not retained.** `check_col_values()` (`R/missingness.R`)
+reads `min_val` / `max_val` / `min_col` / `max_col` / `any_inf` off the `col_stats()` sweep, warns,
+and returns `invisible(NULL)`. `scan_missing_cpgs()` drops them; `mc_cohort()` also drops
+`all_na_cols`; `construct_mc_result()` has no field for any of it. So the digest cannot print the
+input diagnostics until the record keeps them. What must start being recorded:
+
+- input shape (`ncol(DNAm)` -- `nrow` is already `sample_id`)
+- the value verdicts (min / max with the offending column, `any_inf`)
+- the all-NA column count
+- BMIQ partial calibration per sample -- this is what folds Q2 in below
+
+Already available, no change needed: clocks requested vs dependencies, `normalized` vs
+`normalize_requested` (already per batch), both floors, `scoring_failures`, NaN/Inf scores
+(recomputable -- `$scores` keeps `NaN` distinct from `NA`), and both collapses from
+`samples_coverage()`.
+
+**Grain: long `(unit, reason)`, both halves.** Not collapsed. Collapsing is lossy exactly where the
+digest earns its keep -- a clock failing 3 for `covariate` and 2 for `sample_coverage` becomes one
+unreadable row, `all_failed` turns ambiguous, and the decode stops matching the closed set. The
+reason vocabulary is 5 values (`covariate`, `clock_coverage`, `sample_coverage`, `fit`,
+`dependency`, `R/gap_reasons.R`), so human-readable text is a 5-entry named vector, not a parser.
+Long costs nothing in the common case: in an adversarial 12-sample fixture, 16 clocks failed and
+**0 were mixed** -- `clock_coverage` is a per-batch column verdict, so it cannot co-occur with a
+per-sample reason on the same cell.
+
+**`score_associations()` stays out.** It needs an age vector, and a `summary`-shaped call taking a
+mandatory argument is a contradiction. Building strictly on `samples_coverage()` also means the
+digest never touches `$scores` or `$coverage`, so it adds no `finalized()` call site and inherits
+multi-batch handling free.
+
+**Constraints on the print.** Reuse `R/print.R`'s builders. `$` in that grammar means "a component
+you may reach for", so the input / problems / collapse sections take `fmt_named_section()`, the
+un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. Note the
+range scan covers **panel columns only**, not the whole matrix -- the existing warning's "`DNAm`
+contains values above 1" is already loose on this and should be tightened in the same pass.
+
+**Open, decide first:** does `summary()` return the digest or only print it? Print-only keeps "there
+is no third frame" intact but makes the collapses unreachable in code; returning two frames is
+useful and is, fairly read, two more frames. The standard idiom -- return invisibly, print by
+default -- gets both and is the current lean, but it should be chosen knowingly.
+
 ### Q2. BMIQ partial calibration: is a warning the right surface?
+
+**Folded into Q5 above.** Keep the analysis here until Q5 lands.
+
 
 `say_partial_calibration()` (`R/score_cohort.R`) warns when BMIQ skipped its H step for a sample
 (`h.applied == FALSE`). That sample **still scored** -- the value is not `NA`. A warning about a
