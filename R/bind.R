@@ -123,7 +123,7 @@ normalized_diff <- function(recs) {
 
 # normalized sets must match; which side differs picks the advice.
 gate_same_normalized <- function(recs) {
-    declined <- unlist(lapply(recs, normalize_declined))
+  declined <- unlist(lapply(recs, normalize_declined))
   forced <- any(normalized_diff(recs) %in% declined)
   gate_same_set(
     recs,
