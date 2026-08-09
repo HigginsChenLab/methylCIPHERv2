@@ -5,7 +5,8 @@ ids <- unname(karyotype_inputs(karyotype_spec()))
 
 test_that("predict_sex returns both PCs, a call per sample, and no more", {
   sim <- sim_DNAm(ids, n = 5L)
-  out <- predict_sex(sim$DNAm, sim$pheno)
+  # a pheno that cannot supply a recorded sex says so. pheno = NULL is silent.
+  expect_message(out <- predict_sex(sim$DNAm, sim$pheno))
 
   expect_equal(names(out), c("ID", ids, "predicted_sex"))
   expect_equal(nrow(out), 5L)
@@ -38,7 +39,7 @@ test_that("a sample without both scores is called NA, not the default", {
 
   # one sample under the sample floor: only that sample loses its call
   DNAm[2L, ] <- NA
-  out <- suppressWarnings(predict_sex(DNAm, sim$pheno))
+  out <- suppressMessages(suppressWarnings(predict_sex(DNAm, sim$pheno)))
   expect_true(is.na(out$predicted_sex[[2L]]))
   expect_false(any(is.na(out$predicted_sex[-2L])))
 })

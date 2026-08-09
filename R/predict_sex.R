@@ -116,8 +116,13 @@ recorded_from_female <- function(female) {
 }
 
 # left join recorded sex onto calls by id, never by row order.
+# pheno is already canonicalized, so Female is the caller's pointed column too.
 attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
-  if (is.null(pheno) || !"Female" %in% names(pheno)) {
+  if (is.null(pheno)) {
+    return(out)
+  }
+  if (!"Female" %in% names(pheno)) {
+    say_no_recorded()
     return(out)
   }
   missing_labels <- setdiff(BINARY_CALLS, karyotype_calls(kc))
@@ -143,6 +148,18 @@ attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
   out
 }
 
+# a supplied pheno with no sex column. pheno = NULL is silent.
+say_no_recorded <- function() {
+  cli::cli_inform(c(
+    "i" = "{.arg pheno} has no {.field Female} column, so the result carries
+           no {.field {RECORDED_SEX}} column and no {.field {SEX_MISMATCH}}
+           column.",
+    "i" = "Write {.code covariates = c(Female = \"my_column\")} to point
+           {.field Female} at the column that holds it."
+  ))
+  invisible(NULL)
+}
+
 say_mismatch <- function(out) {
   n <- sum(out[[SEX_MISMATCH]])
   if (!n) {
@@ -166,6 +183,8 @@ say_mismatch <- function(out) {
 #' @inheritParams mc-params
 #' @param ... Passed to [calc_clocks()].
 #'
+#' @inheritSection mc-params Covariate columns
+#'
 #' @references
 #' Wang Y, Hannon E, Grant OA, Gorrie-Stone TJ, Kumari M, Mill J, Zhai X,
 #' McDonald-Maier KD, Schalkwyk LC (2021). DNA methylation-based sex
@@ -185,6 +204,11 @@ say_mismatch <- function(out) {
 #' `"47,XXY"` or `"45,XO"` call is never flagged, because a binary `Female`
 #' column cannot record it.
 #'
+#' `predict_sex()` reads `Female` itself, and the two clocks it scores read no
+#' covariate. Write `covariates = c(Female = "sex_f")` to point `Female` at a
+#' column of another name. `pheno` with no `Female` column builds no
+#' comparison, and says so.
+#'
 #' @returns A data.frame. One row for each sample, with the
 #'   `DNAmSex_Wang_ChrX` and `DNAmSex_Wang_ChrY` scores, `predicted_sex`,
 #'   and, when `pheno` has a `Female` column, `recorded_sex` and
@@ -195,19 +219,27 @@ say_mismatch <- function(out) {
 #' predict_sex(sim[["DNAm"]], sim[["pheno"]])
 #'
 #' @export
-predict_sex <- function(DNAm, pheno = NULL, ...) {
+predict_sex <- function(DNAm, pheno = NULL, covariates = NULL, ...) {
   kc <- karyotype_spec()
   map <- karyotype_inputs(kc)
 
+  # this call reads Female itself. the scored clocks declare their own.
+  reads <- union(
+    unlist(lapply(unname(map), clock_covariates_required), use.names = FALSE),
+    "Female"
+  )
+  # above both readers: calc_clocks()'s pheno checks and the join below
+  pheno <- canonicalize_covariates(pheno, covariates, reads)
+
   # both members are scored together -- neither is interpretable alone
-  res <- calc_clocks(DNAm, unname(map), pheno = pheno, ...)
+  res <- calc_clocks(DNAm, unname(map), pheno = pheno, covariates = NULL, ...)
   out <- as.data.frame(res, long = FALSE)
 
   scores <- lapply(map, function(id) out[[id]])
   pred <- apply_karyotype(scores, kc)
   out[[as.character(kc[["output_column"]])]] <- pred
 
-  # the Female covariate is not required. comparison reads the caller's pheno.
+  # Female is not a required covariate. comparison reads the caller's pheno.
   out <- attach_recorded(
     out,
     pheno,
