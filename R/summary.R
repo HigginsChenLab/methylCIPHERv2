@@ -69,24 +69,67 @@ group_count <- function(df, cols, count_name) {
   out
 }
 
+# batch in the order the run holds it, so a capped table shows one batch
+# before the next. NULL where the frame withheld the column.
+batch_key <- function(df, labels) {
+  if (MC_BATCH %in% names(df)) {
+    factor(df[[MC_BATCH]], levels = labels)
+  }
+}
+
+# panel then note, each on its declared order rather than alphabetically.
+# panel is redundant while partial is the only norm note, and is kept so the
+# order does not depend on that staying true.
+note_keys <- function(df) {
+  list(
+    factor(df[["panel"]], levels = c("score", "norm")),
+    factor(df[["note"]], levels = names(MC_NOTES))
+  )
+}
+
+sort_rows <- function(df, keys) {
+  out <- df[do.call(order, Filter(Negate(is.null), keys)), , drop = FALSE]
+  rownames(out) <- NULL
+  out
+}
+
 # one row per clock, panel, note and batch. the frame holds one row per
 # (id, clock_id, panel), so the group size is the sample count. explanation is
 # 1-to-1 with note, so it joins the key and changes no grouping.
-clock_notes <- function(noted, keys) {
-  cols <- c("clock_id", "panel", "note", "explanation")
-  out <- group_count(noted, c(cols, keys), "n_samples")
-  # batch last, like every other frame: it is the join key, and it is a hash
-  out[c(cols, "n_samples", keys)]
+clock_notes <- function(noted, keys, labels) {
+  cols <- c("clock_id", "panel", "note")
+  out <- group_count(noted, c(cols, "explanation", keys), "n_samples")
+  # explanation trails the counts: it is the one column of variable width, and
+  # a sentence between two short ones reads as a run-on. batch stays last.
+  out <- out[c(cols, "n_samples", "explanation", keys)]
+  # clock in the order the frame first names it, which is score-column order
+  # for the clocks that counted CpGs and puts the rest after them.
+  sort_rows(
+    out,
+    c(
+      list(
+        batch_key(out, labels),
+        match(out[["clock_id"]], unique(out[["clock_id"]]))
+      ),
+      note_keys(out)
+    )
+  )
 }
 
 # the same notes counted by sample, collapsed onto how far the damage spread:
 # how many samples lost how many clocks, for each panel and note. a digest
 # states the distribution, and samples_coverage() names the sample.
-sample_notes <- function(noted, keys) {
-  cols <- c("panel", "note", "explanation")
-  per_sample <- group_count(noted, c("id", cols, keys), "n_clocks")
-  out <- group_count(per_sample, c(cols, "n_clocks", keys), "n_samples")
-  out[c(cols, "n_clocks", "n_samples", keys)]
+sample_notes <- function(noted, keys, labels) {
+  cols <- c("panel", "note")
+  grp <- c(cols, "explanation")
+  per_sample <- group_count(noted, c("id", grp, keys), "n_clocks")
+  out <- group_count(per_sample, c(grp, "n_clocks", keys), "n_samples")
+  out <- out[c(cols, "n_clocks", "n_samples", "explanation", keys)]
+  # no clock to key on, so the note orders it. widest spread first.
+  sort_rows(
+    out,
+    c(list(batch_key(out, labels)), note_keys(out), list(-out[["n_clocks"]]))
+  )
 }
 
 # the clocks that produced no value at all: a score-panel note for every
@@ -97,10 +140,37 @@ failed_clocks <- function(noted, clocks, n_samples) {
 }
 
 # a problem table as it prints. the token and its phrase are one fact, and
-# both columns wrap the table past the terminal edge, so only the phrase is
-# shown. the object keeps the token, which is what a script matches on.
+# carrying the phrase on every row wraps the table past the terminal edge, so
+# the token prints and note_legend() states each phrase once.
 shown_notes <- function(df) {
-  df[setdiff(names(df), "note")]
+  df[setdiff(names(df), "explanation")]
+}
+
+# hex of a batch label kept where the label joins a table to the batch it
+# came from. every table shortens it except the one that names the batches,
+# which prints under the same condition, so the whole label is always shown
+# once and 16 hex is never repeated down a column.
+MC_BATCH_SHOWN <- 7L
+
+shown_batch <- function(df) {
+  if (MC_BATCH %in% names(df)) {
+    df[[MC_BATCH]] <- paste0(substr(df[[MC_BATCH]], 1L, MC_BATCH_SHOWN), "...")
+  }
+  df
+}
+
+# the phrase behind every token the two tables show, in the order they show
+# it. built from the rows that print, so it explains what the reader can see
+# and never a row the cap held back.
+note_legend <- function(...) {
+  note <- unique(unlist(lapply(list(...), function(df) df[["note"]])))
+  note <- note[order(factor(note, levels = names(MC_NOTES)))]
+  data.frame(
+    note = note,
+    explanation = explain_notes(note),
+    stringsAsFactors = FALSE,
+    row.names = NULL
+  )
 }
 
 # one row per batch, with the samples it scored.
@@ -158,6 +228,9 @@ batch_rows <- function(batch, labels) {
 #' Both tables carry the `explanation` of each note beside it, and
 #' [samples_coverage()] gives the full set of notes.
 #'
+#' Both tables are ordered by batch and then by `note`. `by_clock` keeps the
+#' order of the score columns, and `by_sample` gives the widest spread first.
+#'
 #' Totals are never added across batches, because each batch was scored from
 #' a different matrix.
 #'
@@ -207,8 +280,8 @@ summary.mc_result <- function(object, ...) {
       failed = failed,
       input = input_rows(prov[["input"]][labels], batch),
       arguments = argument_rows(prov, labels, batch),
-      by_clock = clock_notes(noted, keys),
-      by_sample = sample_notes(noted, keys),
+      by_clock = clock_notes(noted, keys, labels),
+      by_sample = sample_notes(noted, keys, labels),
       # withheld with the column, so one flag decides the whole object
       batches = if (keep_batch) batch_rows(prov[[MC_BATCH]], labels) else NULL
     ),
@@ -226,8 +299,12 @@ summary.mc_result <- function(object, ...) {
 #' @param ... Not used.
 #'
 #' @details
-#' The two problem tables print the `explanation` of each note. The `note`
-#' itself stays in `x`, for a script that matches on it.
+#' The two problem tables print the `note` of each row. The notes table under
+#' them gives the `explanation` of every note they print. The `explanation`
+#' stays in `x` beside the `note`.
+#'
+#' Every table shortens `mc_batch_id` to its first seven characters, except
+#' the `mc_batch_id` table, which gives every label in full.
 #'
 #' @returns An `mc_summary` object. Returns `x`, invisibly, after printing it.
 #'
@@ -281,15 +358,19 @@ print.mc_summary <- function(x, n = 6, ...) {
   }
 
   # one row per batch, so both count batches and not rows
-  print_table("input", x[["input"]], n, "batch", "es")
-  print_table("arguments", x[["arguments"]], n, "batch", "es")
+  print_table("input", shown_batch(x[["input"]]), n, "batch", "es")
+  print_table("arguments", shown_batch(x[["arguments"]]), n, "batch", "es")
 
   by_clock <- x[["by_clock"]]
   if (!nrow(by_clock)) {
     cat("\n", fmt_named_section("problems", "none"), "\n", sep = "")
   } else {
-    print_table("problems by clock", shown_notes(by_clock), n)
-    print_table("problems by sample", shown_notes(x[["by_sample"]]), n)
+    by_sample <- x[["by_sample"]]
+    print_table("problems by clock", shown_batch(shown_notes(by_clock)), n)
+    print_table("problems by sample", shown_batch(shown_notes(by_sample)), n)
+    # keyed on the rows that printed, so it explains those and nothing else
+    legend <- note_legend(utils::head(by_clock, n), utils::head(by_sample, n))
+    print_table("notes", legend, nrow(legend), "note")
   }
 
   # the labels, not the component that stores them

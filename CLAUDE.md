@@ -237,9 +237,33 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       the `group_count()` key -- it is 1-to-1 with `note`, so no grouping moves. An unmapped token
       is a defect and `explain_notes()` `stop()`s on it. Do not rename `note` to hold the prose: a
       user matching on the phrase would make a copy-edit a breaking change. **`print.mc_summary()`
-      shows `explanation` alone**, via `shown_notes()`, because both columns wrap `by_clock` past
-      an 80-column terminal -- the one place the printed frame is not the stored one, and it is
-      measured, not stylistic (DECISIONS 2026-08-09).
+      shows the token and states each phrase once underneath**, in a `notes` table built by
+      `note_legend()` from the rows that actually printed. Carrying the phrase on every row is
+      what wraps `by_clock`: measured at 82 chars at one batch and 93 at two, against 49 and 60
+      for the token, and the phrase is the only column of variable width so it is also what
+      decides where a wrap cuts. The legend prints **unconditionally** whenever there is a
+      problem row -- a block that appears only above N distinct notes is a footgun -- and it is
+      keyed on `head(df, n)` so it never explains a row the cap held back. `shown_notes()` (drop
+      `explanation`) and `shown_batch()` (shorten `mc_batch_id`) are the two print-time views,
+      and both live at the call site rather than in `print_table()`, which stays generic.
+      This reverses the same-day decision to show `explanation` alone (DECISIONS 2026-08-09).
+      - **Both problem tables are sorted, and `explanation` trails the counts.** Order is batch
+        on the run's own label sequence (never alphabetically on a hash), then `panel` and `note`
+        on their declared level sets, then the clock in first-mention order for `by_clock` and
+        `n_clocks` descending for `by_sample`. Emission order was not neutral:
+        `samples_coverage()` emits every counted row for every batch and *then* every composite
+        row for every batch, so a composite's batch-1 rows land after batch-2's counted rows and
+        the default 6-row cap showed a batch missing two of its own problems. Sorting `panel`
+        ahead of `note` is redundant while `partial` is the only norm note, and is kept so the
+        order does not depend on that.
+      - **The batch label prints in full exactly once per digest.** Every table shortens it to
+        7 hex plus `...`; the `mc_batch_id` table does not, and it prints under the same
+        condition that puts the column in the others, so a shortened label always has its full
+        form on screen. 7 is git's convention and needs ~16k batches in one record to collide;
+        the adaptive shortest-unique-prefix version was written and dropped, because the column
+        only exists at multi-batch and the machinery guarded a path almost nobody reaches. This
+        is display only -- `batch_hash()` is still never truncated, and neither coverage frame
+        shortens anything (DECISIONS 2026-08-09).
       `partial` reaches it
       through `provenance$partial_calibration`, a collector mirroring `scoring_failures` and bound
       by the same rule, which is what retired the `say_partial_calibration()` warning: it fired on

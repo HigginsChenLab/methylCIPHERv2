@@ -56,6 +56,9 @@ row is about the background panel, and the score may still be present.
 Both tables carry the \code{explanation} of each note beside it, and
 \code{\link[=samples_coverage]{samples_coverage()}} gives the full set of notes.
 
+Both tables are ordered by batch and then by \code{note}. \code{by_clock} keeps the
+order of the score columns, and \code{by_sample} gives the widest spread first.
+
 Totals are never added across batches, because each batch was scored from
 a different matrix.
 }

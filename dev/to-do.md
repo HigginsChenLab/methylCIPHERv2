@@ -15,7 +15,10 @@ There is no open code defect. Everything below is licensing, release plumbing, p
 The digest is correct and is not yet pleasant to read. It went in on 2026-08-09 and was tightened
 the same day (failed clocks named, `by_sample` collapsed to a spread, the duplicate row-gate
 warning removed, the requested and dependency counts made to reconcile with the header), which
-fixed what it *says*. What is left is how it *looks*.
+fixed what it *says*. The first look pass landed the same day: the token plus a `notes` legend,
+both problem tables sorted, `explanation` moved behind the counts, and the batch label shortened
+to 7 hex everywhere but the table that names the batches (DECISIONS 2026-08-09). That took
+`by_clock` from 93 characters at two batches to 60. What is left is the layout itself.
 
 The whole point of the object is that a reader skims it and stops. Today it is five sections of
 `print.data.frame` output under bracketed headers, so a clean run and a run that lost a third of
@@ -44,9 +47,8 @@ Four mechanics, none of them free:
   table is noise. Showing a count only where the axis really is cut removes most of the plural
   hedges in the same pass.
 
-Target shape. The `explanation` column landed 2026-08-09, and with it the print-time drop of
-`note` this mock already showed (DECISIONS 2026-08-09), so the columns below are what prints
-today. What is missing is the indent and the alignment:
+Target shape. The columns below are what prints today. What is missing is the indent and the
+alignment:
 
 ```txt
 <mc_summary> 20 samples x 2 clocks
@@ -58,8 +60,12 @@ failed [1 clock]
   Hannum
 
 problems by clock
-  clock_id  panel  explanation                 n_samples
-  Hannum    score  too few CpGs for the clock         20
+  clock_id  panel  note            n_samples
+  Hannum    score  clock_coverage         20
+
+notes
+  note            explanation
+  clock_coverage  too few CpGs for the clock
 ```
 
 Still open:
@@ -68,9 +74,10 @@ Still open:
   problems, so a broken run makes the reader scroll past two tables of boilerplate. `by_sample`
   is also the more readable of the two problem tables and prints second. Collapsing `input` and
   `arguments` to one line each when nothing is remarkable does most of this without a reorder.
+  The `notes` legend is a further argument for a reorder: it now sits between the problem tables
+  and `mc_batch_id`, so the two tables that key on a batch label are three blocks apart.
 - **The remaining plural hedges**, wherever an axis genuinely is cut. All of them come out of
   `plural_count()`, so one function fixes every print method at once.
-- `mc_batch_id` is a 16-hex hash and is the widest column in three tables.
 - Rounding is **not** an issue here: the digest prints only counts and the two floors. The 7-digit
   `coverage` column is `samples_coverage()`, a different frame and a separate question.
 
@@ -84,10 +91,9 @@ stay true. `dev/WRITING.md` binds every character of it.
 **Indent both helpers or neither.** `print_table()` is summary-only, but `print_block()` is read
 by `print.mc_result` and `print.sim_DNAm`. Indenting one and not the other gives `print(res)` and
 `print(summary(res))` different shapes, which is the drift the one-grammar invariant exists to
-stop. The `explanation` column already widened `by_clock` by the length of a phrase, and
-`shown_notes()` bought the room back by dropping `note` at the print site. `problems by clock`
-now measures about 76 characters against a default width of 80, so an indent of two spends half
-the remaining margin -- measure a multi-batch digest before assuming it fits.
+stop. Width is no longer the constraint it was: the legend pass put `problems by clock` at 49
+characters at one batch and 60 at two, against a default of 80, so two spaces fit with room over.
+The widest block to check is `print.mc_result`'s `$scores`, not the digest.
 
 ### P2. The cli length problems a bullet count cannot see
 
