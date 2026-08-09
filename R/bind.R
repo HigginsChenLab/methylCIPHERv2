@@ -297,6 +297,12 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         scoring_failures = bind_by_key(args, "scoring_failures", function(v) {
           unique(unlist(v))
         }),
+        # clock -> the sample ids it partly calibrated anywhere
+        partial_calibration = bind_by_key(
+          args,
+          "partial_calibration",
+          function(v) unique(unlist(v))
+        ),
         # intermediates stack by row, like the scores they will become
         pending = bind_by_key(args, "pending", function(v) do.call(rbind, v))
       )

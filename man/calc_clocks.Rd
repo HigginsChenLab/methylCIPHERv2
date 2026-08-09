@@ -75,7 +75,7 @@ under it scores \code{NA} for that clock, and for that clock only.
 A clock with none of its scoring CpGs present scores \code{NA} at any value of
 either argument. A clock just above either value is scored, and raises a
 warning. Pass the returned value to \code{\link[=clocks_coverage]{clocks_coverage()}} or
-\code{\link[=samples_coverage]{samples_coverage()}} to see the counts. The \code{reason} column of
+\code{\link[=samples_coverage]{samples_coverage()}} to see the counts. The \code{note} column of
 \code{\link[=samples_coverage]{samples_coverage()}} says why each \code{NA} score is missing.
 
 \code{calc_clocks()} narrows \code{pheno} before it stores it. The returned value

@@ -37,14 +37,14 @@ test_that("under-covered clocks score NA instead of stopping", {
   expect_true(all(is.na(res$scores[, "Hannum"])))
 })
 
-# the reasons that samples_coverage() carries, for a record with a gap
-reasons_of <- function(res) {
+# the notes that samples_coverage() carries, for a record with a gap
+notes_of <- function(res) {
   sc <- suppressWarnings(suppressMessages(samples_coverage(res)))
-  sc[["reason"]][!is.na(sc[["reason"]])]
+  sc[["note"]][!is.na(sc[["note"]])]
 }
 
 # the zero-CpG rule is two clauses, one per axis. hold the other floor away
-# from 0 and read the reason, so neither clause can stand in for the other.
+# from 0 and read the note, so neither clause can stand in for the other.
 test_that("a clock with no observed CpGs is NA at min_clocks_coverage = 0", {
   # 0 < 0 is FALSE, so the ratio cannot express this at any policy. the
   # vendored fill does not rescue it either: the gate reads observed presence.
@@ -52,8 +52,8 @@ test_that("a clock with no observed CpGs is NA at min_clocks_coverage = 0", {
     DNAm <- random_betas(foreign_panel(id), n = 4L)
     expect_warning(res <- calc_clocks(DNAm, id, min_clocks_coverage = 0))
     expect_true(all(is.na(res$scores[, id])))
-    # the reason names the gate that decided, so the row gate cannot cover it
-    expect_equal(unique(reasons_of(res)), "clock_coverage")
+    # the note names the gate that decided, so the row gate cannot cover it
+    expect_equal(unique(notes_of(res)), "clock_coverage")
   }
 })
 
@@ -67,7 +67,7 @@ test_that("a sample with no observed CpGs is NA at min_samples_coverage = 0", {
   )
   expect_true(is.na(res$scores[1, "Hannum"]))
   expect_true(all(is.finite(res$scores[-1, "Hannum"])))
-  expect_equal(reasons_of(res), "sample_coverage")
+  expect_equal(notes_of(res), "sample_coverage")
 })
 
 test_that("the gate names a clock the caller is allowed to request", {

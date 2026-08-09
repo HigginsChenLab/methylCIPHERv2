@@ -82,6 +82,7 @@ construct_mc_result <- function(
   min_clocks_coverage,
   min_samples_coverage,
   scoring_failures = list(),
+  partial_calibration = list(),
   pending = list()
 ) {
   scores <- do.call(cbind, results[output_ids])
@@ -135,6 +136,8 @@ construct_mc_result <- function(
         min_samples_coverage = stats::setNames(min_samples_coverage, batch),
         # clock id -> sample ids the scorer could not fit
         scoring_failures = scoring_failures,
+        # clock id -> sample ids normalized from a partial calibration
+        partial_calibration = partial_calibration,
         # retained per-sample intermediates, so a bind can re-finalize exactly
         pending = pending
       )
