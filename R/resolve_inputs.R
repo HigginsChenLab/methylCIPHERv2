@@ -17,7 +17,7 @@ did_you_mean <- function(tok, pool, n = 5L) {
 
 # nearest-match bullets for unmatched tokens. cap is on token count.
 suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
-  cli_escape(unlist(lapply(capped_vals(toks), function(tok) {
+  cli_escape(unlist(lapply(capped_vals(toks, MC_SUGGEST_CAP), function(tok) {
     hits <- lapply(pools, function(pool) did_you_mean(tok, pool, n))
     if (length(hits) == 1L) {
       h <- hits[[1L]]
@@ -47,19 +47,27 @@ suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
 
 # user tokens -> catalog clock_ids (all > tag > group_id > clock_id)
 resolve_clocks <- function(clocks) {
+  clock_ids <- mc_index[["clock_id"]]
+  # sex-routed members are internal -- request the alias
+  routed <- sex_routed_members()
+  callable <- setdiff(clock_ids, names(routed[["alias"]]))
+  # every token the argument accepts, so one of each is the most a request can
+  # hold. the bound says nothing without unique = TRUE, and the pair is what
+  # keeps an unbounded vector out of the resolve loop and the typo search.
+  accepted <- unique(c("all", names(MC_TAGS), mc_index[["group_id"]], callable))
+
   checkmate::assert_character(
     clocks,
     min.len = 1L,
+    max.len = length(accepted),
     any.missing = FALSE,
     min.chars = 1L,
+    unique = TRUE,
     .var.name = "clocks"
   )
 
-  members <- split(mc_index[["clock_id"]], mc_index[["group_id"]])
-  clock_ids <- mc_index[["clock_id"]]
+  members <- split(clock_ids, mc_index[["group_id"]])
 
-  # sex-routed members are internal -- request the alias
-  routed <- sex_routed_members()
   asked_routed <- intersect(clocks, names(routed[["alias"]]))
   if (length(asked_routed)) {
     cli::cli_abort(
@@ -84,7 +92,6 @@ resolve_clocks <- function(clocks) {
       call = NULL
     )
   }
-  callable <- setdiff(clock_ids, names(routed[["alias"]]))
 
   resolve_member <- function(tok) {
     if (!is.null(members[[tok]])) {

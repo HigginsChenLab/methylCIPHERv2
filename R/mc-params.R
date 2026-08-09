@@ -8,7 +8,7 @@
 #'   the rows and CpGs in the columns.
 #' @param x An `mc_result` object. The value returned by [calc_clocks()].
 #' @param clocks A character vector. The clocks to score, named by clock id,
-#'   group id, or tag. See [list_clocks()].
+#'   group id, or tag. Each name is given one time. See [list_clocks()].
 #' @param pheno A data.frame. The sample metadata, with one row for each
 #'   sample. Default is `NULL`.
 #' @param covariates A named character vector. Points a covariate at the column

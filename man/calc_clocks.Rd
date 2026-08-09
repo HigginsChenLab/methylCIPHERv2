@@ -22,7 +22,7 @@ calc_clocks(
 the rows and CpGs in the columns.}
 
 \item{clocks}{A character vector. The clocks to score, named by clock id,
-group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
+group id, or tag. Each name is given one time. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{pheno}{A data.frame. The sample metadata, with one row for each
 sample. Default is \code{NULL}.}

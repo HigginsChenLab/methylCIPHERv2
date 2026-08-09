@@ -18,7 +18,7 @@ sim_DNAm(
 }
 \arguments{
 \item{clocks}{A character vector. The clocks to score, named by clock id,
-group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
+group id, or tag. Each name is given one time. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{n}{A single whole number. The number of samples to simulate. Default
 is \code{10}.}

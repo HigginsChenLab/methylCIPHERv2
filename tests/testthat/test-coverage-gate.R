@@ -70,7 +70,7 @@ test_that("a sample with no observed CpGs is NA at min_samples_coverage = 0", {
   expect_equal(notes_of(res), "sample_coverage")
 })
 
-test_that("the gate names a clock the caller is allowed to request", {
+test_that("the gate never names a clock the caller cannot request", {
   skip_on_cran()
   routed <- sex_routed_members()
   member <- names(routed$alias)[[1]]
@@ -89,7 +89,9 @@ test_that("the gate names a clock the caller is allowed to request", {
   ))
   # it must be the coverage gate talking, not a missing-pheno abort
   expect_true(grepl("min_clocks_coverage", msg, fixed = TRUE))
-  expect_true(grepl(alias, msg, fixed = TRUE))
+  # the gate names no clock at all now: it counts them and points at the
+  # coverage frame. a member id can only reappear here through a new list.
+  expect_false(grepl(alias, msg, fixed = TRUE))
   for (nm in names(routed$alias)) {
     expect_false(grepl(nm, msg, fixed = TRUE))
   }

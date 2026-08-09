@@ -44,6 +44,34 @@ test_that("a token resolves exactly -- never by case or abbreviation", {
   expect_error(resolve_clocks(names(sex_routed_members()$alias)[[1L]]))
 })
 
+test_that("clocks is bounded, so an oversized request never reaches the pool", {
+  skip_on_cran()
+  # one of each accepted token is the ceiling, and it holds no duplicate
+  expect_error(resolve_clocks(c("Horvath1", "Horvath1")))
+  expect_error(resolve_clocks(paste0("absent_", seq_len(1e4L))))
+  # the whole token set at once is legal, so the bound cannot refuse a real ask
+  expect_no_error(resolve_clocks(unique(c(
+    "all",
+    names(MC_TAGS),
+    mc_index[["group_id"]],
+    resolve_clocks("all")
+  ))))
+
+  # a repeated tag used to resolve once per element. every tag is valid, so
+  # only the uniqueness check stands between it and one call per element.
+  expect_error(list_clocks(tag = rep(names(MC_TAGS)[[1L]], 4L)))
+  expect_error(list_clocks(group = rep("Horvath1", 4L)))
+
+  # each argument is bounded by its own token set, so an oversized ask is
+  # refused before the nearest-match search reads any of it
+  groups <- unique(mc_index[["group_id"]])
+  over <- function(n) paste0("absent_", seq_len(n + 1L))
+  expect_error(list_clocks(group = over(length(groups))))
+  expect_error(list_clocks(tag = over(length(MC_TAGS))))
+  expect_no_error(list_clocks(group = groups))
+  expect_no_error(list_clocks(tag = names(MC_TAGS)))
+})
+
 test_that("the callable pool holds exactly the clocks a user can request", {
   skip_on_cran()
   lc <- list_clocks(all_columns = TRUE)

@@ -233,6 +233,29 @@ Bullets that **go**:
   worked case: "a clock with no CpGs stays `NA` at every value" is a second sentence on the
   lower-the-floor bullet, and both vanish when neither applies.
 
+### What a message may enumerate
+
+Added 2026-08-09, after the bullet pass. The pass counted bullets, which is the wrong axis for
+the messages that are actually long: a `capped_bullets()` block is **one** bullet that refuses to
+print more than `MC_MSG_CAP` items, so it is the fix and never the defect. The question is not how
+many lines the list runs to. It is whether the list is ours to print at all.
+
+- **Name the offending input.** The duplicate ids in an `rbind()`, the tokens `clocks =` did not
+  recognise, the covariates of `pheno` with missing values, the assets a prompt is asking to
+  delete. The reader cannot look any of these up, and several are the whole content of the
+  message. `capped_bullets()` is right here, and the seven remaining call sites are all this kind.
+- **Never enumerate what a coverage frame gives.** A warning about coverage is the count, the fix,
+  and one pointer. Seven messages printed a capped per-clock or per-sample list and then, one
+  bullet below, told the reader that `clocks_coverage()` or `samples_coverage()` gives the same
+  thing -- complete, uncapped, and in a frame they can filter. Both column gates, `norm_gate()`,
+  both row gates, `check_score_values()` and `say_scored_na()` lost their lists on 2026-08-09.
+
+**The pointer carries the identity.** With the list gone, "which clock" and "which sample" are
+answered by the frame and by nothing in the message, so the pointer is not decoration and every
+one of these messages ends on one. This also removed the only reason the gates formatted a clock
+label at all: `gate_label()` and `panel_line()` are deleted, and no message names a routed member
+id any more.
+
 **An `inform` takes a lead.** Three of them opened with an `"i"` and had no lead at all, so cli
 rendered an info bullet with nothing above it. The first line is the lead; the rest are bullets.
 A mid-message list header (`resolve_clocks()`'s "Closest matches:") is not a lead and keeps its

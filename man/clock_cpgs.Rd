@@ -8,7 +8,7 @@ clock_cpgs(clocks, normalize = NULL, ext_data = NULL, ask = TRUE)
 }
 \arguments{
 \item{clocks}{A character vector. The clocks to score, named by clock id,
-group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
+group id, or tag. Each name is given one time. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{normalize}{A named logical vector. Turns background normalization on
 or off for the clocks that declare a method. Default is \code{NULL}.}

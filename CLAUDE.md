@@ -388,6 +388,27 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   it errors only when *every* element fails so a typo beside a valid token is dropped without a
   word, and it does not deduplicate. Its one wanted property (banning `character(0)`) is one line to
   write ourselves (DECISIONS 2026-08-03).
+  - **A token argument is bounded by its own token set, and a duplicate is refused.**
+    `resolve_clocks()` asserts `unique = TRUE` and `max.len = length(accepted)`, where `accepted`
+    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 142 today, derived
+    every call so a sync moves it. The pair is load-bearing: a length bound means nothing while
+    `rep(id, 3e5)` is legal, and uniqueness alone still admits 300k distinct strings. The output
+    was already deduplicated, so refusing a repeat buys no correctness -- it is refused because
+    the argument matches exactly and must not quietly rewrite what the caller wrote. Both are
+    plain `checkmate` arguments ahead of every other line, so nothing reads an oversized vector.
+    **`MC_SUGGEST_CAP` (5) caps the typo search, and is not `MC_MSG_CAP`**: one is `adist()`
+    passes, the other is how much text a reader tolerates, and they are allowed to differ.
+    **`unique = TRUE` goes on every token argument** -- `list_clocks(group =)` and `tag =` too --
+    and it is the guard that matters, because a repeated token is legal input that no membership
+    check can refuse. `tag` proved it: `assert_subset()` passed 300k copies of a real tag into a
+    per-element `resolve_clocks()` loop, 68.7 seconds. The loop is gone and the assertion sits at
+    each front door, not inherited, so the message names the caller's own argument. **Every one
+    carries `max.len`, and it is derived, never a flat number** -- 142 / 43 / 3, computed at call
+    time so a sync moves it. A round constant answers "is this absurd" where the token count
+    answers "is this more than could be wanted", and 500 would have loosened `clocks`. The
+    `group` ceiling counts declared groups rather than selectable ones, because the assertion
+    runs ahead of the routed-member filter; membership is checked below, so a loose bound there
+    costs nothing (DECISIONS 2026-08-09).
 - **Never `<<-` in `R/`. Mutable state is an explicit environment.** `<<-` does not name a target:
   it walks the enclosing frames and assigns into the first one that already binds that name,
   **creating a global** if none does, so renaming or deleting a local silently promotes a local

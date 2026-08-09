@@ -3,6 +3,10 @@
 # cap lists before they reach cli. one cap for every message.
 MC_MSG_CAP <- 10L
 
+# unmatched tokens that get a nearest-match search. adist runs once per token
+# over the whole pool, so this caps the work and not only the message.
+MC_SUGGEST_CAP <- 5L
+
 # escape braces in cli bullets so data cannot become a template.
 cli_escape <- function(x) {
   out <- gsub("}", "}}", gsub("{", "{{", x, fixed = TRUE), fixed = TRUE)
