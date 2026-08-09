@@ -130,7 +130,7 @@ check_DNAm <- function(DNAm) {
   invisible(NULL)
 }
 
-# say_* emits to the user. note_* records into the block's collector.
+# say_* emits to the user. mc_note_* records into the block's collector.
 say_full_panel_clocks <- function(clock_ids) {
   full <- clock_ids[vapply(clock_ids, clock_needs_full_panel, logical(1))]
   if (!length(full)) {

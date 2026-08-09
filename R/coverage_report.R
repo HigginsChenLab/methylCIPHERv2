@@ -65,44 +65,39 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
   m[, id]
 }
 
+# one record field down a column, typed by `empty`. a NULL record read no CpGs,
+# so it has nothing to report on any field.
+rec_field <- function(per_clock, nm, empty) {
+  unname(vapply(
+    per_clock,
+    function(r) if (is.null(r)) empty else as.vector(r[[nm]], typeof(empty)),
+    empty
+  ))
+}
+
 # one batch's rows (aliases have NA panels). batch is NULL when the exit drops the label.
 batch_coverage <- function(per_clock, batch, returned) {
   ids <- names(per_clock)
-
-  int_field <- function(nm) {
-    unname(vapply(
-      per_clock,
-      function(r) if (is.null(r)) NA_integer_ else as.integer(r[[nm]]),
-      integer(1L)
-    ))
-  }
+  count <- function(nm) rec_field(per_clock, nm, NA_integer_)
 
   out <- data.frame(
     clock_id = ids,
     # from the catalog, not the record -- a NULL record still has a group
     group_id = unname(vapply(ids, clock_group_id, character(1L))),
     role = ifelse(ids %in% returned, "returned", "routing_target"),
-    policy = unname(vapply(
-      per_clock,
-      function(r) if (is.null(r)) NA_character_ else r[["policy"]],
-      character(1L)
-    )),
-    normalizes = unname(vapply(
-      per_clock,
-      function(r) if (is.null(r)) NA else r[["normalizes"]],
-      logical(1L)
-    )),
-    score_needed = int_field("score_needed"),
-    score_present = int_field("score_present"),
-    score_used = int_field("score_used"),
-    score_imputed_partial = int_field("score_imputed_partial"),
-    score_imputed_full = int_field("score_imputed_full"),
-    score_dropped = int_field("score_dropped"),
-    norm_needed = int_field("norm_needed"),
-    norm_present = int_field("norm_present"),
-    norm_imputed_partial = int_field("norm_imputed_partial"),
-    norm_imputed_full = int_field("norm_imputed_full"),
-    norm_dropped = int_field("norm_dropped"),
+    policy = rec_field(per_clock, "policy", NA_character_),
+    normalizes = rec_field(per_clock, "normalizes", NA),
+    score_needed = count("score_needed"),
+    score_present = count("score_present"),
+    score_used = count("score_used"),
+    score_imputed_partial = count("score_imputed_partial"),
+    score_imputed_full = count("score_imputed_full"),
+    score_dropped = count("score_dropped"),
+    norm_needed = count("norm_needed"),
+    norm_present = count("norm_present"),
+    norm_imputed_partial = count("norm_imputed_partial"),
+    norm_imputed_full = count("norm_imputed_full"),
+    norm_dropped = count("norm_dropped"),
     stringsAsFactors = FALSE,
     row.names = NULL
   )
@@ -407,11 +402,17 @@ samples_coverage <- function(x) {
   attach_notes(drop_single_batch(out, batch), gap_reasons(x), partial_cells(x))
 }
 
+# join key for one (sample, clock) cell. sample first, clock second, everywhere:
+# built the other way round it matches nothing and says nothing.
+cell_key <- function(id, clock_id) {
+  paste(id, clock_id, sep = "\r")
+}
+
 # (sample, clock) keys whose normalization was only partly applied
 partial_cells <- function(x) {
   partial <- x[["provenance"]][["partial_calibration"]]
   unlist(
-    lapply(names(partial), function(id) paste(partial[[id]], id, sep = "\r")),
+    lapply(names(partial), function(id) cell_key(partial[[id]], id)),
     use.names = FALSE
   )
 }
@@ -419,9 +420,8 @@ partial_cells <- function(x) {
 # attach each row's stage verdict: score rows from the gap walk, norm rows
 # from the calibrations that were only partly applied.
 attach_notes <- function(out, gaps, partial) {
-  key <- function(id, clock) paste(id, clock, sep = "\r")
-  rows <- key(out[["id"]], out[["clock_id"]])
-  hit <- match(rows, key(gaps[["id"]], gaps[["clock_id"]]))
+  rows <- cell_key(out[["id"]], out[["clock_id"]])
+  hit <- match(rows, cell_key(gaps[["id"]], gaps[["clock_id"]]))
   score_row <- out[["panel"]] == "score"
   hit[!score_row] <- NA_integer_
 
