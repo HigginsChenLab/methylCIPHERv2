@@ -4,7 +4,8 @@ Queued work. **This is a staging area, not a record.** An item that becomes a de
 gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
 `CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
-There is no open code defect. Everything below is licensing, release plumbing, prose, or deferred.
+One open code defect, in Q5 phase 1: a flat PhysAge surrogate NAs the whole column with no note to
+explain it. Everything else below is licensing, release plumbing, prose, or deferred.
 
 ---
 
@@ -97,11 +98,35 @@ The chunks are evaluated at knit time under `set.seed(1)`, and the missingness e
 `remove = 10` plus a 20-cell `sample.int()` draw, so a change to the seed or to either number moves
 the printed output. The prose itself quotes no counts, so nothing has to be edited by hand to match.
 
+### A6. Audit the declared dependencies, and write down why each one stays
+
+Every `Imports` entry is a package a user must install to score a clock, so the set needs one
+deliberate pass before it is frozen by a public release. Non-base today: `checkmate`, `cli`,
+`digest`, `fs`, `Rcpp`. The output is a justification per entry -- what it is read for, what
+dropping it would cost -- not necessarily a removal.
+
+**`digest` was audited 2026-08-08 and stays.** One shipped call site, `batch_hash()`
+(`R/mc_result.R`); the two in `data-raw/sync.R` are maintainer-side and never ship. It is a leaf
+package -- no dependencies, own C, already installed nearly everywhere as a transitive dep of
+knitr/shiny -- so dropping it saves one line and no transitive weight.
+
+The replacement would be vendoring xxh64 into `src/`. **C++17 offers nothing usable, and this is
+the part worth remembering**: `std::hash` is the only hash in the standard library and it is
+explicitly implementation-defined, differs between libstdc++ and libc++, and is seeded per process
+in some implementations. A batch label must be identical on Windows and Linux for the same id set,
+so `std::hash` is disqualified outright rather than merely inferior. Deferring costs nothing either
+way: labels are **derived, never assigned**, so no stored label anywhere would need migrating if the
+hash were ever swapped.
+
 ---
 
 ## Open questions
 
-### Q5. QC digest. DESIGNED, NOT BUILT -- pick up here
+### Q5. QC digest, in three phases. DESIGNED, NOT BUILT -- pick up here
+
+Phases 1 and 2 are independent of each other; phase 3 needs both. Phase 1 fixes a live defect and
+stands alone. Q2 (BMIQ partial calibration) is resolved inside phase 1 and no longer has its own
+entry.
 
 **Decided: post-flight, not pre-flight.** A pre-flight `report(DNAm)` arm was asked for and is
 refused. It is a second beta reader (see the one-entry-point invariant), and the measurement kills
@@ -111,67 +136,111 @@ about nothing expensive and is pure overhead. It also cannot report `fit` failur
 declined normalization, or which clocks came back `NA` -- none of that exists until scoring runs.
 Post-flight is a strict superset, and it describes the matrix that was actually scored.
 
-**The blocker: the front-door findings are not retained.** `check_col_values()` (`R/missingness.R`)
-reads `min_val` / `max_val` / `min_col` / `max_col` / `any_inf` off the `col_stats()` sweep, warns,
-and returns `invisible(NULL)`. `scan_missing_cpgs()` drops them; `mc_cohort()` also drops
-`all_na_cols`; `construct_mc_result()` has no field for any of it. So the digest cannot print the
-input diagnostics until the record keeps them. What must start being recorded:
+#### Phase 1. `reason` becomes `note`, a per-row stage verdict
+
+**`samples_coverage()` already has a stage axis and only half-uses it.** `panel` is `score` or
+`norm`, one row each per (sample, clock), but `attach_reasons()` (`R/coverage_report.R`) is
+commented "attach reason to score rows only", so the norm row carries five counts and says nothing
+about whether normalization worked. That is a real misattribution, not an aesthetic one: when BMIQ
+fails a sample, `failed.sample = "NA"` NAs its betas, the score goes `NA`, and `gap_reasons()`
+reports `fit` **on the score row**. The failure happened at the norm stage and is reported at the
+calculation stage, with the norm row for that exact cell sitting silent.
+
+- **Rename `reason` -> `note`.** Once the column stops meaning "why this score is `NA`", the name
+  has to stop promising it: `reason` on a row where nothing went wrong asks the reader to accept
+  `NA` as "no reason". `note` reads correctly at both ends. It stays a **closed enum**, enumerated
+  in the roxygen -- the name must not become an invitation to free text.
+- **`panel` says which stage, `note` says what happened there.** Score rows keep the five values.
+  Norm rows gain `partial` (BMIQ skipped its H step, the score is real) and `fit` (calibration
+  failed for this sample). This is strictly more information than today: `norm = fit` plus
+  `score = fit` means the failure originated in normalization, `norm = NA` plus `score = fit` means
+  it failed in the arithmetic, and those are currently indistinguishable.
+- **`h.applied` already has the right grain.** It is per sample within one clock's `bmiq_fit()`
+  call (`R/score_normalized.R`), which is exactly the norm row's key. No reshaping, no invented key.
+  `say_partial_calibration()` then drops -- that was Q2's whole goal, and a counted line in the
+  digest was rejected because it cannot be filtered back to the affected samples.
+- **Make `note` total, and do it in one place.** `anti_trafo` and `log_offset_anti_trafo`
+  (`R/score_default.R`) happen to be total functions of one number -- the negative branch of
+  `anti_trafo` is bounded by `exp(x) <= 1`, and `exp(x) - 2` overflows only past `x ~ 709` -- so
+  they propagate non-finiteness and never create it, and need no verdict. **But that is an accident
+  of these two, not a property of the class.** A `log()` on a linear predictor would be partial, and
+  `zscore_raws()` already is. So do not add a collector per transform: in `gap_walk()`
+  (`R/gap_reasons.R`), after the mask loop and the dependency loop, any cell still `gone` with
+  `is.na(r)` takes `fit`, whose documented meaning already covers it. The invariant to write down is
+  **an `NA` score always has a note**, enforced by one output-level test over an adversarial fixture.
+- **This closes a live defect.** `zscore_raws()` (`R/score_PhysAge.R`) NAs an entire surrogate
+  column when its cohort sd is 0 or non-finite, and `finalize_PhysAge()` does `rowSums()` with no
+  `na.rm`, so one flat surrogate NAs the whole PhysAge column for every sample. Nothing explains it:
+  `finalize_PhysAge` is not among the three `note_scoring_failure()` call sites and no mask in
+  `gap_masks()` fires, so today that is an `NA` score with an `NA` reason -- the one thing the
+  column exists to prevent. The terminal `fit` fixes it with **no change to `score_PhysAge.R`**,
+  since PhysAge is a returned clock and `gone` comes straight off `na_mat`. **Confirm this with a
+  flat-surrogate fixture before building on it** -- it is a code read, not a measurement.
+- Needs a `dev/DECISIONS.md` entry. It reverses a documented contract and will read as drift
+  otherwise. No `NAMESPACE` change -- `note` is a column, not an export -- but it is a breaking
+  change to a returned frame, which pre-alpha absorbs.
+
+**Still open, and deliberately deferred:** under `note` = "what happened", a `NaN` score is the
+clearest case of something happening, and it is currently explained by a warning instead
+(`missing_scores()` excludes it at `R/gap_reasons.R`). That is the same duplication phase 1 removes
+for partial calibration. Decide whether it rides along.
+
+#### Phase 2. The front-door findings reach the record
+
+`check_col_values()` (`R/missingness.R`) reads `min_val` / `max_val` / `min_col` / `max_col` /
+`any_inf` off the `col_stats()` sweep, warns, and returns `invisible(NULL)`. `scan_missing_cpgs()`
+drops them; `mc_cohort()` also drops `all_na_cols`; `construct_mc_result()` has no field for any of
+it. Three things must start being recorded (down from four -- partial calibration became a coverage
+fact in phase 1):
 
 - input shape (`ncol(DNAm)` -- `nrow` is already `sample_id`)
 - the value verdicts (min / max with the offending column, `any_inf`)
 - the all-NA column count
-- BMIQ partial calibration per sample -- this is what folds Q2 in below
+
+**Keyed by batch**, like the floors and `normalize_requested`. Each `rbind`-ed record came from a
+different matrix, so a flat `n_cpgs` would be a lie after a bind. This is the part most likely to
+get built wrong.
+
+Also tighten the range warning in the same pass: the scan covers **panel columns only**, and
+"`DNAm` contains values above 1" does not say so.
 
 Already available, no change needed: clocks requested vs dependencies, `normalized` vs
-`normalize_requested` (already per batch), both floors, `scoring_failures`, NaN/Inf scores
-(recomputable -- `$scores` keeps `NaN` distinct from `NA`), and both collapses from
-`samples_coverage()`.
+`normalize_requested`, both floors, `scoring_failures`, NaN/Inf scores (recomputable -- `$scores`
+keeps `NaN` distinct from `NA`), and both collapses from `samples_coverage()`.
 
-**Grain: long `(unit, reason)`, both halves.** Not collapsed. Collapsing is lossy exactly where the
+#### Phase 3. `summary.mc_result()`
+
+**Returns the tables invisibly and prints by default.** It ingests a record and returns something
+else, the same shape as `summary.lm`. It builds strictly on `samples_coverage()`, which is already
+one of `finalized()`'s five call sites, so it inherits cross-sample finalization for free and must
+**not** add a sixth.
+
+**Grain: long `(unit, note)`, both halves.** Not collapsed. Collapsing is lossy exactly where the
 digest earns its keep -- a clock failing 3 for `covariate` and 2 for `sample_coverage` becomes one
-unreadable row, `all_failed` turns ambiguous, and the decode stops matching the closed set. The
-reason vocabulary is 5 values (`covariate`, `clock_coverage`, `sample_coverage`, `fit`,
-`dependency`, `R/gap_reasons.R`), so human-readable text is a 5-entry named vector, not a parser.
-Long costs nothing in the common case: in an adversarial 12-sample fixture, 16 clocks failed and
-**0 were mixed** -- `clock_coverage` is a per-batch column verdict, so it cannot co-occur with a
-per-sample reason on the same cell.
+unreadable row, `all_failed` turns ambiguous, and the decode stops matching the closed set. Human
+readable text is a named vector over the enum, not a parser. Long costs nothing in the common case:
+in an adversarial 12-sample fixture, 16 clocks failed and **0 were mixed** -- `clock_coverage` is a
+per-batch column verdict, so it cannot co-occur with a per-sample note on the same cell.
+
+**Batch: derive it from the frame, do not re-test.** `samples_coverage()` already adds
+`mc_batch_id` only when the record spans more than one batch, so `summary()` reads whether the
+column is present rather than calling `is_multi_batch()` itself. That is strictly better than
+becoming a fifth call site: it cannot disagree with the frame, which is the failure the
+appear-and-vanish-together rule exists to prevent. The grain genuinely must include batch rather
+than pool across it, because **both floors are per batch** -- a `clock_coverage` note from a batch
+that ran at 0.8 and one from a batch that ran at 0.5 are the same enum value meaning different
+verdicts, so pooling gives a correct count attached to an unattributable reason. Multi-batch prints
+a section listing each label with its sample count; single-batch prints no section and carries no
+column.
 
 **`score_associations()` stays out.** It needs an age vector, and a `summary`-shaped call taking a
-mandatory argument is a contradiction. Building strictly on `samples_coverage()` also means the
-digest never touches `$scores` or `$coverage`, so it adds no `finalized()` call site and inherits
-multi-batch handling free.
+mandatory argument is a contradiction.
 
 **Constraints on the print.** Reuse `R/print.R`'s builders. `$` in that grammar means "a component
 you may reach for", so the input / problems / collapse sections take `fmt_named_section()`, the
-un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. Note the
-range scan covers **panel columns only**, not the whole matrix -- the existing warning's "`DNAm`
-contains values above 1" is already loose on this and should be tightened in the same pass.
-
-**Open, decide first:** does `summary()` return the digest or only print it? Print-only keeps "there
-is no third frame" intact but makes the collapses unreachable in code; returning two frames is
-useful and is, fairly read, two more frames. The standard idiom -- return invisibly, print by
-default -- gets both and is the current lean, but it should be chosen knowingly.
-
-### Q2. BMIQ partial calibration: is a warning the right surface?
-
-**Folded into Q5 above.** Keep the analysis here until Q5 lands.
-
-
-`say_partial_calibration()` (`R/score_cohort.R`) warns when BMIQ skipped its H step for a sample
-(`h.applied == FALSE`). That sample **still scored** -- the value is not `NA`. A warning about a
-successful score reads as a failure, which is why the wording was softened in the 2026-08-07 cli
-pass ("still has a score, from a partial calibration") but the channel was left as `cli_warn`.
-
-The open question is the surface, not the wording. A partial calibration is a per-sample fact about
-how a cell was produced, which is exactly the shape `samples_coverage()` already carries per (sample,
-clock). Folding it in there -- a column, or a value in `reason` -- would let a caller find the
-affected cells on demand instead of being warned about a non-problem at score time. That likely
-lets the warning drop entirely, the same way an `NA` score is explained by the `reason` column
-rather than by a bare warning.
-
-Do not act before deciding what a partial calibration means to a user who did not ask about BMIQ
-internals. If it changes nothing they can act on, it may not belong in any user-facing surface at
-all.
+un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. The phase-2
+input block is the section that can get wide and ugly -- at two batches it is two matrix shapes,
+two floor pairs and two sets of value verdicts -- so sketch its layout before building it.
 
 ### Q1. Chunked front end. PARKED
 
