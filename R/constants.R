@@ -15,14 +15,12 @@ NORM_DEFAULT_ON <- "quantile"
 # schemes that fill an absent background cpg with the target value
 NORM_SCHEMES_FILL <- "quantile"
 
-# note tokens a score branch may record against a sample. the rest of the enum
-# (covariate, clock_coverage, sample_coverage, dependency, not_finite) is
-# derived in gap_reasons() and never passes through a collector.
+# note tokens a score branch may record against a sample. the other five are
+# derived in gap_reasons() and pass through no collector.
 MC_NOTE_CAUSES <- c("fit_bmiq", "fit_spread", "fit_reduce", "partial")
 
-# the whole note enum, token -> the phrase samples_coverage() prints beside it.
-# score notes first, in the order the roxygen at R/coverage_report.R lists them,
-# then the one norm note. these are table cells, so no markup and no period.
+# the whole note enum, token -> the phrase samples_coverage() prints beside it,
+# in the order R/coverage_report.R documents. table cells: no markup, no period.
 MC_NOTES <- c(
   covariate = "a covariate the clock needs is missing",
   clock_coverage = "too few CpGs for the clock",

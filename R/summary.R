@@ -15,9 +15,8 @@ input_rows <- function(input, batch) {
     stringsAsFactors = FALSE,
     row.names = NULL
   )
-  # min_val and max_val are seeded at the beta bounds, so they read 0 and 1
-  # on a clean run whatever the data holds. they are a verdict, not a range,
-  # and say something only beside the column that broke the bound.
+  # min_val and max_val are seeded at the beta bounds, so they read 0 and 1 on
+  # a clean run and say something only beside the column that broke a bound.
   drop <- c(
     if (all(is.na(out[["min_col"]]))) c("min_val", "min_col"),
     if (all(is.na(out[["max_col"]]))) c("max_val", "max_col"),
@@ -78,8 +77,7 @@ batch_key <- function(df, labels) {
 }
 
 # panel then note, each on its declared order rather than alphabetically.
-# panel is redundant while partial is the only norm note, and is kept so the
-# order does not depend on that staying true.
+# panel is redundant while partial is the only norm note, and is kept anyway.
 note_keys <- function(df) {
   list(
     factor(df[["panel"]], levels = c("score", "norm")),
@@ -93,9 +91,8 @@ sort_rows <- function(df, keys) {
   out
 }
 
-# one row per clock, panel, note and batch. the frame holds one row per
-# (id, clock_id, panel), so the group size is the sample count. explanation is
-# 1-to-1 with note, so it joins the key and changes no grouping.
+# one row per clock, panel, note and batch. the source frame holds one row per
+# (id, clock_id, panel), so the group size is the sample count.
 clock_notes <- function(noted, keys, labels) {
   cols <- c("clock_id", "panel", "note")
   out <- group_count(noted, c(cols, "explanation", keys), "n_samples")
@@ -116,9 +113,8 @@ clock_notes <- function(noted, keys, labels) {
   )
 }
 
-# the same notes counted by sample, collapsed onto how far the damage spread:
-# how many samples lost how many clocks, for each panel and note. a digest
-# states the distribution, and samples_coverage() names the sample.
+# the same notes counted by sample: how many samples lost how many clocks, for
+# each panel and note. samples_coverage() is what names the sample.
 sample_notes <- function(noted, keys, labels) {
   cols <- c("panel", "note")
   grp <- c(cols, "explanation")
@@ -139,17 +135,14 @@ failed_clocks <- function(noted, clocks, n_samples) {
   intersect(clocks, names(hit)[hit >= n_samples])
 }
 
-# a problem table as it prints. the token and its phrase are one fact, and
-# carrying the phrase on every row wraps the table past the terminal edge, so
-# the token prints and note_legend() states each phrase once.
+# a problem table as it prints. the phrase on every row wraps the table, so the
+# token prints and note_legend() states each phrase once.
 shown_notes <- function(df) {
   df[setdiff(names(df), "explanation")]
 }
 
-# hex of a batch label kept where the label joins a table to the batch it
-# came from. every table shortens it except the one that names the batches,
-# which prints under the same condition, so the whole label is always shown
-# once and 16 hex is never repeated down a column.
+# hex of a batch label kept where the label joins a table to its batch. every
+# table shortens it except the mc_batch_id table, which prints it whole.
 MC_BATCH_SHOWN <- 7L
 
 shown_batch <- function(df) {
@@ -159,9 +152,8 @@ shown_batch <- function(df) {
   df
 }
 
-# the phrase behind every token the two tables show, in the order they show
-# it. built from the rows that print, so it explains what the reader can see
-# and never a row the cap held back.
+# the phrase behind every token the two tables show, in the order they show it.
+# built from the rows that print, never a row the cap held back.
 note_legend <- function(...) {
   note <- unique(unlist(lapply(list(...), function(df) df[["note"]])))
   note <- note[order(factor(note, levels = names(MC_NOTES)))]
@@ -328,9 +320,8 @@ print.mc_summary <- function(x, n = 6, ...) {
     sep = ""
   )
 
-  # both are set sizes, not the cut axis the tail counts. they sum to the
-  # header's clock count, which a requested count alone never did. a scored
-  # count is arithmetic once the failed clocks are named, so it is left out.
+  # both are set sizes, not the cut axis the tail counts, and they sum to the
+  # header's clock count. a scored count is arithmetic, so it is left out.
   requested <- x[["requested"]]
   dependencies <- x[["dependencies"]]
   print_vector(

@@ -54,9 +54,8 @@ gap_masks <- function(x, gated, gate, rows, ids) {
     # the column gate already graded every clock. this reads its verdict.
     clock_coverage = function(id) if (id %in% gated) !none else none,
     sample_coverage = function(id) gate[[id]][["na"]] %||% none,
-    # spelled out rather than built from MC_NOTE_CAUSES: the list order is the
-    # precedence, so it must be readable here and not in a constant. pipeline
-    # order, so a clock that ever hits two reports the cause, not the effect.
+    # list order is the precedence, so it is spelled out here rather than built
+    # from MC_NOTE_CAUSES. pipeline order: a clock hitting two reports the cause.
     fit_bmiq = fit_mask("fit_bmiq"),
     fit_spread = fit_mask("fit_spread"),
     fit_reduce = fit_mask("fit_reduce")

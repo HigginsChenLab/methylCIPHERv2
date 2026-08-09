@@ -191,9 +191,8 @@ split_moments <- function(scan, sets) {
     sk <- sqrt(row_m2[, k, drop = TRUE] / (nk - 1))
     mk[nk < 1L] <- NA_real_
     sk[nk < 2L] <- NA_real_
-    # a zero sd is no more usable than a missing one: a z-score has nothing
-    # to divide by either way. NA is what the branches already report as a
-    # failure, so this routes both through one path. which() drops the NAs.
+    # a zero sd is as unusable as a missing one, and NA is what the branches
+    # already report as a failure. which() drops the NAs.
     sk[which(sk == 0)] <- NA_real_
     list(mean = mk, sd = sk)
   })
