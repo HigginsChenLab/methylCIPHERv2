@@ -34,7 +34,7 @@
 #' A clock with none of its scoring CpGs present scores `NA` at any value of
 #' either argument. A clock just above either value is scored, and raises a
 #' warning. Pass the returned value to [clocks_coverage()] or
-#' [samples_coverage()] to see the counts. The `reason` column of
+#' [samples_coverage()] to see the counts. The `note` column of
 #' [samples_coverage()] says why each `NA` score is missing.
 #'
 #' `calc_clocks()` narrows `pheno` before it stores it. The returned value
@@ -104,6 +104,7 @@ calc_clocks <- function(
     min_clocks_coverage = min_clocks_coverage,
     min_samples_coverage = min_samples_coverage,
     scoring_failures = merge_notes(scored[["notes"]], final[["notes"]]),
+    partial_calibration = scored[["partial"]],
     # kept, not discarded, so a bound record can re-finalize exactly
     pending = scored[["pending"]]
   )

@@ -4,8 +4,7 @@ Queued work. **This is a staging area, not a record.** An item that becomes a de
 gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
 `CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
-One open code defect, in Q5 phase 1: a flat PhysAge surrogate NAs the whole column with no note to
-explain it. Everything else below is licensing, release plumbing, prose, or deferred.
+There is no open code defect. Everything below is licensing, release plumbing, prose, or deferred.
 
 ---
 
@@ -163,19 +162,27 @@ calculation stage, with the norm row for that exact cell sitting silent.
   (`R/score_default.R`) happen to be total functions of one number -- the negative branch of
   `anti_trafo` is bounded by `exp(x) <= 1`, and `exp(x) - 2` overflows only past `x ~ 709` -- so
   they propagate non-finiteness and never create it, and need no verdict. **But that is an accident
-  of these two, not a property of the class.** A `log()` on a linear predictor would be partial, and
-  `zscore_raws()` already is. So do not add a collector per transform: in `gap_walk()`
-  (`R/gap_reasons.R`), after the mask loop and the dependency loop, any cell still `gone` with
-  `is.na(r)` takes `fit`, whose documented meaning already covers it. The invariant to write down is
-  **an `NA` score always has a note**, enforced by one output-level test over an adversarial fixture.
-- **This closes a live defect.** `zscore_raws()` (`R/score_PhysAge.R`) NAs an entire surrogate
-  column when its cohort sd is 0 or non-finite, and `finalize_PhysAge()` does `rowSums()` with no
-  `na.rm`, so one flat surrogate NAs the whole PhysAge column for every sample. Nothing explains it:
-  `finalize_PhysAge` is not among the three `note_scoring_failure()` call sites and no mask in
-  `gap_masks()` fires, so today that is an `NA` score with an `NA` reason -- the one thing the
-  column exists to prevent. The terminal `fit` fixes it with **no change to `score_PhysAge.R`**,
-  since PhysAge is a returned clock and `gone` comes straight off `na_mat`. **Confirm this with a
-  flat-surrogate fixture before building on it** -- it is a code read, not a measurement.
+  of these two, not a property of the class.** A `log()` on a linear predictor would be partial. So
+  do not add a collector per transform: in `gap_walk()` (`R/gap_reasons.R`), after the mask loop and
+  the dependency loop, any cell still `gone` with `is.na(r)` takes `fit`, whose documented meaning
+  already covers it. The invariant to write down is **an `NA` score always has a note**, and the
+  real deliverable is the output-level test over an adversarial fixture; the fallback makes it hold
+  by construction rather than by every branch remembering.
+- **This is insurance, not a bug fix. Do not write it up as one.** An earlier read of this plan
+  claimed a live defect -- that a flat PhysAge surrogate NAs the whole column with nothing to
+  explain it -- reasoning that `finalize_PhysAge` is not among the three `note_scoring_failure()`
+  call sites. **Measured 2026-08-08 and false.** Flattening one of `DNAmPhysAge`'s 8 surrogates NAs
+  all 12 scores and `samples_coverage()` reports `fit` for every one, because
+  `finalize_cross_sample()` (`R/score_cohort.R`) records reduction losses generically one frame
+  above the branch. The reduction layer is covered; what the fallback still buys is the per-sample
+  branch layer, where a future partial output transform would depend on that branch remembering.
+- **`na.rm = TRUE` in `finalize_PhysAge()` was proposed and rejected.** The worry was that one
+  coverage-failed sample would NA the whole cohort. Measured: it does not -- `scale()` already
+  ignores `NA` per column, so a single `NA` cell NAs only its own row, and **only a flat surrogate
+  (cohort sd 0) takes out every sample**. What `na.rm = TRUE` would change is that flat case, where
+  it turns a loud correct `NA` into a silent wrong number: PhysAge sums z-scores into a polynomial
+  calibrated on all 8 terms, so summing 7 is a plausible score on the wrong scale, and per-sample
+  drops would make samples non-comparable to each other. A degenerate cohort should say so.
 - Needs a `dev/DECISIONS.md` entry. It reverses a documented contract and will read as drift
   otherwise. No `NAMESPACE` change -- `note` is a column, not an export -- but it is a breaking
   change to a returned frame, which pre-alpha absorbs.

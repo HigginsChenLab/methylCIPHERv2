@@ -145,7 +145,7 @@ batch_gaps <- function(x, b, rows, seq_ids) {
   out
 }
 
-# one row per NA score (id, clock_id, reason); caller must finalize x first.
+# one row per NA score (id, clock_id, note); caller must finalize x first.
 gap_reasons <- function(x) {
   batch <- x[["provenance"]][[MC_BATCH]]
   scores <- x[["scores"]]
@@ -162,8 +162,8 @@ gap_reasons <- function(x) {
     }
   }
 
-  out <- shape_scores(reasons, "id", "reason", batch, long = TRUE)
-  out <- out[!is.na(out[["reason"]]), c("id", "clock_id", "reason")]
+  out <- shape_scores(reasons, "id", "note", batch, long = TRUE)
+  out <- out[!is.na(out[["note"]]), c("id", "clock_id", "note")]
   rownames(out) <- NULL
   out
 }

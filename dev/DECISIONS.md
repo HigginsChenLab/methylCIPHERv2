@@ -14,6 +14,59 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-08 -- `samples_coverage()$reason` becomes `$note`, a verdict on the row's own step
+
+**The frame already had a step axis and only half-used it.** `panel` is `score` or `norm`, one row
+each per (sample, clock), but `attach_reasons()` was commented "attach reason to score rows only",
+so the norm row carried five counts and said nothing about whether normalization worked. That
+produced a real misattribution: when BMIQ fails a sample, `failed.sample = "NA"` NAs its betas, the
+score goes `NA`, and the gap walk reports `fit` **on the score row** -- the failure happens at the
+norm step and is reported at the calculation step, with the norm row for that exact cell sitting
+silent.
+
+So `note` is now a verdict on whatever the row's `panel` names. Score rows keep the five values;
+norm rows gain `partial`, for a sample normalized from a calibration that could not be fully
+applied. The rename follows the meaning: once the column stops meaning "why this score is `NA`",
+`reason` on a row where nothing went wrong asks the reader to accept `NA` as "no reason".
+
+**This breaks a documented contract**, `!is.na(reason)` <=> the score is `NA`, and the failure
+filter becomes `panel == "score" & !is.na(note)`. Absorbed pre-alpha; all three consumers were ours.
+It is a column, not an export, so `NAMESPACE` did not move. **`note` stays a closed enum**,
+enumerated in the roxygen -- the name must not become an invitation to free text.
+
+**This retires a warning about a non-problem.** `say_partial_calibration()` warned that BMIQ skipped
+its H step for a sample that **still scored**, which reads as a failure however it is worded, and
+could not be filtered back to the affected cells. `h.applied` is already per sample within one
+clock's `bmiq_fit()` call, which is exactly the norm row's key, so the fact needed no reshaping --
+only a collector. `note_partial_calibration()` mirrors `note_scoring_failure()` into
+`provenance$partial_calibration`, binds by the same rule, and `samples_coverage()` joins it on
+(sample, clock). Same move as an `NA` score being explained by the column rather than by a warning.
+
+**Two things were proposed during the design and rejected on measurement. Both were mine, and both
+were wrong in the same direction -- assuming a hole where the code already had a guard.**
+
+- **A terminal `fit` fallback in `gap_walk()`**, to make the column total by construction. Refused:
+  `batch_gaps()` already computes `blind <- na_mat & is.na(out)` and `stop()`s naming it a package
+  bug. That is strictly stronger, and the fallback would have **weakened** it -- converting a
+  detected defect into a plausible-looking label.
+- **A claimed live defect**, that a flat PhysAge surrogate NAs the whole column unexplained, reasoned
+  from `finalize_PhysAge` not being among the three `note_scoring_failure()` call sites. Measured
+  and false: flattening one of `DNAmPhysAge`'s 8 surrogates NAs all 12 scores and every one reports
+  `fit`, because `finalize_cross_sample()` records reduction losses generically one frame above the
+  branch. What the post-calculation layer still lacks a guard for is a partial **output transform**
+  inside a score branch -- today none exists, since `anti_trafo` and `log_offset_anti_trafo` are
+  total functions of one number (`exp(x) <= 1` on the negative branch; `exp(x) - 2` overflows only
+  past `x ~ 709`). A future `log()` on a linear predictor would be the first, and the `blind` guard
+  catches it as a bug rather than mislabelling it.
+
+**`na.rm = TRUE` in `finalize_PhysAge()` was also proposed and rejected**, on the worry that one
+coverage-failed sample would NA the whole cohort. It does not: `scale()` already ignores `NA` per
+column, so a single `NA` cell NAs only its own row, and **only a flat surrogate (cohort sd 0) takes
+out every sample**. What `na.rm = TRUE` would change is that flat case, where it turns a loud correct
+`NA` into a silent wrong number -- PhysAge sums z-scores into a polynomial calibrated on all 8 terms,
+so summing 7 is a plausible score on the wrong scale, and per-sample drops would make samples
+non-comparable to each other. A degenerate cohort should say so.
+
 ## 2026-08-08 -- BMIQ's gold standard is distributional, so a bare `goldstandard.beta` needs no alignment check
 
 `bmiq_calibration()` takes `goldstandard.beta` as an unnamed numeric vector paired positionally

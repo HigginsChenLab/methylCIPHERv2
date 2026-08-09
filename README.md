@@ -205,16 +205,17 @@ cov[setdiff(names(cov), grep("missing_cpgs|norm|role", names(cov), value = TRUE)
 rather than filled, and the 20 missing values landed on 17 distinct CpGs
 that were imputed.
 
-`samples_coverage()` covers missingness per sample per clock. Its
-`reason` column says why a score is missing, and is `NA` where the score
-is present.
+`samples_coverage()` covers missingness per sample per clock. Its `note`
+column says what happened at each step that was run for a sample, and is
+`NA` when nothing did. On a `score` row a note says why the score is
+missing.
 
 ``` r
 head(samples_coverage(res), n = 3)
-#>        id clock_id panel n_observed n_needed  coverage reason
-#> 1 sample1 Horvath1 score        343      353 0.9716714   <NA>
-#> 2 sample2 Horvath1 score        341      353 0.9660057   <NA>
-#> 3 sample3 Horvath1 score        342      353 0.9688385   <NA>
+#>        id clock_id panel n_observed n_needed  coverage note
+#> 1 sample1 Horvath1 score        343      353 0.9716714 <NA>
+#> 2 sample2 Horvath1 score        341      353 0.9660057 <NA>
+#> 3 sample3 Horvath1 score        342      353 0.9688385 <NA>
 ```
 
 ### Age acceleration

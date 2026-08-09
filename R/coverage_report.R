@@ -299,8 +299,8 @@ say_low_samples <- function(out, threshold) {
 # one row per (sample, clock with a coverage record, panel)
 #' Sample Coverage Counts
 #'
-#' Reports each sample's CpG coverage for every clock in `x`, and the reason
-#' for each missing score.
+#' Reports each sample's CpG coverage for every clock in `x`, and a note on
+#' what happened at each step that was run for it.
 #'
 #' @inheritParams mc-params
 #'
@@ -314,9 +314,12 @@ say_low_samples <- function(out, threshold) {
 #' A clock that normalizes has a second row for each sample, under
 #' `panel = "norm"`, for the panel used to normalize it.
 #'
-#' `reason` says why a score is missing, and is `NA` where the score is
-#' present. It takes one of five values, and where more than one applies, the
-#' first of these is given.
+#' `note` says what happened to the panel in that row, and is `NA` when
+#' nothing did. `panel` says which step the note is about, so a sample that
+#' normalized and then scored can carry a note for each. Where more than one
+#' note applies to a row, the first of these is given.
+#'
+#' On a `score` row, a note means the score is missing:
 #'
 #' - `covariate`, when a covariate the clock needs is missing from `pheno`.
 #'   An unknown `Female` value is the usual cause.
@@ -328,12 +331,18 @@ say_low_samples <- function(out, threshold) {
 #' - `dependency`, when a clock that this clock is calculated from is
 #'   missing for that sample.
 #'
+#' On a `norm` row, a note is about the background panel, and the score may
+#' still be present:
+#'
+#' - `partial`, when the sample was normalized but one step of the scheme
+#'   could not be applied to it. The score is real, and is calculated from a
+#'   background that was only partly calibrated.
+#'
 #' A score that is not a number, such as `NaN`, is not a missing score. It
-#' gets no reason, and `calc_clocks()` warns about it instead. A `norm` row
-#' counts a background panel rather than a score, so it never gets one
-#' either. `min_clocks_coverage` and `min_samples_coverage` are read for the
-#' batch that scored the sample, because those are the values that decided
-#' the score.
+#' gets no note, and `calc_clocks()` warns about it instead.
+#' `min_clocks_coverage` and `min_samples_coverage` are read for the batch
+#' that scored the sample, because those are the values that decided the
+#' score.
 #'
 #' `samples_coverage()` warns when a `score` row's `coverage` is under the
 #' strictest `min_samples_coverage` value used to score `x`. A `norm` row is
@@ -342,7 +351,7 @@ say_low_samples <- function(out, threshold) {
 #' only when `x` holds more than one batch.
 #'
 #' @returns A data.frame. One row for each sample, clock, and panel, with
-#'   `n_observed`, `n_needed`, `coverage`, `reason`, and, when `x` holds more
+#'   `n_observed`, `n_needed`, `coverage`, `note`, and, when `x` holds more
 #'   than one batch, `mc_batch_id`.
 #'
 #' @seealso
@@ -358,7 +367,7 @@ say_low_samples <- function(out, threshold) {
 #' @export
 samples_coverage <- function(x) {
   check_mc_result(x)
-  # finalizer: reason reads NA scores (cross-sample cols need reduction first).
+  # finalizer: note reads NA scores (cross-sample cols need reduction first).
   x <- finalized(x)
   batch <- x[["provenance"]][[MC_BATCH]]
   # one row per (sample, clock, panel). batch masks rows. label withheld when single-batch.
@@ -395,20 +404,31 @@ samples_coverage <- function(x) {
   out <- do.call(rbind, c(list(empty_sample_rows(keep)), list(counted), composite))
   rownames(out) <- NULL
   say_low_samples(out, finalize_samples_gate(x))
-  attach_reasons(drop_single_batch(out, batch), gap_reasons(x))
+  attach_notes(drop_single_batch(out, batch), gap_reasons(x), partial_cells(x))
 }
 
-# attach reason to score rows only.
-attach_reasons <- function(out, gaps) {
-  key <- function(id, clock) paste(id, clock, sep = "\r")
-  hit <- match(
-    key(out[["id"]], out[["clock_id"]]),
-    key(gaps[["id"]], gaps[["clock_id"]])
+# (sample, clock) keys whose normalization was only partly applied
+partial_cells <- function(x) {
+  partial <- x[["provenance"]][["partial_calibration"]]
+  unlist(
+    lapply(names(partial), function(id) paste(partial[[id]], id, sep = "\r")),
+    use.names = FALSE
   )
-  hit[out[["panel"]] != "score"] <- NA_integer_
+}
+
+# attach each row's stage verdict: score rows from the gap walk, norm rows
+# from the calibrations that were only partly applied.
+attach_notes <- function(out, gaps, partial) {
+  key <- function(id, clock) paste(id, clock, sep = "\r")
+  rows <- key(out[["id"]], out[["clock_id"]])
+  hit <- match(rows, key(gaps[["id"]], gaps[["clock_id"]]))
+  score_row <- out[["panel"]] == "score"
+  hit[!score_row] <- NA_integer_
 
   cols <- names(out)
-  out[["reason"]] <- gaps[["reason"]][hit]
+  note <- gaps[["note"]][hit]
+  note[!score_row & rows %in% partial] <- "partial"
+  out[["note"]] <- note
   # mc_batch_id stays last: it is the join key, and it is a hash
-  out[c(setdiff(cols, MC_BATCH), "reason", intersect(MC_BATCH, cols))]
+  out[c(setdiff(cols, MC_BATCH), "note", intersect(MC_BATCH, cols))]
 }

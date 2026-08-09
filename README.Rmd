@@ -165,7 +165,7 @@ cov[setdiff(names(cov), grep("missing_cpgs|norm|role", names(cov), value = TRUE)
 
 `Horvath1` uses the `omit` policy, so the `r h1[["score_dropped"]]` absent CpGs were dropped rather than filled, and the 20 missing values landed on `r h1[["score_imputed_partial"]]` distinct CpGs that were imputed.
 
-`samples_coverage()` covers missingness per sample per clock. Its `reason` column says why a score is missing, and is `NA` where the score is present.
+`samples_coverage()` covers missingness per sample per clock. Its `note` column says what happened at each step that was run for a sample, and is `NA` when nothing did. On a `score` row a note says why the score is missing.
 
 ```{r}
 head(samples_coverage(res), n = 3)

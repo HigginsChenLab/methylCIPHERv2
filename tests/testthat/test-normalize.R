@@ -210,6 +210,34 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   expect_equal(cov$score_used, cov$score_needed)
 })
 
+# a partly calibrated sample still scores, so its note belongs on the norm row
+# and must not touch the score. The collector is written from a thrown H step,
+# which no fixture can raise on demand, so it is set here instead: what this
+# guards is the join, which silently matches nothing if the key is built the
+# wrong way round.
+test_that("a partial calibration marks the norm panel and leaves the score", {
+  skip_on_cran()
+  DNAm <- methylation_betas(background = 1000L)
+  res <- suppressWarnings(
+    calc_clocks(
+      DNAm,
+      "Horvath1",
+      normalize = c(Horvath1 = TRUE),
+      min_clocks_coverage = 0,
+      min_samples_coverage = 0
+    )
+  )
+  marked <- rownames(DNAm)[c(1, 3)]
+  res$provenance$partial_calibration <- list(Horvath1 = marked)
+
+  sc <- samples_coverage(res)
+  noted <- sc[!is.na(sc$note), ]
+  expect_equal(unique(noted$panel), "norm")
+  expect_equal(unique(noted$note), "partial")
+  expect_setequal(noted$id, marked)
+  expect_false(anyNA(res$scores[marked, "Horvath1"]))
+})
+
 # Horvath1 and Knight declare one background, so it is calibrated once and the
 # fit is shared. parity scores a single clock per call and cannot see this.
 test_that("two clocks on one background score as if scored alone", {

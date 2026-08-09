@@ -131,14 +131,14 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `count_sample_miss()` (integer) / `score_matrix()` are the shared shape helpers (DECISIONS
     2026-07-24, 2026-07-29). **`samples_coverage()` spans more than that, and did not always**:
     it adds a countless row per sample for every score column with no record, so a composite or an
-    alias has somewhere for its `reason` to sit. That is the span `clocks_coverage()` always had
+    alias has somewhere for its `note` to sit. That is the span `clocks_coverage()` always had
     (DECISIONS 2026-08-06).
 - **Result is an S3 record over `list`** (class `mc_result`): `$scores` (n x k double), `$pheno`,
   `$coverage`, `$provenance`. Never a `matrix` subclass (drops class + attrs on first subset).
   **`$provenance` is internal, and that is a rule about the user-facing surface, not about the
   code.** No cli message, no roxygen line and no printed section may name it: every fact in it that
   a reader needs has an exit that presents it better, so a message about a failed sample points at
-  `samples_coverage()` and its `reason` column rather than at
+  `samples_coverage()` and its `note` column rather than at
   `$provenance$scoring_failures`, which is the collector that column is derived from. `R/` reads it
   freely and **tests may assert it**, because a test is not a reader. `dev/WRITING.md` R8 carries
   the wording rule (DECISIONS 2026-08-07).
@@ -148,7 +148,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   reconciles nothing; `samples_coverage()` finalizes them by taking the **most restrictive** (`max`)
   and re-warning, which is the only thing that makes a post-bind `coverage < threshold` filter well
   defined. There is no `below_min` column -- it would mean different things per row after a bind.
-  **Both floors are read, and `samples_coverage()`'s `reason` column is what reads them**: neither
+  **Both floors are read, and `samples_coverage()`'s `note` column is what reads them**: neither
   aborts any more, so a record can hold a clock the column gate refused and a cell the row gate
   refused, and only the floor that batch ran under says which (DECISIONS 2026-08-06, superseding the
   2026-08-03 reading that `min_clocks_coverage` was recorded but read by nothing).
@@ -166,9 +166,28 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     Coverage is deliberately not `summary()`: it is `clocks_coverage()` (one row per
     **(clock, batch)**) and `samples_coverage()` (each sample's batch alongside its id), with
     `mc_batch_id` **last** in both -- it is the join key, but it is a hash, so it does not sit in
-    front of `clock_id`. **There is no third frame.** Why an `NA` score is `NA` is the `reason`
+    front of `clock_id`. **There is no third frame.** Why an `NA` score is `NA` is the `note`
     column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()` and
-    never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06). Citations
+    never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06).
+    - **`note` is a verdict on the row's own step, not on the score, and `panel` says which step.**
+      It was `reason`, meaning "why this score is `NA`", until 2026-08-08; the frame already carried
+      a `score` row and a `norm` row per (sample, clock) and attached a value to the first only, so
+      a BMIQ failure -- which happens while normalizing -- was reported on the score row with the
+      norm row for that exact cell sitting silent. Score rows keep the five values; a norm row takes
+      `partial` when a sample was normalized from a calibration that could not be fully applied,
+      and **its score is present**. So the failure filter is `panel == "score" & !is.na(note)`, not
+      `!is.na(note)`. It stays a **closed enum**, enumerated in the roxygen. `partial` reaches it
+      through `provenance$partial_calibration`, a collector mirroring `scoring_failures` and bound
+      by the same rule, which is what retired the `say_partial_calibration()` warning: it fired on
+      samples that **had scored**, so it read as a failure however worded, and could not be filtered
+      back to the cells (DECISIONS 2026-08-08).
+    - **Do not add a fallback that labels an unexplained `NA`.** `batch_gaps()` computes
+      `blind <- na_mat & is.na(out)` and `stop()`s naming it a package bug, which is stronger than
+      any label: a terminal `fit` was proposed for totality and refused because it would convert a
+      detected defect into a plausible-looking value. The post-calculation layer needs no collector
+      of its own either -- `finalize_cross_sample()` already records reduction losses generically,
+      measured against a flat `DNAmPhysAge` surrogate (DECISIONS 2026-08-08).
+    Citations
     dispatch as `cite_clocks()`, a **package-owned** generic, because `utils::citation` and
     `utils::cite` both exist as plain functions and taking either name masks it. `[`, `cbind` and
     `augment` are **unbuilt ideas, not contracts** (DECISIONS 2026-07-23/24/25, 2026-07-27).
@@ -224,7 +243,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `cite_clocks` is out reading `colnames()` alone -- a reduction moves no column name. What is
     left derives exactly, and is `finalized()`'s five call sites: `as.data.frame()`, `as.matrix()`,
     `calc_accel()`, `score_associations()`, and `samples_coverage()`, which joined by the test and
-    not by an edit -- its `reason` column reads the NA pattern of `$scores`, and an unfinalized
+    not by an edit -- its `note` column reads the NA pattern of `$scores`, and an unfinalized
     cross-sample column is entirely NA until its reduction runs. **The one-clause form was wrong,
     and had been wrong since before either coverage frame existed**: "any exit that returns
     something that is not an `mc_result`" admits `clocks_coverage` and `cite_clocks`, so the set it
@@ -339,7 +358,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   counted itself.** A clock whose branch reads no betas -- assembled purely from other clocks'
   scores -- **has no coverage of its own**: `per_clock[[id]]` is `NULL`, it gets no `sample_miss`
   column, and its all-`NA` row in **both** coverage frames says so. It does get a
-  `samples_coverage()` row per sample, with every count `NA`, because that is where its `reason`
+  `samples_coverage()` row per sample, with every count `NA`, because that is where its `note`
   sits; a row saying nothing was counted is not a coverage figure.
   `clock_reads_cpgs()` (`R/score_cohort.R`) is the one source and switches on `score_type()`, so it
   is a fact about the closed branch set, not a clock list; today it selects the 7 sex-routed
@@ -375,9 +394,9 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     routed member masked on a row its sex did not score. So the counted half carries one row per
     sample per family, under the model that scored it, and a sample no model scored (unknown sex)
     gets no member row. It still gets the **alias** row -- countless by construction, never graded
-    by the drop, and carrying the `covariate` reason that explains its `NA`. Build the two halves
+    by the drop, and carrying the `covariate` note that explains its `NA`. Build the two halves
     apart and filter only the counted one; a single `!is.na(coverage)` sweep over the assembled
-    frame deletes every composite row and takes 14 of 19 reasons with it (DECISIONS 2026-08-06).
+    frame deletes every composite row and takes 14 of 19 notes with it (DECISIONS 2026-08-06).
   - **The converse binds too: never score a CpG coverage did not count.** Coverage counts the
     *declared* panel, so a branch takes its CpGs from the resolved `cpgs` it is handed
     (`score_present` / `score_absent`) and never re-derives them against the block's cohort-wide

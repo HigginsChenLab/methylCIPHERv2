@@ -47,7 +47,7 @@ test_that("a clock that reads no CpGs gets rows, and no counts on them", {
   sc <- samples_coverage(res)
 
   # the alias is a returned column that reads no CpGs, so it gets a row per
-  # sample with nothing counted on it. that row is what carries a reason.
+  # sample with nothing counted on it. that row is what carries a note.
   alias <- sc[sc$clock_id == "DNAmGrip_wAge", ]
   expect_equal(nrow(alias), 6L)
   expect_true(all(is.na(alias$n_needed)))
@@ -85,7 +85,7 @@ test_that("a sample no model scored keeps the row that explains it", {
   expect_true(is.na(res$scores[unscored, "DNAmGrip_wAge"]))
   # no member counted it, so it has no counted row and one alias row
   expect_setequal(sc$clock_id[sc$id == unscored], "DNAmGrip_wAge")
-  expect_equal(sc$reason[sc$id == unscored], "covariate")
+  expect_equal(sc$note[sc$id == unscored], "covariate")
 })
 
 test_that("samples_coverage coverage is the observed fraction of the panel", {

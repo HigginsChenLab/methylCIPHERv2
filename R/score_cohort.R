@@ -302,6 +302,16 @@ note_scoring_failure <- function(block, id, sample_id) {
   invisible(NULL)
 }
 
+# record that `sample_id` scored clock `id` from a partial calibration
+note_partial_calibration <- function(block, id, sample_id) {
+  partial <- block[["partial"]]
+  if (!length(sample_id)) {
+    return(invisible(NULL))
+  }
+  partial[[id]] <- union(partial[[id]], sample_id)
+  invisible(NULL)
+}
+
 # warn that samples scored NA; reason is the lead line. empty failed is a no-op.
 say_scored_na <- function(id, failed, reason) {
   if (!length(failed)) {
@@ -313,25 +323,8 @@ say_scored_na <- function(id, failed, reason) {
       capped_bullets(failed, val_lines),
       "i" = "{.val {id}} scores {.code NA} for
              {cli::qty(failed)}{?this sample/these samples}.",
-      "i" = "{.fn samples_coverage} gives the {.field reason} for each missing
+      "i" = "{.fn samples_coverage} gives the {.field note} for each missing
              score."
-    ),
-    call = NULL
-  )
-}
-
-# BMIQ H step skipped; sample still scored (no NA, no note).
-say_partial_calibration <- function(id, partial) {
-  if (!length(partial)) {
-    return(invisible(NULL))
-  }
-  cli::cli_warn(
-    c(
-      "BMIQ did not fully calibrate {length(partial)} sample{?s} for
-       {.val {id}}:",
-      capped_bullets(partial, val_lines),
-      "i" = "{cli::qty(partial)}{?That sample/Those samples} still {?has/have}
-             a score, from a partial calibration."
     ),
     call = NULL
   )
@@ -427,8 +420,10 @@ mc_block <- function(DNAm, spec, facts) {
     usable_idx = usable_idx,
     cached_mask = cached_mask,
     sample_id = rownames(DNAm),
-    # write-only collector for scoring-time failures
+    # write-only collectors: samples a branch could not score, and samples
+    # whose normalization was only partly applied
     notes = new_notes(),
+    partial = new_notes(),
     # calibrated background panels, keyed by cpg_list's norm_panel_key
     norm_cache = new.env(parent = emptyenv())
   )
@@ -527,7 +522,9 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
     gate = gate,
     pending = pending,
     # per-clock sample ids the branch could not score
-    notes = merge_notes(list(), as.list(block[["notes"]]))
+    notes = merge_notes(list(), as.list(block[["notes"]])),
+    # per-clock sample ids normalized from a partial calibration
+    partial = merge_notes(list(), as.list(block[["partial"]]))
   )
 }
 

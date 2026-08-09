@@ -53,9 +53,10 @@ bmiq_panel <- function(obs, target, id, block, key) {
     )
   )
 
-  # h.applied == FALSE means H was skipped on a sample that still scored.
+  # h.applied == FALSE means H was skipped on a sample that still scored, so
+  # it is a verdict on the norm row rather than a warning about a live score.
   partial <- block[["sample_id"]][fit[["h.applied"]] %in% FALSE]
-  say_partial_calibration(id, partial)
+  note_partial_calibration(block, id, partial)
 
   fit[["calibrated"]]
 }

@@ -11,12 +11,12 @@ samples_coverage(x)
 }
 \value{
 A data.frame. One row for each sample, clock, and panel, with
-\code{n_observed}, \code{n_needed}, \code{coverage}, \code{reason}, and, when \code{x} holds more
+\code{n_observed}, \code{n_needed}, \code{coverage}, \code{note}, and, when \code{x} holds more
 than one batch, \code{mc_batch_id}.
 }
 \description{
-Reports each sample's CpG coverage for every clock in \code{x}, and the reason
-for each missing score.
+Reports each sample's CpG coverage for every clock in \code{x}, and a note on
+what happened at each step that was run for it.
 }
 \details{
 Every clock in the scores of \code{x} gets a row for each sample, and so does
@@ -28,9 +28,12 @@ outside the sex it scored.
 A clock that normalizes has a second row for each sample, under
 \code{panel = "norm"}, for the panel used to normalize it.
 
-\code{reason} says why a score is missing, and is \code{NA} where the score is
-present. It takes one of five values, and where more than one applies, the
-first of these is given.
+\code{note} says what happened to the panel in that row, and is \code{NA} when
+nothing did. \code{panel} says which step the note is about, so a sample that
+normalized and then scored can carry a note for each. Where more than one
+note applies to a row, the first of these is given.
+
+On a \code{score} row, a note means the score is missing:
 \itemize{
 \item \code{covariate}, when a covariate the clock needs is missing from \code{pheno}.
 An unknown \code{Female} value is the usual cause.
@@ -43,12 +46,19 @@ for it.
 missing for that sample.
 }
 
+On a \code{norm} row, a note is about the background panel, and the score may
+still be present:
+\itemize{
+\item \code{partial}, when the sample was normalized but one step of the scheme
+could not be applied to it. The score is real, and is calculated from a
+background that was only partly calibrated.
+}
+
 A score that is not a number, such as \code{NaN}, is not a missing score. It
-gets no reason, and \code{calc_clocks()} warns about it instead. A \code{norm} row
-counts a background panel rather than a score, so it never gets one
-either. \code{min_clocks_coverage} and \code{min_samples_coverage} are read for the
-batch that scored the sample, because those are the values that decided
-the score.
+gets no note, and \code{calc_clocks()} warns about it instead.
+\code{min_clocks_coverage} and \code{min_samples_coverage} are read for the batch
+that scored the sample, because those are the values that decided the
+score.
 
 \code{samples_coverage()} warns when a \code{score} row's \code{coverage} is under the
 strictest \code{min_samples_coverage} value used to score \code{x}. A \code{norm} row is
