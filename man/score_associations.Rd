@@ -53,5 +53,8 @@ score_associations(res, age = runif(20, 20, 80))
 
 }
 \seealso{
-\code{\link[=calc_accel]{calc_accel()}} for the age acceleration of each sample.
+\itemize{
+\item \code{\link[=calc_accel]{calc_accel()}} for the age acceleration of each sample.
+\item \code{\link[=predict_sex]{predict_sex()}} for the sex of each sample, read from the methylation.
+}
 }

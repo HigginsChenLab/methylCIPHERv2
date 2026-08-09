@@ -1,34 +1,17 @@
 # a digest of one finished run. built from samples_coverage(), so it inherits
 # that exit's finalization and never reads a score value itself.
 
-# the batch label, last, and only where the exit frames carry one.
-add_batch <- function(df, labels, keep) {
-  if (keep) {
-    df[[MC_BATCH]] <- labels
-  }
-  df
-}
-
-# one field of provenance$input down a column, typed by `empty`.
-input_field <- function(input, nm, empty) {
-  unname(vapply(
-    input,
-    function(v) as.vector(v[[nm]], typeof(empty)),
-    empty
-  ))
-}
-
 # one row per batch: the shape of the matrix scored, and its value verdicts.
-input_rows <- function(input, keep_batch) {
+input_rows <- function(input, batch) {
   out <- data.frame(
-    n_cpgs = input_field(input, "n_cpgs", NA_integer_),
-    n_scanned = input_field(input, "n_scanned", NA_integer_),
-    n_all_missing = input_field(input, "n_all_na", NA_integer_),
-    min_val = input_field(input, "min_val", NA_real_),
-    min_col = input_field(input, "min_col", NA_character_),
-    max_val = input_field(input, "max_val", NA_real_),
-    max_col = input_field(input, "max_col", NA_character_),
-    any_inf = input_field(input, "any_inf", NA),
+    n_cpgs = rec_field(input, "n_cpgs", NA_integer_),
+    n_scanned = rec_field(input, "n_scanned", NA_integer_),
+    n_all_missing = rec_field(input, "n_all_na", NA_integer_),
+    min_val = rec_field(input, "min_val", NA_real_),
+    min_col = rec_field(input, "min_col", NA_character_),
+    max_val = rec_field(input, "max_val", NA_real_),
+    max_col = rec_field(input, "max_col", NA_character_),
+    any_inf = rec_field(input, "any_inf", NA),
     stringsAsFactors = FALSE,
     row.names = NULL
   )
@@ -40,7 +23,7 @@ input_rows <- function(input, keep_batch) {
     if (all(is.na(out[["max_col"]]))) c("max_val", "max_col"),
     if (!any(out[["any_inf"]])) "any_inf"
   )
-  add_batch(out[, setdiff(names(out), drop), drop = FALSE], names(input), keep_batch)
+  add_batch(out[, setdiff(names(out), drop), drop = FALSE], batch)
 }
 
 # one batch's normalize= request, as a single cell.
@@ -49,7 +32,7 @@ normalize_cell <- function(v) {
 }
 
 # one row per batch: the values the batch was scored under.
-argument_rows <- function(prov, labels, keep_batch) {
+argument_rows <- function(prov, labels, batch) {
   out <- data.frame(
     min_clocks_coverage = unname(prov[["min_clocks_coverage"]][labels]),
     min_samples_coverage = unname(prov[["min_samples_coverage"]][labels]),
@@ -71,39 +54,33 @@ argument_rows <- function(prov, labels, keep_batch) {
       out[["normalized"]] <- done
     }
   }
-  add_batch(out, labels, keep_batch)
+  add_batch(out, batch)
 }
 
-# long (unit, note) counts: one row per unit, panel, note and batch.
+# long (unit, note) counts: one row per unit, panel, note and batch. the frame
+# holds one row per (id, clock_id, panel), so the group size is the count.
 note_counts <- function(noted, unit, counted, count_name, keys) {
-  cols <- c(unit, "panel", "note", keys)
-  out <- noted[, cols, drop = FALSE]
-  if (!nrow(out)) {
-    out[[count_name]] <- integer(0)
-    return(out)
-  }
+  out <- noted[, c(unit, "panel", "note", keys), drop = FALSE]
   # first appearance keeps the frame's own order, which is clock major
   key <- do.call(paste, c(unname(out), sep = "\r"))
   first <- !duplicated(key)
   out <- out[first, , drop = FALSE]
-  out[[count_name]] <- unname(vapply(
-    split(noted[[counted]], key)[key[first]],
-    function(v) length(unique(v)),
-    integer(1L)
-  ))
+  out[[count_name]] <- tabulate(match(key, key[first]), sum(first))
   rownames(out) <- NULL
   # batch last, like every other frame: it is the join key, and it is a hash
-  out[c(setdiff(names(out), MC_BATCH), intersect(MC_BATCH, names(out)))]
+  out[c(unit, "panel", "note", count_name, keys)]
 }
 
 # one row per batch, with the samples it scored.
 batch_rows <- function(batch, labels) {
-  data.frame(
-    mc_batch_id = labels,
-    n_samples = unname(vapply(labels, function(b) sum(batch == b), integer(1L))),
+  out <- data.frame(
+    n_samples = tabulate(match(batch, labels), length(labels)),
     stringsAsFactors = FALSE,
     row.names = NULL
   )
+  # the label identifies the row here, so it leads rather than joins
+  out[[MC_BATCH]] <- labels
+  out[c(MC_BATCH, "n_samples")]
 }
 
 #' Summary Of A Scoring Run
@@ -144,6 +121,10 @@ batch_rows <- function(batch, labels) {
 #'   problem tables, and, when `object` holds more than one batch, the
 #'   batches.
 #'
+#' @seealso
+#' - [clocks_coverage()] for the CpG counts behind each clock's score.
+#' - [samples_coverage()] for the counts and the `note` of each sample.
+#'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")
 #' sim <- sim_DNAm(clocks, n = 20)
@@ -163,6 +144,8 @@ summary.mc_result <- function(object, ...) {
 
   noted <- cov[!is.na(cov[["note"]]), , drop = FALSE]
   keys <- if (keep_batch) MC_BATCH else character(0)
+  # one label vector for every table, or NULL where the frame withheld it
+  batch <- if (keep_batch) labels else NULL
 
   structure(
     list(
@@ -170,8 +153,8 @@ summary.mc_result <- function(object, ...) {
       n_clocks = ncol(object[["scores"]]),
       requested = prov[["requested"]],
       scored = prov[["clocks"]],
-      input = input_rows(prov[["input"]][labels], keep_batch),
-      arguments = argument_rows(prov, labels, keep_batch),
+      input = input_rows(prov[["input"]][labels], batch),
+      arguments = argument_rows(prov, labels, batch),
       by_clock = note_counts(noted, "clock_id", "id", "n_samples", keys),
       by_sample = note_counts(noted, "id", "clock_id", "n_clocks", keys),
       # withheld with the column, so one flag decides the whole object
@@ -180,9 +163,6 @@ summary.mc_result <- function(object, ...) {
     class = "mc_summary"
   )
 }
-
-# the "N batch(es)" header bit both per-batch sections carry.
-batch_bit <- function(df) plural_count(nrow(df), "batch", "es")
 
 #' Print Method For An mc_summary Object
 #'
@@ -204,48 +184,44 @@ batch_bit <- function(df) plural_count(nrow(df), "batch", "es")
 #' @export
 print.mc_summary <- function(x, n = 6, ...) {
   cat(
-    fmt_header("mc_summary", x[["n_samples"]], "sample", x[["n_clocks"]], "clock"),
-    "\n",
-    sep = ""
-  )
-
-  requested <- x[["requested"]]
-  ni <- min(n, length(requested))
-  cat(
-    "\n",
-    fmt_named_section(
-      "clocks",
-      sprintf("%d requested", length(requested)),
-      sprintf("%d scored", length(x[["scored"]]))
+    fmt_header(
+      "mc_summary",
+      x[["n_samples"]],
+      "sample",
+      x[["n_clocks"]],
+      "clock"
     ),
     "\n",
-    paste(utils::head(requested, ni), collapse = ", "),
-    "\n",
     sep = ""
   )
-  more <- more_count(ni, length(requested), "clock")
-  if (length(more)) {
-    cat("... ", more, "\n", sep = "")
-  }
 
-  # one row per batch, so both are headed by the batch count
-  print_table("input", x[["input"]], n, batch_bit(x[["input"]]))
-  print_table("arguments", x[["arguments"]], n, batch_bit(x[["arguments"]]))
+  # "requested" and "scored" are set sizes, not the cut axis the tail counts
+  requested <- x[["requested"]]
+  print_vector(
+    "clocks",
+    requested,
+    min(n, length(requested)),
+    "clock",
+    sprintf("%d requested", length(requested)),
+    sprintf("%d scored", length(x[["scored"]]))
+  )
+
+  # one row per batch, so both count batches and not rows
+  print_table("input", x[["input"]], n, "batch", "es")
+  print_table("arguments", x[["arguments"]], n, "batch", "es")
 
   by_clock <- x[["by_clock"]]
-  by_sample <- x[["by_sample"]]
   if (!nrow(by_clock)) {
     cat("\n", fmt_named_section("problems", "none"), "\n", sep = "")
   } else {
-    rows <- function(df) shown_count(min(n, nrow(df)), nrow(df), "row")
-    print_table("problems by clock", by_clock, n, rows(by_clock))
-    print_table("problems by sample", by_sample, n, rows(by_sample))
+    print_table("problems by clock", by_clock, n)
+    print_table("problems by sample", x[["by_sample"]], n)
   }
 
   # the labels, not the component that stores them
   batches <- x[["batches"]]
   if (!is.null(batches)) {
-    print_table(MC_BATCH, batches, n, batch_bit(batches))
+    print_table(MC_BATCH, batches, n, "batch", "es")
   }
 
   invisible(x)

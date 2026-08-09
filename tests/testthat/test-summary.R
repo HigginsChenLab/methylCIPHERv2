@@ -47,7 +47,10 @@ test_that("the batch column appears with the frame it is derived from", {
   expect_true("mc_batch_id" %in% names(cov))
   expect_equal(nrow(out[["input"]]), 2L)
   expect_equal(nrow(out[["arguments"]]), 2L)
-  expect_equal(sort(out[["batches"]][["mc_batch_id"]]), sort(unique(cov[["mc_batch_id"]])))
+  expect_equal(
+    sort(out[["batches"]][["mc_batch_id"]]),
+    sort(unique(cov[["mc_batch_id"]]))
+  )
   expect_equal(sum(out[["batches"]][["n_samples"]]), 8L)
   # never totalled across batches: each row keeps its own matrix
   expect_equal(nrow(unique(out[["input"]])), 2L)
@@ -63,6 +66,8 @@ test_that("a clean run reports no problems and no value columns", {
   expect_equal(nrow(out[["by_sample"]]), 0L)
   # min_val and max_val are seeded at the beta bounds, so they would read
   # 0 and 1 here and say nothing about the data
-  expect_false(any(c("min_val", "max_val", "any_inf") %in% names(out[["input"]])))
+  expect_false(any(
+    c("min_val", "max_val", "any_inf") %in% names(out[["input"]])
+  ))
   expect_no_error(utils::capture.output(print(out)))
 })

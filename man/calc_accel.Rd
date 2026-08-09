@@ -105,5 +105,8 @@ head(calc_accel(res, type = "diff", formula = ~ Age, data = sim[["pheno"]]))
 
 }
 \seealso{
-\code{\link[=score_associations]{score_associations()}} for how each clock tracks age against a reference.
+\itemize{
+\item \code{\link[=score_associations]{score_associations()}} for how each clock tracks age against a reference.
+\item \code{\link[=predict_sex]{predict_sex()}} for the sex of each sample, read from the methylation.
+}
 }

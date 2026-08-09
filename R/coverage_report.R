@@ -65,8 +65,8 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
   m[, id]
 }
 
-# one record field down a column, typed by `empty`. a NULL record read no CpGs,
-# so it has nothing to report on any field.
+# one field of a named list of records down a column, typed by `empty`. a NULL
+# record read no CpGs, so it has nothing to report on any field.
 rec_field <- function(per_clock, nm, empty) {
   mode <- typeof(empty)
   unname(vapply(
@@ -107,11 +107,7 @@ batch_coverage <- function(per_clock, batch, returned) {
     per_clock,
     function(r) if (is.null(r)) character(0) else r[["missing_cpgs"]]
   ))
-  # batch last: a hash next to clock_id reads as noise, but it is the join key
-  if (!is.null(batch)) {
-    out[[MC_BATCH]] <- batch
-  }
-  out
+  add_batch(out, batch)
 }
 
 # one row per (clock, batch).
@@ -151,7 +147,9 @@ batch_coverage <- function(per_clock, batch, returned) {
 #'   counts of its scoring panel, and the columns above that apply to `x`.
 #'
 #' @seealso
-#' [samples_coverage()] for the same panels counted for each sample.
+#' - [samples_coverage()] for the same panels counted for each sample.
+#' - [summary.mc_result()] for a digest of the run and of what it could not
+#'   score.
 #'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")
@@ -192,11 +190,8 @@ panel_rows <- function(id, panel, batch, ratio, sample_id) {
     stringsAsFactors = FALSE,
     row.names = NULL
   )
-  # last join key, like clocks_coverage(). omitted at single batch.
-  if (!is.null(batch)) {
-    out[[MC_BATCH]] <- batch
-  }
-  out
+  # omitted at single batch, like clocks_coverage().
+  add_batch(out, batch)
 }
 
 # score-panel rows, plus a norm row when the clock normalizes
@@ -269,7 +264,8 @@ finalize_samples_gate <- function(x) {
 say_low_samples <- function(out, threshold) {
   # grade score rows only (not norm or composite).
   out <- out[
-    out[["panel"]] == "score" & !is.na(out[["coverage"]]), ,
+    out[["panel"]] == "score" & !is.na(out[["coverage"]]),
+    ,
     drop = FALSE
   ]
   low <- out[["coverage"]] < threshold
@@ -354,7 +350,9 @@ say_low_samples <- function(out, threshold) {
 #'   than one batch, `mc_batch_id`.
 #'
 #' @seealso
-#' [clocks_coverage()] for the same panels counted for each clock.
+#' - [clocks_coverage()] for the same panels counted for each clock.
+#' - [summary.mc_result()] for the `note` column counted by clock and by
+#'   sample.
 #'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")
@@ -400,7 +398,10 @@ samples_coverage <- function(x) {
   counted <- counted[!is.na(counted[["coverage"]]), , drop = FALSE]
 
   # seed with the empty frame so the column types and order are fixed
-  out <- do.call(rbind, c(list(empty_sample_rows(keep)), list(counted), composite))
+  out <- do.call(
+    rbind,
+    c(list(empty_sample_rows(keep)), list(counted), composite)
+  )
   rownames(out) <- NULL
   say_low_samples(out, finalize_samples_gate(x))
   attach_notes(drop_single_batch(out, batch), gap_reasons(x), partial_cells(x))

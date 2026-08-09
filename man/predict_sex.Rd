@@ -76,3 +76,9 @@ McDonald-Maier KD, Schalkwyk LC (2021). DNA methylation-based sex
 classifier to predict sex and identify sex chromosome aneuploidy.
 \emph{BMC Genomics}, 22(1), 484. \doi{10.1186/s12864-021-07675-2}
 }
+\seealso{
+\itemize{
+\item \code{\link[=calc_accel]{calc_accel()}} for the age acceleration of each sample.
+\item \code{\link[=score_associations]{score_associations()}} for how each clock tracks age against a reference.
+}
+}

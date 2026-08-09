@@ -40,6 +40,15 @@ n_batches <- function(x) {
   n
 }
 
+# the batch label, last: it is the join key, and it is a hash. NULL where the
+# exit drops the label.
+add_batch <- function(df, batch) {
+  if (!is.null(batch)) {
+    df[[MC_BATCH]] <- batch
+  }
+  df
+}
+
 # drop the batch column when it is a single repeated hash.
 drop_single_batch <- function(df, batch) {
   if (is_multi_batch(batch)) {
@@ -202,14 +211,13 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
   # multi-batch only, same test as the exit frames.
   labels <- batch_labels(x)
   if (length(labels) > 1L) {
-    cat(
-      "\n",
-      # the labels, not the component that stores them: $provenance is internal
-      fmt_named_section(MC_BATCH, plural_count(length(labels), "batch", "es")),
-      "\n",
-      paste(labels, collapse = ", "),
-      "\n",
-      sep = ""
+    # the labels, not the component that stores them: $provenance is internal
+    print_vector(
+      MC_BATCH,
+      labels,
+      length(labels),
+      "batch",
+      plural_count(length(labels), "batch", "es")
     )
   }
 

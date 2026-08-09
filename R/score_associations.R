@@ -133,7 +133,8 @@ assoc_empty <- function() {
 #'   two flags described above.
 #'
 #' @seealso
-#' [calc_accel()] for the age acceleration of each sample.
+#' - [calc_accel()] for the age acceleration of each sample.
+#' - [predict_sex()] for the sex of each sample, read from the methylation.
 #'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")

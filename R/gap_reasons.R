@@ -24,7 +24,9 @@ batch_gate_input <- function(x, per_clock, rows) {
   m <- x[["coverage"]][["sample_miss"]][["score"]][rows, , drop = FALSE]
   list(
     per_clock = per_clock,
-    sample_miss = list(score = stats::setNames(lapply(ids, function(id) m[, id]), ids))
+    sample_miss = list(
+      score = stats::setNames(lapply(ids, function(id) m[, id]), ids)
+    )
   )
 }
 

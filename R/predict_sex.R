@@ -214,6 +214,10 @@ say_mismatch <- function(out) {
 #'   and, when `pheno` has a `Female` column, `recorded_sex` and
 #'   `sex_mismatch`.
 #'
+#' @seealso
+#' - [calc_accel()] for the age acceleration of each sample.
+#' - [score_associations()] for how each clock tracks age against a reference.
+#'
 #' @examples
 #' sim <- sim_DNAm("DNAmSex_Wang", n = 6, Female = TRUE)
 #' predict_sex(sim[["DNAm"]], sim[["pheno"]])

@@ -354,7 +354,8 @@ say_fill_batch <- function(x, rhs_vars) {
 #'   for each sample, with one column for each clock.
 #'
 #' @seealso
-#' [score_associations()] for how each clock tracks age against a reference.
+#' - [score_associations()] for how each clock tracks age against a reference.
+#' - [predict_sex()] for the sex of each sample, read from the methylation.
 #'
 #' @examples
 #' clocks <- c("Horvath1", "Hannum")

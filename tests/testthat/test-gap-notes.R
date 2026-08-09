@@ -139,10 +139,13 @@ test_that("the column is present with no gaps, and sits before the label", {
   # one batch scored, one gated. only the gated batch's samples get a note.
   short <- random_betas(thin_panel(cpgs, 0.5), n = 4L)
   rownames(short) <- paste0(rownames(short), "b")
-  bound <- suppressMessages(rbind(res, suppressWarnings(calc_clocks(
-    short,
-    "Hannum"
-  ))))
+  bound <- suppressMessages(rbind(
+    res,
+    suppressWarnings(calc_clocks(
+      short,
+      "Hannum"
+    ))
+  ))
   sc <- suppressWarnings(suppressMessages(samples_coverage(bound)))
   # mc_batch_id is the join key and stays last, so note goes in front of it
   expect_equal(utils::tail(names(sc), 2L), c("note", "mc_batch_id"))

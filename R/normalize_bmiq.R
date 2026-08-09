@@ -18,8 +18,10 @@ check_thresholds <- function(
   if (any(!is.finite(thresholds))) {
     stop(name, " must contain only finite values.", call. = FALSE)
   }
-  if (require.unit.interval &&
-    any(thresholds <= 0 | thresholds >= 1)) {
+  if (
+    require.unit.interval &&
+      any(thresholds <= 0 | thresholds >= 1)
+  ) {
     stop(name, " must lie strictly inside (0, 1).", call. = FALSE)
   }
   if (any(diff(thresholds) <= 0)) {
@@ -65,17 +67,23 @@ density_thresholds <- function(
   means <- as.numeric(component.means)
   nL <- length(means)
 
-  if (nL < 2L ||
-    length(a) != nL ||
-    length(b) != nL ||
-    length(eta) != nL) {
+  if (
+    nL < 2L ||
+      length(a) != nL ||
+      length(b) != nL ||
+      length(eta) != nL
+  ) {
     stop(context, " has inconsistent mixture dimensions.", call. = FALSE)
   }
 
-  if (any(!is.finite(c(a, b, eta, means))) ||
-    any(a <= 0) || any(b <= 0) || any(eta <= 0) ||
-    any(means <= 0 | means >= 1) ||
-    any(diff(means) <= 0)) {
+  if (
+    any(!is.finite(c(a, b, eta, means))) ||
+      any(a <= 0) ||
+      any(b <= 0) ||
+      any(eta <= 0) ||
+      any(means <= 0 | means >= 1) ||
+      any(diff(means) <= 0)
+  ) {
     stop(
       context,
       " has invalid or unordered mixture parameters.",
@@ -92,8 +100,10 @@ density_thresholds <- function(
     db <- b[k] - b[k + 1L]
 
     constant <-
-      log(eta[k]) - lbeta(a[k], b[k]) -
-      log(eta[k + 1L]) + lbeta(a[k + 1L], b[k + 1L])
+      log(eta[k]) -
+      lbeta(a[k], b[k]) -
+      log(eta[k + 1L]) +
+      lbeta(a[k + 1L], b[k + 1L])
 
     log_score_diff <- function(x) {
       constant + da * log(x) + db * log1p(-x)
@@ -109,9 +119,11 @@ density_thresholds <- function(
 
     if (denominator != 0) {
       turning.point <- da / denominator
-      if (is.finite(turning.point) &&
-        turning.point > lo &&
-        turning.point < hi) {
+      if (
+        is.finite(turning.point) &&
+          turning.point > lo &&
+          turning.point < hi
+      ) {
         cuts <- sort(c(lo, turning.point, hi))
       }
     }
@@ -206,13 +218,22 @@ normalize_nl2 <- function(
   sample.threshold <- as.numeric(sample.threshold)[1L]
   gold.threshold <- as.numeric(gold.threshold)[1L]
 
-  if (length(sample.a) != 2L || length(sample.b) != 2L ||
-    length(gold.a) != 2L || length(gold.b) != 2L) {
+  if (
+    length(sample.a) != 2L ||
+      length(sample.b) != 2L ||
+      length(gold.a) != 2L ||
+      length(gold.b) != 2L
+  ) {
     stop(context, " expects length-2 component shapes.", call. = FALSE)
   }
-  if (!is.finite(sample.threshold) || !is.finite(gold.threshold) ||
-    sample.threshold <= 0 || sample.threshold >= 1 ||
-    gold.threshold <= 0 || gold.threshold >= 1) {
+  if (
+    !is.finite(sample.threshold) ||
+      !is.finite(gold.threshold) ||
+      sample.threshold <= 0 ||
+      sample.threshold >= 1 ||
+      gold.threshold <= 0 ||
+      gold.threshold >= 1
+  ) {
     stop(
       context,
       " thresholds must lie strictly in (0, 1); got sample = ",
@@ -243,29 +264,41 @@ normalize_nl2 <- function(
 
   log.FsU.ts <- check_log_mass(
     stats::pbeta(
-      sample.threshold, sample.a[1L], sample.b[1L],
-      lower.tail = TRUE, log.p = TRUE
+      sample.threshold,
+      sample.a[1L],
+      sample.b[1L],
+      lower.tail = TRUE,
+      log.p = TRUE
     ),
     "sample U CDF"
   )
   log.FsM.ts <- check_log_mass(
     stats::pbeta(
-      sample.threshold, sample.a[2L], sample.b[2L],
-      lower.tail = FALSE, log.p = TRUE
+      sample.threshold,
+      sample.a[2L],
+      sample.b[2L],
+      lower.tail = FALSE,
+      log.p = TRUE
     ),
     "sample M upper-tail CDF"
   )
   log.FgU.tg <- check_log_mass(
     stats::pbeta(
-      gold.threshold, gold.a[1L], gold.b[1L],
-      lower.tail = TRUE, log.p = TRUE
+      gold.threshold,
+      gold.a[1L],
+      gold.b[1L],
+      lower.tail = TRUE,
+      log.p = TRUE
     ),
     "gold U CDF"
   )
   log.FgM.tg <- check_log_mass(
     stats::pbeta(
-      gold.threshold, gold.a[2L], gold.b[2L],
-      lower.tail = FALSE, log.p = TRUE
+      gold.threshold,
+      gold.a[2L],
+      gold.b[2L],
+      lower.tail = FALSE,
+      log.p = TRUE
     ),
     "gold M upper-tail CDF"
   )
@@ -278,9 +311,13 @@ normalize_nl2 <- function(
     log.u <- pmin(
       0,
       stats::pbeta(
-        beta[u_idx], sample.a[1L], sample.b[1L],
-        lower.tail = TRUE, log.p = TRUE
-      ) - log.FsU.ts
+        beta[u_idx],
+        sample.a[1L],
+        sample.b[1L],
+        lower.tail = TRUE,
+        log.p = TRUE
+      ) -
+        log.FsU.ts
     )
     out[u_idx] <- stats::qbeta(
       log.u + log.FgU.tg,
@@ -295,9 +332,13 @@ normalize_nl2 <- function(
     log.r <- pmin(
       0,
       stats::pbeta(
-        beta[m_idx], sample.a[2L], sample.b[2L],
-        lower.tail = FALSE, log.p = TRUE
-      ) - log.FsM.ts
+        beta[m_idx],
+        sample.a[2L],
+        sample.b[2L],
+        lower.tail = FALSE,
+        log.p = TRUE
+      ) -
+        log.FsM.ts
     )
     out[m_idx] <- stats::qbeta(
       log.r + log.FgM.tg,
@@ -334,9 +375,13 @@ canonicalize_em_components <- function(em, context) {
   eta <- as.numeric(em[["eta"]])
   mu <- as.numeric(em[["mu"]][, 1L])
 
-  if (any(!is.finite(c(a, b, eta, mu))) ||
-    any(a <= 0) || any(b <= 0) || any(eta <= 0) ||
-    any(mu <= 0 | mu >= 1)) {
+  if (
+    any(!is.finite(c(a, b, eta, mu))) ||
+      any(a <= 0) ||
+      any(b <= 0) ||
+      any(eta <= 0) ||
+      any(mu <= 0 | mu >= 1)
+  ) {
     stop(context, " returned invalid mixture parameters.", call. = FALSE)
   }
 
@@ -812,7 +857,9 @@ bmiq_calibration <- function(
             context = paste0("Sample ", ii, " nL=2 map")
           )
           if (debug) {
-            diagnostic[["nl2_sample_threshold"]] <- sample.fit[["thresholds"]][1L]
+            diagnostic[["nl2_sample_threshold"]] <- sample.fit[["thresholds"]][
+              1L
+            ]
             diagnostic[["nl2_gold_threshold"]] <- gold.thresholds[1L]
           }
         } else {
@@ -821,8 +868,10 @@ bmiq_calibration <- function(
           if (length(selUL.idx)) {
             nbeta2.v[selUL.idx] <- map_beta_q(
               beta2.v[selUL.idx],
-              em2.o[["a"]][U, 1L], em2.o[["b"]][U, 1L],
-              gold.a[U], gold.b[U],
+              em2.o[["a"]][U, 1L],
+              em2.o[["b"]][U, 1L],
+              gold.a[U],
+              gold.b[U],
               lower.tail = TRUE
             )
           }
@@ -830,8 +879,10 @@ bmiq_calibration <- function(
           if (length(selUR.idx)) {
             nbeta2.v[selUR.idx] <- map_beta_q(
               beta2.v[selUR.idx],
-              em2.o[["a"]][U, 1L], em2.o[["b"]][U, 1L],
-              gold.a[U], gold.b[U],
+              em2.o[["a"]][U, 1L],
+              em2.o[["b"]][U, 1L],
+              gold.a[U],
+              gold.b[U],
               lower.tail = FALSE
             )
           }
@@ -841,8 +892,10 @@ bmiq_calibration <- function(
           if (length(selMR.idx)) {
             nbeta2.v[selMR.idx] <- map_beta_q(
               beta2.v[selMR.idx],
-              em2.o[["a"]][M, 1L], em2.o[["b"]][M, 1L],
-              gold.a[M], gold.b[M],
+              em2.o[["a"]][M, 1L],
+              em2.o[["b"]][M, 1L],
+              gold.a[M],
+              gold.b[M],
               lower.tail = FALSE
             )
           }
@@ -937,8 +990,10 @@ bmiq_calibration <- function(
 
         stage <- "sample output validation"
 
-        if (any(!is.finite(nbeta2.v)) ||
-          any(nbeta2.v < -1e-12 | nbeta2.v > 1 + 1e-12)) {
+        if (
+          any(!is.finite(nbeta2.v)) ||
+            any(nbeta2.v < -1e-12 | nbeta2.v > 1 + 1e-12)
+        ) {
           stop(
             "Normalization produced invalid beta values; range: [",
             paste(signif(range(nbeta2.v, finite = TRUE), 8), collapse = ", "),
