@@ -247,10 +247,3 @@ Two package constraints on any trained variant. Wang's own per-sample standardiz
 autosomal reference domain is what makes its score comparable across arrays, so a new statistic
 needs an equivalent or it will not transfer. And a fitted model is weights: it belongs upstream in
 `methylCIPHER-meta` as a declared clock with tensors and a meta, never as a constant in `R/`.
-
----
-
-## Housekeeping
-
-- [data-raw/build_clock_reference.R:91](data-raw/build_clock_reference.R:91) comments `sex_coef` as
-  "male vs female"; the estimated level is female. Comment only, the numbers are correct.
