@@ -14,6 +14,75 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- Q5 phase 3: `summary.mc_result()`, and `not_finite` joins the note enum
+
+The QC digest shipped. Two decisions in it were not obvious, and one of them turned out to be
+load-bearing on the other.
+
+**`not_finite` is in the enum, and the enum's cell set is now `is.na(m) | is.infinite(m)`.**
+`dev/to-do.md` had flagged the `NaN` question as "decide before the digest is written", on the
+grounds that a `NaN` is the clearest case of something happening to a cell and was still explained
+by a warning instead -- the same duplication phase 1 removed for partial calibration. The argument
+that actually settled it is different, and is about the digest: `samples_coverage()` finalizes and
+hands back a **frame**, so a digest that also wants a `NaN` count has to reach the *finalized*
+`$scores` to get it. That means calling `finalized()` and becoming a **sixth call site**, which the
+phase 3 design forbids. Fold `NaN` into the note and the digest reads one frame and never touches a
+score value. So the enum change is what keeps `summary()` off the finalizer list, not a tidiness
+win.
+
+**The literal instruction would have shipped a hole.** The to-do says un-exclude `NaN`, which reads
+as deleting the `& !is.nan(m)` from `missing_scores()`. Measured against a real record: a
+`Zhang2019EN` sample with one distinct value divides by a zero sd and scores **`-Inf`**, not `NaN`,
+and `is.na(-Inf)` is `FALSE`. Un-excluding `NaN` alone leaves that cell out of the frame entirely --
+`check_score_values()` warns about both, so the duplication would have been half-removed and the
+worse half kept. Hence `needs_note()` reaching past `is.na()`, and the rename off "missing".
+
+**The `blind` stop keeps its full strength, which is the reason the mask is shaped the way it is.**
+`not_finite()` is `is.nan(m) | is.infinite(m)`, which **excludes a plain `NA`**. It is a positive
+test on an observable property of the cell, not the terminal `fit` fallback refused on 2026-08-08:
+an unexplained plain `NA` still reaches `batch_gaps()`'s `blind` check and still stops as a package
+bug. Widening `not_finite` to "whatever is left over" would convert that detected defect into a
+plausible-looking label, which is exactly what the earlier refusal was about.
+
+It sits **last** in precedence, after the dependency pass rather than among the masks. A dependency
+that is itself non-finite then tells the better story: the dependency is `not_finite` and the clock
+built from it is `dependency`. Put it among the masks and both rows read `not_finite`, which loses
+the direction of the propagation.
+
+**`check_score_values()` keeps its warning**, and this is the one place the phase 1 precedent does
+*not* transfer. `say_partial_calibration()` was retired because it fired on samples that **had
+scored** and read as a failure however worded. A non-finite score genuinely is a failure, so the
+warning reads correctly, and it carries the per-sample-sd hint naming the *cause* -- which no enum
+value can. What the note adds is that the warning can now be filtered back to the cells, so the
+warning gained a pointer to `samples_coverage()` instead of losing its existence.
+
+**`summary()` is a method, and it is not a third coverage frame.** It ingests an `mc_result` and
+returns an `mc_summary`, the `summary.lm` shape. The to-do said "returns the tables invisibly and
+prints by default"; it returns **visibly** and `print.mc_summary()` does the rendering. Invisible
+plus a print method means `s <- summary(r)` still prints and `print(summary(r))` renders twice, and
+"the same shape as `summary.lm`" -- the load-bearing half of that note -- is the visible form.
+
+**Batch is read off the frame, never re-tested.** `MC_BATCH %in% names(cov)` decides every table in
+the object, including whether `batches` exists at all. A single-batch digest is `NULL` there rather
+than carrying a label `samples_coverage()` withheld, so one flag governs the whole object and it
+cannot disagree with the frame it counts.
+
+**Two `input` columns are dropped unless they say something, and this is a correctness fix rather
+than a width one.** `min_val` / `max_val` are a **running min/max seeded at the beta bounds**, so a
+clean run reports `0` and `1` whatever the data holds. Printed under those names they read as an
+observed range and are simply wrong. They are a verdict, so they appear only beside the `min_col` /
+`max_col` that names the column which broke the bound, and `any_inf` goes the same way. A clean
+`input` row is `n_cpgs`, `n_scanned`, `n_all_missing`.
+
+The wide-block worry in the phase 3 sketch resolved by **splitting rather than truncating**:
+`input` is what the matrix was, `arguments` is what the run was asked for. Eight columns on one
+row did not fit at two batches, and the two groups answer different questions anyway.
+
+**`samples_coverage()`'s low-coverage warning still fires through `summary()`.** Left alone
+deliberately. It is that exit's documented behaviour, it names the threshold and the filter, and
+the digest states neither, so the two are complementary. Suppressing another exit's warning to
+tidy up a print is the worse trade.
+
 ## 2026-08-09 -- `predict_sex()` declares its own `covariates`, because it is the reader
 
 `covariates =` reached two front doors and not the third. `predict_sex()` forwarded it through

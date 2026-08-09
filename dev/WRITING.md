@@ -249,6 +249,7 @@ One sentence. What it does.
 | citation | ``An `mc_citation` object.`` |
 | simulation | ``An `mc_sim` object.`` |
 | loaded assets | ``An `mc_assets` object.`` |
+| digest | ``An `mc_summary` object.`` |
 | formula | `A one-sided formula.` |
 | named logical | `A named logical vector.` |
 | enum | `One of "accel" or "diff".` |

@@ -171,13 +171,21 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     reconcile `normalize_requested` on bind, and do not gate on it -- differing requests with
     matching results is a legal bind (DECISIONS 2026-08-06).
   - **Where a verb exists it is a method**, and the built surface is exactly `print`, `as.matrix`,
-    `as.data.frame`, `cite_clocks` and `rbind`, plus the plain `calc_accel()`.
-    Coverage is deliberately not `summary()`: it is `clocks_coverage()` (one row per
+    `as.data.frame`, `cite_clocks`, `rbind` and `summary`, plus the plain `calc_accel()`.
+    Coverage is still not `summary()`: it is `clocks_coverage()` (one row per
     **(clock, batch)**) and `samples_coverage()` (each sample's batch alongside its id), with
     `mc_batch_id` **last** in both -- it is the join key, but it is a hash, so it does not sit in
-    front of `clock_id`. **There is no third frame.** Why an `NA` score is `NA` is the `note`
-    column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()` and
-    never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06).
+    front of `clock_id`. **There is no third coverage frame.** Why an `NA` score is `NA` is the
+    `note` column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()`
+    and never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06).
+    - **`summary()` counts those notes, and counts nothing itself.** It is the QC digest
+      (DECISIONS 2026-08-09), and it is not a third coverage frame: it takes `samples_coverage()`'s
+      output and returns an `mc_summary` of `input` / `arguments` / `by_clock` / `by_sample`. Two
+      rules keep it honest. It **reads the frame's own batch decision** (`mc_batch_id %in% names`)
+      rather than testing the record again, so it cannot disagree with the frame it counts. And it
+      **never reads a score value**, which is what keeps it off `finalized()`'s call-site list --
+      `samples_coverage()` finalizes on its behalf, and reading `dim()` for the header is shape,
+      not cells. Never total a per-batch row across batches: each came from a different matrix.
     - **`note` is a verdict on the row's own step, not on the score, and `panel` says which step.**
       It was `reason`, meaning "why this score is `NA`", until 2026-08-08; the frame already carried
       a `score` row and a `norm` row per (sample, clock) and attached a value to the first only, so
@@ -185,7 +193,13 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       norm row for that exact cell sitting silent. Score rows keep the five values; a norm row takes
       `partial` when a sample was normalized from a calibration that could not be fully applied,
       and **its score is present**. So the failure filter is `panel == "score" & !is.na(note)`, not
-      `!is.na(note)`. It stays a **closed enum**, enumerated in the roxygen. `partial` reaches it
+      `!is.na(note)`. It stays a **closed enum**, enumerated in the roxygen. **`not_finite` joined
+      it on 2026-08-09** and widened the cell set past `is.na()`: a `NaN` or an `Inf` is something
+      that happened to the cell, so it is noted like any other, and `check_score_values()` keeps
+      its warning because it names a cause the enum cannot carry. `-Inf` is why the set is
+      `is.na(m) | is.infinite(m)` and not merely NaN -- an infinite score is not `NA` at all, so
+      un-excluding `NaN` alone would have left it out of the frame entirely (DECISIONS 2026-08-09).
+      `partial` reaches it
       through `provenance$partial_calibration`, a collector mirroring `scoring_failures` and bound
       by the same rule, which is what retired the `say_partial_calibration()` warning: it fired on
       samples that **had scored**, so it read as a failure however worded, and could not be filtered
@@ -193,7 +207,11 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     - **Do not add a fallback that labels an unexplained `NA`.** `batch_gaps()` computes
       `blind <- na_mat & is.na(out)` and `stop()`s naming it a package bug, which is stronger than
       any label: a terminal `fit` was proposed for totality and refused because it would convert a
-      detected defect into a plausible-looking value. The post-calculation layer needs no collector
+      detected defect into a plausible-looking value. **`not_finite` is not that fallback and must
+      not become it.** It fires on `is.nan(m) | is.infinite(m)`, a positive test on the cell, and
+      that predicate deliberately **excludes a plain `NA`** -- which is what leaves `blind` its
+      full strength. A `not_finite` widened to "whatever is left" would swallow exactly the defect
+      the stop exists to catch. The post-calculation layer needs no collector
       of its own either -- `finalize_cross_sample()` already records reduction losses generically,
       measured against a flat `DNAmPhysAge` surrogate (DECISIONS 2026-08-08).
     Citations

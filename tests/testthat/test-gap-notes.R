@@ -67,18 +67,33 @@ test_that("the notes are told apart, and a covariate outranks a floor", {
   expect_equal(gaps$note[gaps$id == "sample1"], "clock_coverage")
 })
 
-# the closed note set explains missing scores. a non-finite score is a
-# computed value, and check_score_values() is what reports it.
-test_that("a score that is not a number is not a missing score", {
+# a score that is not a finite number is something that happened to the cell,
+# so it carries a note like any other missing score.
+test_that("a score that is not a finite number is noted", {
   skip_on_cran()
   # an all-zero row has no spread, so the sample z-score is 0/0, which is NaN.
-  # is.na(NaN) is TRUE, so the walk must tell the two apart itself.
   DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
   DNAm[2, ] <- 0
 
   expect_warning(res <- suppressMessages(calc_clocks(DNAm, "Zhang2019EN")))
   expect_true(is.nan(res$scores[2, "Zhang2019EN"]))
-  expect_equal(nrow(gaps_of(res)), 0L)
+
+  gaps <- gaps_of(res)
+  expect_equal(nrow(gaps), 1L)
+  expect_equal(gaps$id, "sample2")
+  expect_equal(gaps$note, "not_finite")
+})
+
+# an infinite score is not NA at all, so the cell set has to reach past is.na()
+test_that("an infinite score is noted", {
+  skip_on_cran()
+  # a constant row has no spread either, and divides to Inf rather than NaN
+  DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
+  DNAm[2, ] <- 0.5
+
+  expect_warning(res <- suppressMessages(calc_clocks(DNAm, "Zhang2019EN")))
+  expect_true(is.infinite(res$scores[2, "Zhang2019EN"]))
+  expect_equal(gaps_of(res)$note, "not_finite")
 })
 
 test_that("a sample the moments cannot describe is reported as a fit failure", {

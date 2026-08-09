@@ -326,6 +326,8 @@ say_low_samples <- function(out, threshold) {
 #'   for it.
 #' - `dependency`, when a clock that this clock is calculated from is
 #'   missing for that sample.
+#' - `not_finite`, when the score was calculated but is not a finite
+#'   number, such as `NaN` or `Inf`.
 #'
 #' On a `norm` row, a note is about the background panel, and the score may
 #' still be present:
@@ -334,8 +336,9 @@ say_low_samples <- function(out, threshold) {
 #'   could not be applied to it. The score is real, and is calculated from a
 #'   background that was only partly calibrated.
 #'
-#' A score that is not a number, such as `NaN`, is not a missing score. It
-#' gets no note, and `calc_clocks()` warns about it instead.
+#' A score that is not a finite number is present, and is still a `score`
+#' row with a note. [calc_clocks()] warns about it as well, and that warning
+#' names the likely cause.
 #' `min_clocks_coverage` and `min_samples_coverage` are read for the batch
 #' that scored the sample, because those are the values that decided the
 #' score.

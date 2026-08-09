@@ -1,7 +1,11 @@
-# why a score is NA (derived from the finished result, not stored).
+# what happened to a score cell (derived from the finished result, not stored).
 
-# NA scores to explain (NaN is a value issue, not a missing score).
-missing_scores <- function(m) is.na(m) & !is.nan(m)
+# cells that need a note: missing, or not a finite number.
+needs_note <- function(m) is.na(m) | is.infinite(m)
+
+# not a finite number, as opposed to merely missing. a positive test, so a
+# plain NA with no explanation still reaches the blind check in batch_gaps().
+not_finite <- function(m) is.nan(m) | is.infinite(m)
 
 # character matrix shaped like scores (sample x clock), all NA.
 reason_matrix <- function(m) {
@@ -49,8 +53,8 @@ gap_masks <- function(x, gated, gate, rows, ids) {
   lapply(test, function(f) stats::setNames(lapply(ids, f), ids))
 }
 
-# walk computed clocks in dependency order; fill NA reason per cell.
-gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
+# walk computed clocks in dependency order; fill one note per cell.
+gap_walk <- function(x, na_mat, nf, masks, seq_ids, rows) {
   routed <- sex_routed_members()
   sex <- sex_rows(x[["pheno"]][["Female"]][rows], length(rows))
   none <- rep(FALSE, length(rows))
@@ -83,6 +87,11 @@ gap_walk <- function(x, na_mat, masks, seq_ids, rows) {
       take <- is.na(r) & gone & na[[d]]
       # map dep reasons onto returned clocks the reader can find.
       r[take] <- if (d %in% returned) "dependency" else why[[d]][take]
+    }
+    # last, so a dependency that is itself non-finite gives the better story:
+    # the dependency is not_finite, and the clock built from it is dependency.
+    if (id %in% returned) {
+      r[is.na(r) & nf[, id]] <- "not_finite"
     }
     na[[id]] <- gone
     why[[id]] <- r
@@ -118,10 +127,11 @@ batch_gaps <- function(x, b, rows, seq_ids) {
     skip = gated
   )
 
-  # one sweep of the NA pattern, read by the walk and by the check below
-  na_mat <- missing_scores(x[["scores"]][rows, , drop = FALSE])
+  # one sweep of the score pattern, read by the walk and by the check below
+  sc <- x[["scores"]][rows, , drop = FALSE]
+  na_mat <- needs_note(sc)
   masks <- gap_masks(x, gated, gate, rows, seq_ids)
-  why <- gap_walk(x, na_mat, masks, seq_ids, rows)
+  why <- gap_walk(x, na_mat, not_finite(sc), masks, seq_ids, rows)
 
   out <- reason_matrix(na_mat)
   for (id in colnames(out)) {
@@ -132,7 +142,7 @@ batch_gaps <- function(x, b, rows, seq_ids) {
     stop(
       sprintf(
         paste0(
-          "gap_reasons(): no reason for %d NA score(s) of %s ",
+          "gap_reasons(): no note for %d score cell(s) of %s ",
           "(batch %s). This is a package bug -- please report it."
         ),
         sum(blind),
@@ -152,7 +162,7 @@ gap_reasons <- function(x) {
 
   reasons <- reason_matrix(scores)
   # nothing to explain
-  if (any(missing_scores(scores))) {
+  if (any(needs_note(scores))) {
     seq_ids <- resolve_clocks_sequence(x[["provenance"]][["requested"]])
     # positions, so a batch subsets its own rows and not the whole record
     idx <- split(seq_along(batch), batch)

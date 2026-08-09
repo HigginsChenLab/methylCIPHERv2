@@ -134,7 +134,9 @@ check_score_values <- function(scores) {
       capped_bullets(names(bad), bad_lines),
       hint,
       "i" = "A {.code NaN} or {.code Inf} usually means a non-finite value
-             reached the calculation. Check {.arg DNAm}."
+             reached the calculation. Check {.arg DNAm}.",
+      "i" = "{.fn samples_coverage} gives the sample and the clock of each
+             one, under the {.val not_finite} note."
     ),
     call = NULL
   )
