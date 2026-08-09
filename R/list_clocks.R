@@ -58,7 +58,25 @@ list_clocks <- function(
   pattern = NULL,
   all_columns = FALSE
 ) {
-  checkmate::assert_character(group, null.ok = TRUE, any.missing = FALSE)
+  # each token selects a set, so a repeat asks for nothing new and one of each
+  # is the ceiling. bounded here rather than downstream: an oversized vector is
+  # refused before anything reads it, including the nearest-match search. the
+  # group bound counts every declared group, which is at or above the number
+  # that can be selected once routed members are dropped.
+  checkmate::assert_character(
+    group,
+    null.ok = TRUE,
+    any.missing = FALSE,
+    unique = TRUE,
+    max.len = length(unique(mc_index[["group_id"]]))
+  )
+  checkmate::assert_character(
+    tag,
+    null.ok = TRUE,
+    any.missing = FALSE,
+    unique = TRUE,
+    max.len = length(MC_TAGS)
+  )
   checkmate::assert_subset(tag, names(MC_TAGS), empty.ok = TRUE)
   checkmate::assert_string(pattern, null.ok = TRUE)
   checkmate::assert_flag(all_columns)
@@ -121,18 +139,23 @@ list_clocks <- function(
         c(
           "{length(unknown)} name{?s} in {.arg group} {cli::qty(unknown)}{?is/are}
            not a group: {.val {capped_vals(unknown)}}.",
-          capped_bullets(unknown, function(toks) {
-            vapply(
-              toks,
-              function(tok) {
-                cli::format_inline(
-                  "{.val {tok}}. Did you mean
-                   {.or {.val {did_you_mean(tok, pool)}}}?"
-                )
-              },
-              character(1L)
-            )
-          }),
+          capped_bullets(
+            unknown,
+            function(toks) {
+              vapply(
+                toks,
+                function(tok) {
+                  cli::format_inline(
+                    "{.val {tok}}. Did you mean
+                     {.or {.val {did_you_mean(tok, pool)}}}?"
+                  )
+                },
+                character(1L)
+              )
+            },
+            # one adist pass per token, so the search is capped, not the text
+            n = MC_SUGGEST_CAP
+          ),
           "i" = "Call {.fn list_clocks} with no arguments to see every group."
         ),
         call = NULL
@@ -142,7 +165,9 @@ list_clocks <- function(
   }
 
   if (!is.null(tag)) {
-    keep <- unique(unlist(lapply(tag, resolve_clocks), use.names = FALSE))
+    # one call, not one per tag: resolve_clocks() already takes the vector and
+    # unions it. an empty tag selects nothing, as it always has.
+    keep <- if (length(tag)) resolve_clocks(tag) else character(0)
     out <- out[out[["clock_id"]] %in% keep, , drop = FALSE]
   }
 

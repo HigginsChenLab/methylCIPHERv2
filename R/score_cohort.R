@@ -324,7 +324,7 @@ mc_note_partial_calibration <- function(block, id, sample_id) {
 }
 
 # warn that samples scored NA. reason is the lead line, and it names the clock
-# and the cause, so the list below it needs no summary. empty failed is a no-op.
+# and the cause. empty failed is a no-op.
 say_scored_na <- function(failed, reason) {
   if (!length(failed)) {
     return(invisible(NULL))
@@ -332,7 +332,6 @@ say_scored_na <- function(failed, reason) {
   cli::cli_warn(
     c(
       reason,
-      capped_bullets(failed, val_lines),
       "i" = "{.fn samples_coverage} gives the {.field note} for each missing
              score."
     ),
@@ -352,7 +351,7 @@ say_moment_failure <- function(id, failed) {
     failed,
     cli::format_inline(
       "{.val {id}} scores {.code NA} for {length(failed)} sample{?s} with no
-       spread in {where}:"
+       spread in {where}."
     )
   )
 }

@@ -1,25 +1,7 @@
 # pre-score coverage gates over the resolved panels
 
-# requestable token for a compute-sequence id (alias, not routed member).
-gate_label <- function(id, routed = sex_routed_members()) {
-  if (!id %in% names(routed[["alias"]])) {
-    return(cli::format_inline("{.val {id}}"))
-  }
-  cli::format_inline(
-    "{.val {routed[['alias']][[id]]}} ({routed[['sex']][[id]]} model)"
-  )
-}
-
 # warn band just above the coverage threshold (shared by column and row gates).
 warn_band <- function(threshold) min(1, threshold * 1.1)
-
-# one gate bullet (labels pre-formatted for cli).
-panel_line <- function(id, present, needed, label, routed) {
-  cli::format_inline(
-    "{gate_label(id, routed)}: {present}/{needed}
-     {label} CpGs ({round(100 * present / needed, 1)}%)"
-  )
-}
 
 # verdicts that blank a column. "dead" is the floor-independent one.
 GATE_NA <- c("na", "dead")
@@ -47,7 +29,6 @@ clock_gate_verdict <- function(present, needed, threshold) {
 # column gate: returns the ids that score NA, having warned about them
 check_coverage <- function(cpg_list, threshold = 0.75) {
   # threshold is min_clocks_coverage, already validated at the front door
-  routed <- sex_routed_members()
   # only clocks that read CpGs (composites inherit NA through deps).
   per_clock <- cpg_list[["per_clock"]]
   per_clock <- per_clock[vapply(
@@ -56,22 +37,6 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     logical(1L)
   )]
 
-  score_lines <- function(ids) {
-    vapply(
-      ids,
-      function(id) {
-        x <- per_clock[[id]]
-        panel_line(
-          id,
-          length(x[["score_present"]]),
-          length(x[["score_needed"]]),
-          "scoring",
-          routed
-        )
-      },
-      character(1L)
-    )
-  }
   classify <- function(x) {
     clock_gate_verdict(
       length(x[["score_present"]]),
@@ -87,40 +52,22 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
   if (length(fail)) {
     # a clock with no observed CpG is NA at every floor, so the advice splits
     observed <- graded[fail] == "na"
-    # sex-routed clocks: one model label; only that sex loses the score.
-    plain <- setdiff(fail, names(routed[["alias"]]))
-    modelled <- setdiff(fail, plain)
     cli::cli_warn(
       c(
         "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
-         score ({.arg min_clocks_coverage} = {format(threshold)}):",
-        capped_bullets(fail, score_lines),
-        # the every-sample line is a contrast with the sex-routed one, so it
-        # earns a bullet only when both kinds are here. on its own it restates
-        # the lead.
-        if (length(plain) && length(modelled)) {
-          c(
-            "i" = "{cli::qty(plain)}{?That clock scores/Those clocks score}
-                   {.code NA} for every sample."
-          )
-        },
-        if (length(modelled)) {
-          c(
-            "i" = "A sex-specific clock scores {.code NA} only for samples of
-                   that sex."
-          )
-        },
+         score ({.arg min_clocks_coverage} = {format(threshold)}).",
         # lowering the floor is worth naming only where a clock would gain by
         # it, so the caveat rides on that bullet instead of taking its own.
-        if (any(observed)) {
-          c("i" = if (all(observed)) {
-            "Lower {.arg min_clocks_coverage} to score more clocks."
-          } else {
-            "Lower {.arg min_clocks_coverage} to score more clocks. A clock
-             with no CpGs in {.arg DNAm} stays {.code NA} at every value."
-          })
-        },
-        "i" = "{.fn clock_cpgs} gives the CpGs a clock needs."
+        c("i" = if (!any(observed)) {
+          "A clock with no CpGs in {.arg DNAm} stays {.code NA} at every
+           {.arg min_clocks_coverage}."
+        } else if (all(observed)) {
+          "Lower {.arg min_clocks_coverage} to score more clocks."
+        } else {
+          "Lower {.arg min_clocks_coverage} to score more clocks. A clock
+           with no CpGs in {.arg DNAm} stays {.code NA} at every value."
+        }),
+        "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
       ),
       call = NULL
     )
@@ -131,8 +78,7 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
     cli::cli_warn(
       c(
         "{length(marginal)} clock{?s} {?is/are} just above
-         {.arg min_clocks_coverage} = {format(threshold)}:",
-        capped_bullets(marginal, score_lines),
+         {.arg min_clocks_coverage} = {format(threshold)}.",
         "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
       ),
       call = NULL
@@ -144,7 +90,6 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
 
 # decline normalize when the background panel is too thin (before resolve).
 norm_gate <- function(panels, usable, threshold = 0.75) {
-  routed <- sex_routed_members()
   ids <- panels[["clock_id"]]
   # grade each distinct background once; empty norm panel grades "".
   uniq <- panels[["norm"]][["uniq"]]
@@ -162,27 +107,15 @@ norm_gate <- function(panels, usable, threshold = 0.75) {
     return(character(0))
   }
 
-  lines <- function(these) {
-    vapply(
-      these,
-      function(id) {
-        i <- at[[match(id, ids)]]
-        panel_line(id, present[[i]], needed[[i]], "normalization", routed)
-      },
-      character(1L)
-    )
-  }
   cli::cli_warn(
     c(
       "{length(drop)} clock{?s} {?has/have} too few normalization CpGs in
        {.arg DNAm} to normalize ({.arg min_clocks_coverage} =
-       {format(threshold)}):",
-      capped_bullets(drop, lines),
+       {format(threshold)}).",
       # no claim about the score here: this gate runs before the column gate.
       "i" = "Supply the background CpGs, or lower {.arg min_clocks_coverage},
              to normalize {cli::qty(length(drop))}{?it/them}.",
-      "i" = "{.fn clock_cpgs} with {.code normalize = TRUE} gives the
-             background a clock needs."
+      "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
     ),
     call = NULL
   )
@@ -241,59 +174,25 @@ check_row_coverage <- function(gate, threshold = 0.75) {
   # the clocks with at least one sample in a tier, keyed by id
   tier <- function(field) Filter(function(s) any(s[[field]]), gate)
 
-  # one line per clock for ids that pass the cap.
-  lines_for <- function(hit, field) {
-    function(these) {
-      vapply(
-        these,
-        function(id) {
-          s <- hit[[id]]
-          low <- s[[field]]
-          # dead samples: count only, no 0% figure.
-          gone <- low & s[["dead"]]
-          thin <- low & !gone
-          paste(
-            c(
-              cli::format_inline(
-                "{gate_label(id, routed)}: {sum(low)} of {s[['scored']]}
-                 sample{?s}"
-              ),
-              if (any(gone)) {
-                cli::format_inline("{sum(gone)} with no scoring CpGs")
-              },
-              if (any(thin)) {
-                cli::format_inline(
-                  "worst {round(100 * min(s[['cov']][thin]), 1)}% of
-                   {s[['needed']]} CpGs"
-                )
-              }
-            ),
-            collapse = ", "
-          )
-        },
-        character(1L)
-      )
-    }
-  }
-
   blank <- tier("na")
   if (length(blank)) {
     any_of <- function(f) any(vapply(blank, f, logical(1L)))
+    # a sample with no scoring CpGs is NA at every floor, so the advice splits
+    thin <- any_of(function(s) any(s[["na"]] & !s[["dead"]]))
     cli::cli_warn(
       c(
         "Some samples have too few CpGs in {.arg DNAm} for
          {length(blank)} clock{?s} ({.arg min_samples_coverage} =
-         {format(threshold)}):",
-        capped_bullets(names(blank), lines_for(blank, "na")),
-        if (any_of(function(s) any(s[["na"]] & !s[["dead"]]))) {
-          c("i" = "Lower {.arg min_samples_coverage} to score more samples.")
-        },
-        if (any_of(function(s) any(s[["dead"]]))) {
-          c(
-            "i" = "A sample with no scoring CpGs is {.code NA} at every
-                   {.arg min_samples_coverage}."
-          )
-        },
+         {format(threshold)}).",
+        c("i" = if (!thin) {
+          "A sample with no scoring CpGs stays {.code NA} at every
+           {.arg min_samples_coverage}."
+        } else if (!any_of(function(s) any(s[["dead"]]))) {
+          "Lower {.arg min_samples_coverage} to score more samples."
+        } else {
+          "Lower {.arg min_samples_coverage} to score more samples. A sample
+           with no scoring CpGs stays {.code NA} at every value."
+        }),
         "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),
       call = NULL
@@ -305,8 +204,7 @@ check_row_coverage <- function(gate, threshold = 0.75) {
     cli::cli_warn(
       c(
         "Some samples are just above {.arg min_samples_coverage} =
-         {format(threshold)} for {length(marginal)} clock{?s}:",
-        capped_bullets(names(marginal), lines_for(marginal, "near")),
+         {format(threshold)} for {length(marginal)} clock{?s}.",
         "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),
       call = NULL

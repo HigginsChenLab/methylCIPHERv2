@@ -84,22 +84,10 @@ check_score_values <- function(scores) {
     return(invisible(NULL))
   }
 
-  bad_lines <- function(ids) {
-    vapply(
-      ids,
-      function(id) {
-        cli::format_inline(
-          "{.val {id}}: {bad[[id]]} of {length(scores[[id]])} sample{?s}"
-        )
-      },
-      character(1L)
-    )
-  }
   cli::cli_warn(
     c(
       "{length(bad)} clock{?s} produced {cli::qty(sum(bad))}non-finite
-       score{?s}:",
-      capped_bullets(names(bad), bad_lines),
+       score{?s}.",
       "i" = "A {.code NaN} or {.code Inf} usually means a non-finite value
              reached the calculation. Check {.arg DNAm}.",
       "i" = "{.fn samples_coverage} gives the sample and the clock of each

@@ -49,7 +49,7 @@ bmiq_panel <- function(obs, target, id, block, key) {
     failed,
     cli::format_inline(
       "{.val {id}} scores {.code NA} for {length(failed)} sample{?s} whose
-       BMIQ calibration failed:"
+       BMIQ calibration failed."
     )
   )
 

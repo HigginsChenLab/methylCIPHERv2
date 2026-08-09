@@ -10,7 +10,7 @@ the rows and CpGs in the columns.}
 \item{x}{An \code{mc_result} object. The value returned by \code{\link[=calc_clocks]{calc_clocks()}}.}
 
 \item{clocks}{A character vector. The clocks to score, named by clock id,
-group id, or tag. See \code{\link[=list_clocks]{list_clocks()}}.}
+group id, or tag. Each name is given one time. See \code{\link[=list_clocks]{list_clocks()}}.}
 
 \item{pheno}{A data.frame. The sample metadata, with one row for each
 sample. Default is \code{NULL}.}

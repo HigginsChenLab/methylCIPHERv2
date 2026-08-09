@@ -14,6 +14,102 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- `clocks =` is bounded by the token set, and the typo search by five
+
+Found while cutting the coverage lists: nothing stopped a caller passing a 300k-element vector to
+`clocks =`. Every element ran the resolve loop, and `adist()` then ran once per unmatched token
+over the whole pool. `capped_vals()` held the *message* to ten, so the search was already bounded
+in practice, but only by a constant chosen for how much text a reader will tolerate.
+
+**Two guards, and they only work as a pair.** `unique = TRUE`, and `max.len` equal to the number
+of distinct tokens the argument accepts -- `"all"`, the tags, the group ids and the callable clock
+ids, deduplicated, which is 142 today and moves with every sync. Neither alone means anything: a
+length bound is unenforceable while `rep("Horvath1", 3e5)` is legal, and uniqueness alone still
+admits 300k distinct strings. Both are plain `checkmate::assert_character()` arguments, so this
+adds no code path and no message of our own, and it lands ahead of every other line in
+`resolve_clocks()` -- including `sex_routed_members()` -- so an oversized vector is refused before
+anything reads it.
+
+**Refuse a duplicate rather than dropping it.** The function already deduplicates its *output*,
+so silently accepting `c("Horvath1", "Horvath1")` would have been free. It is refused for the same
+reason abbreviations are: `clocks =` matches exactly, and quietly changing what the caller wrote
+is how a request stops meaning what it says. It also keeps `max.len` honest.
+
+**`MC_SUGGEST_CAP` is 5, and it is a work cap, not a message cap.** `MC_MSG_CAP` answers "how much
+text", which is why it stays at 10 for the lead line naming the unmatched tokens. The number of
+`adist()` passes is a different question and now has its own constant, used at both search sites
+(`suggestion_bullets()` and `list_clocks(group =)`). The two caps differing is the point: a reader
+sees up to ten bad names and gets help with the first five.
+
+**`group =` and `tag =` were then measured rather than reasoned about, and the reasoning was
+wrong.** The guess was that both are one `setdiff` now that the search is capped, so neither
+needed anything. `group` measured that way: 0.12s at 300k unknown tokens, all of it the refusal.
+`tag` took **68.7 seconds** on 300k copies of a valid tag. The tag branch called `resolve_clocks()`
+**once per element** (`lapply(tag, resolve_clocks)`), and `assert_subset()` cannot see the problem
+because every element is a real tag -- the input was legal, and the only bad thing about it was
+that it repeated.
+
+Two changes, and the loop is the important one. `list_clocks()` now calls `resolve_clocks(tag)`
+once, since that function already takes a vector and unions it; the `lapply` was redundant before
+it was slow. And `group` and `tag` both get `unique = TRUE` at the front door. The assertion is
+placed there rather than inherited from `resolve_clocks()` so the message names the argument the
+caller actually wrote -- `resolve_clocks(tag)` would have reported a failure on `clocks`, which is
+the `.var.name` failure mode `dev/WRITING.md` warns about. 68.7s to 0.000s.
+
+**Both then got `max.len` after all, and the flat number was refused.** The first reading was that
+`tag` is bounded at three by `assert_subset()` and `group`'s only per-token work is a capped
+search, so neither needed a ceiling. What that missed is that a bound is also what stops the
+argument being *read*: at 300k unknown group names the refusal still cost 0.17s, all of it before
+anything could say the input was absurd. A flat 500 was proposed and is the wrong shape -- it
+answers "is this absurd" where the derived count answers "is this more than could possibly be
+wanted", and it would have *loosened* `clocks`, which was already at 142. So each argument is
+bounded by its own token set: `clocks` 142, `group` 43, `tag` 3, every one of them derived at call
+time so a sync moves it. All three refusals now measure 0.00s on a pre-built 300k vector.
+
+The group bound counts every declared group rather than the selectable ones, because the
+assertion runs before the routed members are filtered out. That is a looser bound than necessary
+and deliberately so: membership is checked below with a message that names the offending token,
+and moving the assertion down to tighten the ceiling by a group or two would split the front door
+for nothing.
+
+---
+
+## 2026-08-09 -- A coverage warning counts and points; it does not list
+
+The second cli pass, and it reverses the axis the first one measured on. The instrument scoped for
+it ranked messages by worst-case rendered lines, weighting each `capped_bullets()` block at
+`MC_MSG_CAP`. That is backwards: the block is **one** bullet whose entire purpose is to refuse to
+print more than ten items, so it is the fix and can never be the finding. Ranking by it put the
+cap at the top of the list of things to remove.
+
+The real question is whether the list is ours to print. It partitions the 14 call sites cleanly.
+Seven name an input the reader supplied -- duplicate ids on `rbind`, unrecognised `clocks =`
+tokens, `pheno` covariates with missing values, the assets a prompt will delete -- and those stay,
+because nothing else in the session holds them. The other seven printed a capped per-clock or
+per-sample coverage list and then, one bullet below, named the exit that gives the same figures
+complete, uncapped and filterable. Both column gates, `norm_gate()`, both row gates,
+`check_score_values()` and `say_scored_na()` lost their lists. `check_coverage()`'s failure warning
+went from 14 rendered lines to three: count, fix, pointer.
+
+**The consequence is that no gate names a clock any more, and that is load-bearing rather than
+incidental.** `gate_label()` existed so a warning about a sex-routed clock printed the alias the
+caller can type instead of the member id it actually graded, and `test-coverage-gate.R` asserted
+it. With the list gone there is no label to format, both helpers are deleted, and the test now
+asserts the stronger property it can still check: the message names no member id, and the alias
+does not appear either. The identity moved into the frame the pointer names -- where routed member
+ids *are* visible, which CLAUDE.md already records as intended.
+
+Two bullets that were not lists went with the same pass, both in `check_coverage()`: "those clocks
+score `NA` for every sample" restates the lead, and "a sex-specific clock scores `NA` only for
+samples of that sex" is a mechanism the reader cannot act on. The row gate's two conditional
+bullets merged into one three-case bullet, which also fixed a gap -- when every sample was dead,
+the old form dropped the "stays `NA` at every value" line entirely.
+
+Verified: `FAIL 0 | WARN 0 | SKIP 2 | PASS 963`, and `capped_bullets()` sites 14 -> 7. `R CMD
+check` and the parity tier were not run.
+
+---
+
 ## 2026-08-09 -- `explanation` ships beside `note`, and the printed digest shows the phrase alone
 
 The second half of `dev/to-do.md` P3, on top of the grain split below. `MC_NOTES` in
