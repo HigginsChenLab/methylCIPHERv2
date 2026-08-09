@@ -21,8 +21,12 @@ An \code{mc_summary} object. Returns \code{x}, invisibly, after printing it.
 Prints the tables of an \code{mc_summary} object.
 }
 \details{
-The two problem tables print the \code{explanation} of each note. The \code{note}
-itself stays in \code{x}, for a script that matches on it.
+The two problem tables print the \code{note} of each row. The notes table under
+them gives the \code{explanation} of every note they print. The \code{explanation}
+stays in \code{x} beside the \code{note}.
+
+Every table shortens \code{mc_batch_id} to its first seven characters, except
+the \code{mc_batch_id} table, which gives every label in full.
 }
 \examples{
 clocks <- c("Horvath1", "Hannum")

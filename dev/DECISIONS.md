@@ -14,6 +14,55 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- The digest prints the token and a legend, sorted, with a short batch label
+
+Reverses the same-day decision to print `explanation` alone and drop `note`. Same principle --
+show one of the pair, since carrying both wraps the table -- and the opposite choice. What
+changed is that the first call was made against a one-note, one-batch digest. Measured across
+four scenarios at `width = 80`, `by_clock / by_sample`, unwrapped:
+
+| scenario | phrase in the row | token plus a legend |
+| --- | --- | --- |
+| one note, one batch | 52 / 52 | 40 / 40, legend 42 |
+| seven notes, one batch | 82 / 74 | 49 / 41, legend 65 |
+| three notes, two batches | 93 / 90 | 60 / 57, legend 63 |
+
+Three findings behind the reversal.
+
+**Moving `explanation` to the end does not fix it.** A reorder cannot shrink a row, so it only
+decides where `print.data.frame` cuts the column block. At two batches both orders wrap
+`mc_batch_id` into a detached block of hashes. The reorder is still worth having -- it went in,
+storage and print alike -- but as legibility, not as the fix.
+
+**The legend is a deduplication, not a fourth block.** Both problem tables count the same `noted`
+frame, so their distinct `(panel, note)` sets are identical by construction. A seven-note run
+renders the phrase 14 times today and 7 in the legend.
+
+**The row-cap objection was wrong.** It was raised against the legend -- that it would explain
+notes the cap held back, or be wrong once the table is cut -- and it is answered by deriving it
+from `head(df, n)` of both tables. The existing `... N more row(s)` tail already says the table
+is cut. Cost accepted: the trivial case pays three lines to explain one phrase. The legend is
+**unconditional** for that reason and not in spite of it -- a block that appears only above N
+distinct notes is a conditional layout, which is the thing this file keeps refusing.
+
+**Sorting was not cosmetic.** `samples_coverage()` emits all counted rows for all batches, then
+all composite rows for all batches, and `group_count()` keeps first appearance. So with three
+batches and two composite clocks, the default 6-row `by_clock` showed batch 1 having four
+problems when it had six, the other two being off at rows 13 and 18. Batch sorts on the run's
+own label sequence rather than alphabetically on a hash, so the problem tables run in the same
+batch order as `input`, `arguments` and `mc_batch_id`.
+
+**The batch label is shortened to 7 hex plus `...`, everywhere except the table that names the
+batches.** That table prints under the same condition that puts the column in the others, so the
+whole label is always on screen exactly once and no column repeats 16 hex down its rows. It buys
+almost no width (`by_clock` 65 -> 59, both already inside 80) and is not meant to: it is
+legibility. An adaptive shortest-unique-prefix helper was written first and dropped -- the column
+exists only at multi-batch, so the loop guarded a path almost nobody reaches, and a display
+collision at 7 hex needs roughly 16k batches in one record. `batch_hash()` is untouched and the
+coverage frames shorten nothing; this is `print.mc_summary()` only.
+
+---
+
 ## 2026-08-09 -- `clocks =` is bounded by the token set, and the typo search by five
 
 Found while cutting the coverage lists: nothing stopped a caller passing a 300k-element vector to

@@ -91,6 +91,47 @@ test_that("a clock that scored nothing is failed, and is refused once", {
   expect_no_warning(samples_coverage(res))
 })
 
+test_that("the printed digest carries the key to everything it shortens", {
+  skip_on_cran()
+  clocks <- c("Horvath1", "Hannum")
+  mk <- function(sfx) {
+    sim <- sim_DNAm(clocks, n = 6L, suffix = sfx)
+    own <- setdiff(clock_scoring_cpgs("Hannum"), clock_scoring_cpgs("Horvath1"))
+    DNAm <- sim[["DNAm"]]
+    DNAm <- DNAm[, setdiff(colnames(DNAm), utils::head(own, 50L)), drop = FALSE]
+    suppressWarnings(calc_clocks(DNAm, clocks))
+  }
+  out <- suppressWarnings(summary(suppressMessages(rbind(mk("_a"), mk("_b")))))
+  txt <- utils::capture.output(print(out))
+
+  # explanation trails the counts, and the batch key still ends the row
+  expect_equal(
+    names(out$by_clock),
+    c("clock_id", "panel", "note", "n_samples", "explanation", "mc_batch_id")
+  )
+  # one batch at a time, so a capped table is never a mix of the two
+  seq_batch <- match(out$by_clock$mc_batch_id, out$batches$mc_batch_id)
+  expect_false(is.unsorted(seq_batch))
+
+  # every token that printed has its phrase in the same output, stated once
+  # rather than on each row it applies to
+  phrase <- MC_NOTES[[unique(out$by_clock$note)[[1L]]]]
+  expect_equal(sum(grepl(phrase, txt, fixed = TRUE)), 1L)
+
+  # a shortened label is never the only form of itself on screen
+  full <- out$batches$mc_batch_id
+  expect_true(all(vapply(
+    full,
+    function(b) any(grepl(b, txt, fixed = TRUE)),
+    logical(1L)
+  )))
+  expect_true(any(grepl(
+    paste0(substr(full[[1L]], 1L, 7L), "..."),
+    txt,
+    fixed = TRUE
+  )))
+})
+
 test_that("a clean run reports no problems and no value columns", {
   skip_on_cran()
   clocks <- c("Horvath1", "Hannum")
