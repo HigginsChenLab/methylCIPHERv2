@@ -111,8 +111,10 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
           c("i" = "Lower {.arg min_clocks_coverage} to score more clocks.")
         },
         if (!all(observed)) {
-          c("i" = "A clock with no CpGs in {.arg DNAm} is {.code NA} at every
-                   {.arg min_clocks_coverage}.")
+          c(
+            "i" = "A clock with no CpGs in {.arg DNAm} is {.code NA} at every
+                   {.arg min_clocks_coverage}."
+          )
         },
         "i" = "{.fn clock_cpgs} gives the CpGs a clock needs."
       ),
@@ -283,8 +285,10 @@ check_row_coverage <- function(gate, threshold = 0.75) {
           c("i" = "Lower {.arg min_samples_coverage} to score more samples.")
         },
         if (any_of(function(s) any(s[["dead"]]))) {
-          c("i" = "A sample with no scoring CpGs is {.code NA} at every
-                   {.arg min_samples_coverage}.")
+          c(
+            "i" = "A sample with no scoring CpGs is {.code NA} at every
+                   {.arg min_samples_coverage}."
+          )
         },
         "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),

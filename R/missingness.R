@@ -79,11 +79,8 @@ check_col_values <- function(scan, cols) {
 
 # post-score value gate for nan/inf. na is legitimate.
 check_score_values <- function(scores) {
-  n_bad <- vapply(
-    scores,
-    function(v) sum(is.nan(v) | is.infinite(v)),
-    integer(1L)
-  )
+  # one definition of "not finite", shared with the note of the same name
+  n_bad <- vapply(scores, function(v) sum(not_finite(v)), integer(1L))
   bad <- n_bad[n_bad > 0L]
   if (!length(bad)) {
     return(invisible(NULL))
@@ -100,9 +97,6 @@ check_score_values <- function(scores) {
       character(1L)
     )
   }
-  # the per-sample sd hint that stood here is gone: split_moments() now sends
-  # a zero sd down the same path as a missing one, so a sample with no spread
-  # scores NA and never reaches this gate.
   cli::cli_warn(
     c(
       "{length(bad)} clock{?s} produced {cli::qty(sum(bad))}non-finite

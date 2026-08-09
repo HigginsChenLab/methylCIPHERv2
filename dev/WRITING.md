@@ -328,9 +328,10 @@ and two `@section`s, `The assets directory` and `Clocks that use all the samples
 
 ## 6. `@seealso`: the groups are closed, do not add a link
 
-The groups were decided once, with the whole surface in view, on 2026-08-03. **Do not add,
-remove, or retarget a `@seealso` link on your own.** Not "obviously related", not "the same verb
-pair". If you notice a pairing worth linking, **say so in your report** and leave the tag alone.
+The groups were decided once, with the whole surface in view, on 2026-08-03, and last widened on
+2026-08-09. **Do not add, remove, or retarget a `@seealso` link on your own.** Not "obviously
+related", not "the same verb pair". If you notice a pairing worth linking, **say so in your
+report** and leave the tag alone.
 
 The reason is the invariant the set carries:
 
@@ -340,17 +341,23 @@ holds by construction, including where a topic is in two groups. The closed set 
 | group | members |
 |---|---|
 | discovery | `list_clocks`, `list_clock_tags`, `clock_cpgs`, `list_mc_assets` |
-| coverage | `clocks_coverage`, `samples_coverage` |
+| quality control | `clocks_coverage`, `samples_coverage`, `summary.mc_result` |
 | record verbs | `as.data.frame.mc_result`, `as.matrix.mc_result`, `rbind.mc_result`, `refinalize_clocks` |
-| analysis | `calc_accel`, `score_associations` |
+| analysis | `calc_accel`, `score_associations`, `predict_sex` |
 | assets | the six `*_mc_assets*` verbs, including `list_mc_assets` |
 
 `list_mc_assets` is in two groups, so it carries the union at eight links. That is the widest
 list in the manual and it is intended.
 
+The quality control group was the coverage pair until 2026-08-09. `summary.mc_result` is built
+from `samples_coverage()` and counts its `note` column, so a reader who reaches one of the three
+wants the other two, and the name follows what the group now covers. `predict_sex` joined
+`analysis` in the same pass: it reads a finished matrix and returns a per-sample verdict, which is
+what the other two members do (DECISIONS 2026-08-09).
+
 **Untagged on purpose:** `calc_clocks` is the entry point and points nowhere, `cite_clocks`
-carries its methods on one topic instead, and `sim_DNAm`, `predict_sex` and the three `print`
-methods are left out by decision (DECISIONS 2026-08-03).
+carries its methods on one topic instead, and `sim_DNAm` and the four `print` methods are left out
+by decision (DECISIONS 2026-08-03).
 
 **Form:** one sentence for a single link, a plain bulleted list for two or more, each item
 `[fn()]` plus a short clause saying what the reader gets there. The tag sits after `@returns` and

@@ -65,7 +65,8 @@ list_clocks <- function(
 
   # a sex-routed member is not a clock a user can request, so it is not listed
   idx <- mc_index[
-    !mc_index[["clock_id"]] %in% names(sex_routed_members()[["alias"]]), ,
+    !mc_index[["clock_id"]] %in% names(sex_routed_members()[["alias"]]),
+    ,
     drop = FALSE
   ]
 

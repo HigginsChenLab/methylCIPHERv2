@@ -450,7 +450,6 @@ for (cohort_i in staged_cohorts) {
 # degraded coverage against the DunedinPACE reference. needs the tier flag, not duckdb.
 if (parity_on) {
   test_that("DunedinPACE matches danbelsky/DunedinPACE through a holed panel", {
-
     norm_panel <- names(clock_norm_target("DunedinPACE"))
     score_panel <- clock_scoring_cpgs("DunedinPACE")
     norm_only <- setdiff(norm_panel, score_panel)

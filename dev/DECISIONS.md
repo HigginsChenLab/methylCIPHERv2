@@ -14,6 +14,34 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- The `@seealso` coverage group becomes quality control, and `predict_sex` joins analysis
+
+Two links added to the closed set of 2026-08-03, on the maintainer's call. `dev/WRITING.md`
+section 6 carries the resulting table; this entry is the why.
+
+**`summary.mc_result` joins `clocks_coverage` and `samples_coverage`, and the group is renamed.**
+The digest is built from `samples_coverage()` and its two problem tables are that frame's `note`
+column counted two ways, so the three topics answer one question between them: what did this run
+fail to score, and on what. Leaving the digest unlinked meant the only route to it was already
+knowing it existed -- it is a `summary()` method, so it appears under no verb a reader would
+search for. "Coverage" stopped describing the group once a member reported notes rather than CpG
+counts, and a group name that names two of its three members is worse than no name.
+
+**`predict_sex` joins `calc_accel` and `score_associations`.** The 2026-08-03 pass left it out
+with `sim_DNAm` and the print methods, which reads as a mistake in hindsight: `sim_DNAm` generates
+input and a print method returns its argument, while `predict_sex()` takes a finished matrix and
+returns a per-sample verdict, which is exactly what the other two analysis members do. It was
+excluded because it is the only member that reads `DNAm` rather than an `mc_result`, and that is a
+fact about its argument, not about what a reader wants next to it.
+
+**What did not change is the invariant**: a topic's `@seealso` is still the union of its groups
+minus itself, so both edits are symmetric by construction and `lint_seealso()` stays empty. Both
+groups crossed from one link to two, so both flipped from the single-sentence form to the bulleted
+form on every member. Adding a link is never a one-file edit, and that cost is the point of the
+set being closed.
+
+---
+
 ## 2026-08-09 -- A zero per-sample sd is a fit failure, not a score of `Inf`
 
 `split_moments()` guarded the *undefined* divisor and not the *zero* one:

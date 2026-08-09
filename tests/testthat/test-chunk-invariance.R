@@ -213,7 +213,9 @@ test_that("a panel's positions resolve to the panel's own CpGs in the block", {
   facts <- fx$run$facts
   block <- mc_block(fx$cohort$DNAm, fx$cohort$spec, facts)
   parts <- facts$cpg_list$panel_index$score$parts
-  pull <- function(x, f) unlist(lapply(x, function(p) p[[f]]), use.names = FALSE)
+  pull <- function(x, f) {
+    unlist(lapply(x, function(p) p[[f]]), use.names = FALSE)
+  }
 
   # the matmul reads coef by name off cols, so the columns must be those CpGs
   got <- lapply(parts, function(p) {

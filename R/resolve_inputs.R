@@ -336,7 +336,8 @@ resolve_cpgs <- function(usable_cols, panels) {
   norm_shared <- tabulate(
     panels[["norm"]][["idx"]],
     nbins = length(norm_parts)
-  ) > 1L
+  ) >
+    1L
 
   per_clock <- lapply(seq_along(clock_sequence), function(i) {
     s <- score_parts[[panels[["score"]][["idx"]][[i]]]]

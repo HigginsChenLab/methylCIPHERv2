@@ -23,7 +23,10 @@ test_that("covariates= refuses a map it cannot honor", {
   # nothing to point at
   expect_error(score(covariates = c(Age = "age_yrs")))
   # one covariate cannot be pointed at two columns
-  expect_error(score(pheno = ph, covariates = c(Age = "age_yrs", Age = "sex_f")))
+  expect_error(score(
+    pheno = ph,
+    covariates = c(Age = "age_yrs", Age = "sex_f")
+  ))
 
   # a run that reads no covariate has nothing to point
   expect_error(calc_clocks(
@@ -102,7 +105,11 @@ test_that("calc_accel points its own data at a covariate", {
   # the units gate reads the canonical column here too
   months <- ph
   months[["age_yrs"]] <- ages * 12
-  expect_warning(calc_accel(res, data = months, covariates = c(Age = "age_yrs")))
+  expect_warning(calc_accel(
+    res,
+    data = months,
+    covariates = c(Age = "age_yrs")
+  ))
 })
 
 # predict_sex reads Female itself, and the clocks it scores read no covariate,

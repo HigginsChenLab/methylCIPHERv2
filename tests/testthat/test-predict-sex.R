@@ -30,8 +30,16 @@ test_that("a sample without both scores is called NA, not the default", {
 
   # one arm under the clock floor: no sample can be called
   hole <- clock_scoring_cpgs(ids[[1L]])
-  gated <- DNAm[, setdiff(colnames(DNAm), hole[seq_len(round(0.8 *
-    length(hole)))]), drop = FALSE]
+  gated <- DNAm[,
+    setdiff(
+      colnames(DNAm),
+      hole[seq_len(round(
+        0.8 *
+          length(hole)
+      ))]
+    ),
+    drop = FALSE
+  ]
   out <- suppressWarnings(predict_sex(gated, sim$pheno))
   expect_true(all(is.na(out$predicted_sex)))
   # a call that never happened is never a disagreement

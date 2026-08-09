@@ -78,5 +78,9 @@ head(samples_coverage(res))
 
 }
 \seealso{
-\code{\link[=clocks_coverage]{clocks_coverage()}} for the same panels counted for each clock.
+\itemize{
+\item \code{\link[=clocks_coverage]{clocks_coverage()}} for the same panels counted for each clock.
+\item \code{\link[=summary.mc_result]{summary.mc_result()}} for the \code{note} column counted by clock and by
+sample.
+}
 }

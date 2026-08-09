@@ -56,5 +56,9 @@ clocks_coverage(res, all_columns = TRUE)
 
 }
 \seealso{
-\code{\link[=samples_coverage]{samples_coverage()}} for the same panels counted for each sample.
+\itemize{
+\item \code{\link[=samples_coverage]{samples_coverage()}} for the same panels counted for each sample.
+\item \code{\link[=summary.mc_result]{summary.mc_result()}} for a digest of the run and of what it could not
+score.
+}
 }

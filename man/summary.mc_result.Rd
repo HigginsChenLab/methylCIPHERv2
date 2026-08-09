@@ -54,3 +54,9 @@ res <- calc_clocks(sim[["DNAm"]], clocks)
 summary(res)
 
 }
+\seealso{
+\itemize{
+\item \code{\link[=clocks_coverage]{clocks_coverage()}} for the CpG counts behind each clock's score.
+\item \code{\link[=samples_coverage]{samples_coverage()}} for the counts and the \code{note} of each sample.
+}
+}
