@@ -73,6 +73,37 @@ test_that("ordinary betas pass both gates in silence, and NA fills are counted",
   )
 })
 
+test_that("the value sweep is kept, keyed by the batch whose matrix it read", {
+  skip_on_cran()
+  b <- gate_betas(n = 4L)
+  off <- paste0("cg_offpanel_", seq_len(5L))
+  DNAm <- cbind(b$DNAm, random_betas(off, n = 4L))
+  DNAm[4, b$panel[7]] <- 1.4
+  DNAm[, b$panel[2]] <- NA
+
+  got <- suppressWarnings(calc_clocks(DNAm, "Hannum"))
+  first <- got$provenance$input[[1]]
+  expect_equal(first$n_cpgs, ncol(DNAm))
+  # the sweep reads the panel alone, so the shape and the scan differ
+  expect_equal(first$n_scanned, length(b$panel))
+  expect_equal(first$n_all_na, 1L)
+  expect_equal(first$max_val, 1.4)
+  expect_equal(first$max_col, b$panel[7])
+  # nothing went below 0, so the low side names no column
+  expect_true(is.na(first$min_col))
+  expect_false(first$any_inf)
+
+  clean <- random_betas(b$panel, n = 3L)
+  rownames(clean) <- paste0("b2_", rownames(clean))
+  both <- rbind(got, calc_clocks(clean, "Hannum"))
+  # each matrix keeps its own verdicts under the label it was scored as
+  expect_equal(names(both$provenance$input), names(both$coverage$per_clock))
+  expect_equal(
+    unname(vapply(both$provenance$input, function(v) v$n_all_na, integer(1))),
+    c(1L, 0L)
+  )
+})
+
 test_that("a column that overflows its own sum stops, and names the column", {
   b <- gate_betas()
   DNAm <- b$DNAm

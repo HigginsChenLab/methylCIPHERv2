@@ -3,6 +3,9 @@
 # max this far past 1 is treated as percent methylation.
 PERCENT_SCALE_AT <- 50
 
+# the sweep reads the requested panels, so every value verdict is that narrow
+SCAN_SCOPE <- "The check covers only the CpGs that the requested clocks use."
+
 # value gates over one col_stats() sweep: overflow stops, everything else warns
 check_col_values <- function(scan, cols) {
   at <- scan[["overflow_col"]]
@@ -30,7 +33,8 @@ check_col_values <- function(scan, cols) {
                like any other missing value.",
         "i" = "{.fn clocks_coverage} reports what was filled or dropped. An
                infinite beta is often a divide by zero earlier in the
-               pipeline."
+               pipeline.",
+        "i" = SCAN_SCOPE
       ),
       call = NULL
     )
@@ -45,7 +49,8 @@ check_col_values <- function(scan, cols) {
         "x" = "The smallest is {.val {signif(lo, 4)}}, in column
                {.val {cols[scan[['min_col']]]}}.",
         "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
-               {.val {1}}. An M-value matrix is a common cause."
+               {.val {1}}. An M-value matrix is a common cause.",
+        "i" = SCAN_SCOPE
       ),
       call = NULL
     )
@@ -63,7 +68,8 @@ check_col_values <- function(scan, cols) {
           c("i" = "Percent methylation is a common cause at this size.")
         } else {
           c("i" = "Check the scale of {.arg DNAm}.")
-        }
+        },
+        "i" = SCAN_SCOPE
       ),
       call = NULL
     )
@@ -133,6 +139,21 @@ check_score_values <- function(scores) {
     call = NULL
   )
   invisible(NULL)
+}
+
+# what the sweep found about the matrix, kept rather than only warned about.
+# min_col / max_col are NA unless a value left the beta range.
+input_scan <- function(scan, cols, n_cpgs, n_all_na) {
+  list(
+    n_cpgs = n_cpgs,
+    n_scanned = length(cols),
+    n_all_na = n_all_na,
+    min_val = scan[["min_val"]],
+    max_val = scan[["max_val"]],
+    min_col = cols[scan[["min_col"]]],
+    max_col = cols[scan[["max_col"]]],
+    any_inf = isTRUE(scan[["any_inf"]])
+  )
 }
 
 # max moment domains per col_stats() sweep (uint8_t mask width).
@@ -253,7 +274,9 @@ scan_missing_cpgs <- function(DNAm, needed_cpgs, moment_domains = NULL) {
     partial_na_cols = partial,
     all_na_cols = all_na,
     col_mean = stats::setNames(st["sum", i] / st["n_obs", i], partial),
-    sample_moments = moments
+    sample_moments = moments,
+    # the gate above reports these once; the record keeps them
+    input = input_scan(scan, present_needed, ncol(DNAm), length(all_na))
   )
 }
 

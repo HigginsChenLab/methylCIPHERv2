@@ -113,7 +113,7 @@ no first person, no contractions, no `--`, no `;`. See section 10 for what else 
   `cite_clocks()` -- because that is the whole surface a reader works through. A component path
   needs them to know the object's internals, and `rbind()` and `refinalize_clocks()` restructure it
   under them. A warning about samples that scored `NA` points at `samples_coverage()` and its
-  `reason` column, never at the collector that column is derived from. This is R4 ("name the
+  `note` column, never at the collector that column is derived from. This is R4 ("name the
   function to call next") applied to R8's own whitelist, and it was written down after a message
   shipped pointing at exactly such a path.
 

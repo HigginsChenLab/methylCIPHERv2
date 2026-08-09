@@ -81,6 +81,7 @@ construct_mc_result <- function(
   normalize_requested,
   min_clocks_coverage,
   min_samples_coverage,
+  input,
   scoring_failures = list(),
   partial_calibration = list(),
   pending = list()
@@ -134,6 +135,9 @@ construct_mc_result <- function(
         # the gates this batch was scored under, keyed by batch like per_clock
         min_clocks_coverage = stats::setNames(min_clocks_coverage, batch),
         min_samples_coverage = stats::setNames(min_samples_coverage, batch),
+        # the matrix each batch was scored from, keyed by batch: a bound record
+        # holds one shape and one set of value verdicts per batch, never a total
+        input = stats::setNames(list(input), batch),
         # clock id -> sample ids the scorer could not fit
         scoring_failures = scoring_failures,
         # clock id -> sample ids normalized from a partial calibration

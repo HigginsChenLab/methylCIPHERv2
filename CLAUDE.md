@@ -152,6 +152,15 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   aborts any more, so a record can hold a clock the column gate refused and a cell the row gate
   refused, and only the floor that batch ran under says which (DECISIONS 2026-08-06, superseding the
   2026-08-03 reading that `min_clocks_coverage` was recorded but read by nothing).
+  - **The front-door sweep is kept, not only warned about, and it is keyed by batch.**
+    `provenance$input` holds one entry per batch -- the matrix's `ncol`, how many of those columns
+    the sweep actually read, the all-NA count among them, and the range verdicts `check_col_values()`
+    warns on (`min_val` / `max_val` with the offending column, `any_inf`). `scan_missing_cpgs()`
+    builds it off the same `col_stats()` pass the gate reads, so it costs nothing. **Never total it
+    across batches**: each `rbind`-ed record came from a different matrix, so a flat `n_cpgs` is a
+    lie the moment two are bound, and `n_scanned` is narrower than `n_cpgs` because the sweep reads
+    the requested panels alone -- which is why all three range messages carry that scope
+    (DECISIONS 2026-08-08).
   - **Normalization is two facts, and the record keeps both.** `normalized` is what a run *did* --
     flat, and `rbind` gates on it, because a normalized column and a raw one are two different
     columns. `normalize_requested` is what the caller *asked for*, **keyed by batch** like the
