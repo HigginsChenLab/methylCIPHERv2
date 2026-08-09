@@ -293,7 +293,7 @@ new_notes <- function() {
 }
 
 # record that `sample_id` could not be scored for clock `id`
-note_scoring_failure <- function(block, id, sample_id) {
+mc_note_scoring_failure <- function(block, id, sample_id) {
   notes <- block[["notes"]]
   if (!length(sample_id)) {
     return(invisible(NULL))
@@ -303,7 +303,7 @@ note_scoring_failure <- function(block, id, sample_id) {
 }
 
 # record that `sample_id` scored clock `id` from a partial calibration
-note_partial_calibration <- function(block, id, sample_id) {
+mc_note_partial_calibration <- function(block, id, sample_id) {
   partial <- block[["partial"]]
   if (!length(sample_id)) {
     return(invisible(NULL))

@@ -21,7 +21,7 @@ score_Zhang2019 <- function(id, cpgs, block, results) {
 
   # sample_scale over all DNAm columns; need 2 observed values or sd is NA.
   failed <- block[["sample_id"]][is.na(s)]
-  note_scoring_failure(block, id, failed)
+  mc_note_scoring_failure(block, id, failed)
   say_moment_failure(id, failed)
 
   score_matrix(clock_intercept(id) + z_sum, block[["sample_id"]], id)

@@ -37,7 +37,7 @@ score_DNAmSex_Wang <- function(id, cpgs, block, results) {
 
   # n < 2 on the ref leaves moments NA. sample is unscorable.
   failed <- block[["sample_id"]][is.na(mom[["sd"]])]
-  note_scoring_failure(block, id, failed)
+  mc_note_scoring_failure(block, id, failed)
   say_moment_failure(id, failed)
 
   score_matrix(score, block[["sample_id"]], id)
