@@ -364,47 +364,18 @@ canonicalize_em_components <- function(em, context) {
   em
 }
 
-# Sample fit indices with a local RNG (do not touch .Random.seed).
-draw_fit_indices <- function(n, size, seed) {
-  has.seed <- exists(".Random.seed", envir = globalenv(), inherits = FALSE)
-  if (has.seed) {
-    saved.seed <- get(".Random.seed", envir = globalenv(), inherits = FALSE)
-    on.exit(
-      assign(".Random.seed", saved.seed, envir = globalenv()),
-      add = TRUE
-    )
-  } else {
-    on.exit(
-      if (exists(".Random.seed", envir = globalenv(), inherits = FALSE)) {
-        rm(".Random.seed", envir = globalenv())
-      },
-      add = TRUE
-    )
-  }
-  set.seed(seed)
-  sample.int(n, size, replace = FALSE)
-}
-
 fit_mixture <- function(
   beta,
   thresholds,
   nL,
-  nfit,
   niter,
   tol,
   beta.maxit,
   beta.score.tol,
   context,
-  debug = FALSE,
-  seed = 1L
+  debug = FALSE
 ) {
-  rand.idx <- draw_fit_indices(
-    length(beta),
-    min(nfit, length(beta)),
-    seed
-  )
-
-  initial.class <- class_by_thresh(beta[rand.idx], thresholds)
+  initial.class <- class_by_thresh(beta, thresholds)
 
   initial.counts <- require_all_classes(
     class = initial.class,
@@ -413,12 +384,12 @@ fit_mixture <- function(
     min.count = 2L
   )
 
-  # One-hot responsibilities on the fit subset only.
-  w.init <- matrix(0, nrow = length(rand.idx), ncol = nL)
-  w.init[cbind(seq_along(rand.idx), initial.class)] <- 1
+  # One-hot responsibilities over the whole panel (no subsample, no RNG).
+  w.init <- matrix(0, nrow = length(beta), ncol = nL)
+  w.init[cbind(seq_along(beta), initial.class)] <- 1
 
   # Clip endpoints toward nearest interior; floor at endpoint.eps (avoid log(0)).
-  y_fit <- as.numeric(beta[rand.idx])
+  y_fit <- as.numeric(beta)
   endpoint.eps <- sqrt(.Machine[["double.eps"]])
   positive <- y_fit[y_fit > 0]
   below.one <- y_fit[y_fit < 1]
@@ -489,7 +460,6 @@ fit_mixture <- function(
 
   list(
     em = em,
-    random_indices = rand.idx,
     initial_class_counts = initial.counts,
     component_means = component.means,
     subset_map_counts = subset.counts,
@@ -502,7 +472,6 @@ fit_mixture <- function(
 em_diagnostics <- function(fit, extra = NULL) {
   em <- fit[["em"]]
   out <- list(
-    random_indices = fit[["random_indices"]],
     initial_class_counts = fit[["initial_class_counts"]],
     eta = em[["eta"]],
     component_means = fit[["component_means"]],
@@ -540,13 +509,13 @@ map_beta_q <- function(x, a.sample, b.sample, a.gold, b.gold, lower.tail) {
   )
 }
 
-# BMIQ calibrate beta matrix onto gold standard (defaults match legacy BMIQ).
+# BMIQ calibrate beta matrix onto gold standard (defaults follow legacy BMIQ).
+# Every mixture is fitted on the whole panel; legacy BMIQ subsampled `nfit` of it.
 bmiq_calibration <- function(
   datM,
   goldstandard.beta,
   nL = 3L,
   doH = NULL,
-  nfit = 20000L,
   th1.v = NULL,
   niter = 5L,
   tol = 0.001,
@@ -600,7 +569,6 @@ bmiq_calibration <- function(
     }
   }
 
-  nfit <- as.integer(checkmate::assert_int(nfit, lower = 2L * nL))
   niter <- as.integer(checkmate::assert_int(niter, lower = 1L))
   beta.maxit <- as.integer(checkmate::assert_int(beta.maxit, lower = 1L))
   checkmate::assert_number(tol, lower = 0, finite = TRUE)
@@ -678,7 +646,6 @@ bmiq_calibration <- function(
     beta = beta1.v,
     thresholds = th1.v,
     nL = nL,
-    nfit = nfit,
     niter = niter,
     tol = tol,
     beta.maxit = beta.maxit,
@@ -799,7 +766,6 @@ bmiq_calibration <- function(
           beta = beta2.v,
           thresholds = th2.initial,
           nL = nL,
-          nfit = nfit,
           niter = niter,
           tol = tol,
           beta.maxit = beta.maxit,
@@ -1155,7 +1121,6 @@ bmiq_calibration <- function(
     settings = list(
       nL = nL,
       doH = doH,
-      nfit = nfit,
       niter = niter,
       tol = tol,
       beta.maxit = beta.maxit,

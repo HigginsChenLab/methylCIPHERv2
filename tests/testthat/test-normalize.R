@@ -29,7 +29,6 @@ bmiq_calibrated <- function(m) {
   bmiq_calibration(
     m,
     goldstandard.beta = as.numeric(GOLD[colnames(m)]),
-    nfit = ncol(m),
     verbose = FALSE,
     on.sample.error = "continue",
     failed.sample = "NA"

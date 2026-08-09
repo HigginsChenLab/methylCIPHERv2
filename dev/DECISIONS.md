@@ -14,6 +14,62 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-08 -- BMIQ's gold standard is distributional, so a bare `goldstandard.beta` needs no alignment check
+
+`bmiq_calibration()` takes `goldstandard.beta` as an unnamed numeric vector paired positionally
+with the matrix columns, and nothing inside it can check that pairing. Audited on the fear that a
+mis-ordered gold would silently apply the wrong per-probe mean. **It cannot: there is no per-probe
+gold mean.** `beta1.v` is read at four places -- one beta-mixture EM over the whole vector and two
+`estimate_mode()` calls over subsets selected by the gold's *own* class assignment -- and what
+crosses into `process_sample()` is five distributional summaries (`gold.a`, `gold.b`,
+`gold.thresholds`, `mod1U`, `mod1M`). Measured: reversing the gold's order moves Horvath1 by
+6.9e-11, and scrambling it while keeping the multiset moves it by 9.7e-13.
+
+**The mask is what matters, not the order**, and that is a much smaller surface. Measured on the
+same panel: a *different* 18868 of the 21368 probes moves the score 0.023 years, and a biased half
+moves it 2.36. Both are prevented one frame up, by two things already required elsewhere --
+`resolve_cpgs()` derives `present` / `present_idx` / `absent` from one `ok` mask, and `bmiq_fit()`
+subsets the gold **by name** off `obs[["cols"]]`, the same object that names the matrix columns.
+Full column permutation of the input gives `identical()` scores.
+
+So do not add an alignment assertion inside `bmiq_calibration()`, and do not read the positional
+signature as a latent bug. The gold is a named vector out of the catalog
+(`probe_sets[].role == "bmiq_gold_standard"`, upstream `weights/<group>/goldstandard2.csv.gz`);
+the names are what make the by-name subset possible and are the thing to preserve. Not verified
+for the quantile scheme, which routes through `score_Dunedin` and shares only the mask guarantee.
+
+---
+
+## 2026-08-08 -- BMIQ fits the whole panel and draws no RNG; `nfit` is gone
+
+`fit_mixture()` drew `min(nfit, length(beta))` indices through `draw_fit_indices()`, which called
+`set.seed(1)` behind a `.Random.seed` save/restore. That is deterministic within a session but
+**inherits the session's `RNGkind`**, so a user who set `L'Ecuyer-CMRG` -- routine for parallel
+work -- scored Horvath1 differently. Measured on the shipped path: 3.39e-08 years between the two
+generators.
+
+**Two premises that motivated the change were both wrong, and are recorded so they are not
+re-derived.** `bmiq_fit()` already passed `nfit = ncol(betas)`, overriding the 20000 default, so
+the draw was always a **full permutation and never a subsample** -- traced live, 4 calls, all with
+`n == size == 17368`. No probe was ever excluded; the RNG only reordered `y_fit` and perturbed
+floating-point summation order in the EM. Consequently there is **no cost** to removing it (0.71s
+vs 0.72s on 8 x 21368), not the +4% predicted from timing a direct `bmiq_calibration()` call that
+bypassed `bmiq_fit()`.
+
+`draw_fit_indices()` is deleted and `fit_mixture()` fits the whole vector. **`nfit` is removed
+rather than ignored** -- an argument accepted and silently disregarded is a lie in the signature,
+and `bmiq_calibration()` is internal, so no user-facing surface moves. The re-vendoring argument
+for keeping it does not apply: `R/normalize_bmiq.R` has been this package's own code since
+2026-08-07 and there is no re-vendor workflow to protect.
+
+Scores now bit-identical across `RNGkind` and across seeds. Old vs new differ by 1.6e-07 years,
+pure reassociation. **`HORVATH_NORM_TOL` needed no re-snapshot**: `Horvath1@cohort_450K` measured
+1.137877e-01 / 1.926282e-03 against a recorded 1.137877e-01 / 1.926282e-03, unchanged to all
+seven figures, because a 1.6e-07 perturbation sits six orders below a 0.11-year residual. Parity
+ran at `FAIL 0 | SKIP 33 | PASS 710`, the documented cached-packs baseline.
+
+---
+
 ## 2026-08-08 -- `normalize =` may name a sex-routed member, and that stays
 
 `normalize =` validates `names(normalize)` against the resolved sequence, which carries the

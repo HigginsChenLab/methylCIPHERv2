@@ -51,6 +51,21 @@ an Armadillo-free backend the same day (`arma::vec` -> `std::vector<double>`, `a
 calibrated cells before the swap, not merely within tolerance. Do not re-add `RcppArmadillo` to
 build a kernel here without measuring what it buys (DECISIONS 2026-08-07).
 
+**BMIQ draws no random numbers and fits every mixture on the whole panel.** It used to subsample
+`nfit` indices behind `set.seed(1)`, which inherits the caller's `RNGkind` and so scored Horvath1
+differently under `L'Ecuyer-CMRG` -- and it was never a subsample anyway, because `bmiq_fit()`
+passed `nfit = ncol(betas)`, making the draw a full permutation that only reordered summation. The
+draw and the `nfit` argument are both gone as of 2026-08-08, at no measurable cost. Do not restore
+a fit subsample without an explicit answer for how the result stays generator-independent
+(DECISIONS 2026-08-08).
+
+**A BMIQ gold standard is consumed distributionally, not probe by probe.** `goldstandard.beta` is
+positional and unnamed, but the vector only ever yields five summaries, so a mis-*ordered* gold is
+a no-op (6.9e-11 years) and a mis-*masked* one is the real hazard (up to 2.4 years). The mask is
+guaranteed upstream by `resolve_cpgs()`'s single `ok` mask plus `bmiq_fit()`'s by-name
+`target[obs[["cols"]]]`. Do not add an alignment assertion inside `bmiq_calibration()`, and do not
+read the bare vector as a latent bug -- it has been audited (DECISIONS 2026-08-08).
+
 ## Non-negotiable invariants
 
 Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
@@ -649,8 +664,9 @@ output**, not implementation detail (see "Test altitude").
     from 7.7 years of disagreement to 0.11, while `cohort_EPICv1` is 19 probes short and stays at
     4.0 -- which is the fill gap talking, hence the guard rather than a second tolerance.
     `HORVATH_NORM_TOL` is a **snapshot of that residual, not an agreement target**, keyed
-    `clock@cohort` and sitting just above the measurement (BMIQ is deterministic here -- verified
-    bit-identical across three runs). A pair that clears the absent-probe guard with no entry in
+    `clock@cohort` and sitting just above the measurement (BMIQ is deterministic -- since
+    2026-08-08 it draws no RNG at all, so this holds across generators and seeds, not merely across
+    three runs). A pair that clears the absent-probe guard with no entry in
     the map **fails**: a newly admissible pair needs its residual measured, never defaulted
     (DECISIONS 2026-08-04).
   - **A fixture is scored on the panel the oracle used, which is not always the scoring panel.** A
