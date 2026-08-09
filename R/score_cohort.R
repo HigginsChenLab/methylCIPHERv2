@@ -332,7 +332,8 @@ say_scored_na <- function(id, failed, reason) {
   )
 }
 
-# sample_scale: need 2 observed values on the declared domain or sd is NA.
+# sample_scale: the divisor is NA under 2 observed values, and where every
+# observed value on the domain is the same.
 say_moment_failure <- function(id, failed) {
   where <- if (clock_needs_full_panel(id)) {
     cli::format_inline("every column of {.arg DNAm}")
@@ -343,8 +344,8 @@ say_moment_failure <- function(id, failed) {
     id,
     failed,
     cli::format_inline(
-      "{length(failed)} sample{?s} {cli::qty(failed)}{?has/have} fewer than
-       2 observed CpGs in {where}:"
+      "{length(failed)} sample{?s} {cli::qty(failed)}{?has/have} no spread
+       in {where}:"
     )
   )
 }

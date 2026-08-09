@@ -68,15 +68,19 @@ test_that("the notes are told apart, and a covariate outranks a floor", {
 })
 
 # a score that is not a finite number is something that happened to the cell,
-# so it carries a note like any other missing score.
+# so it carries a note. an Inf is not NA at all, which is why the cell set
+# reaches past is.na() rather than only un-excluding NaN.
 test_that("a score that is not a finite number is noted", {
   skip_on_cran()
-  # an all-zero row has no spread, so the sample z-score is 0/0, which is NaN.
-  DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
-  DNAm[2, ] <- 0
+  # the back transform is exp(x) - 2, so a large enough linear predictor
+  # overflows. betas this far out of range warn but are not refused.
+  cl <- "Retroelement_AgeMammal_Retro"
+  DNAm <- random_betas(clock_scoring_cpgs(cl), n = 4L)
+  DNAm[2, ] <- -900
 
-  expect_warning(res <- suppressMessages(calc_clocks(DNAm, "Zhang2019EN")))
-  expect_true(is.nan(res$scores[2, "Zhang2019EN"]))
+  # two warnings fire here, the out of range values and the score itself
+  res <- suppressWarnings(suppressMessages(calc_clocks(DNAm, cl)))
+  expect_true(is.infinite(res$scores[2, cl]))
 
   gaps <- gaps_of(res)
   expect_equal(nrow(gaps), 1L)
@@ -84,20 +88,24 @@ test_that("a score that is not a finite number is noted", {
   expect_equal(gaps$note, "not_finite")
 })
 
-# an infinite score is not NA at all, so the cell set has to reach past is.na()
-test_that("an infinite score is noted", {
-  skip_on_cran()
-  # a constant row has no spread either, and divides to Inf rather than NaN
-  DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
-  DNAm[2, ] <- 0.5
-
-  expect_warning(res <- suppressMessages(calc_clocks(DNAm, "Zhang2019EN")))
-  expect_true(is.infinite(res$scores[2, "Zhang2019EN"]))
-  expect_equal(gaps_of(res)$note, "not_finite")
-})
-
 test_that("a sample the moments cannot describe is reported as a fit failure", {
   skip_on_cran()
+  # a constant row has 2 or more observed values and still no spread, so the
+  # sd is 0. that divides as badly as a missing one, and reports the same way.
+  DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)
+  DNAm[2, ] <- 0.5
+  expect_warning(
+    flat <- suppressMessages(calc_clocks(
+      DNAm,
+      "Zhang2019EN",
+      min_clocks_coverage = 0,
+      min_samples_coverage = 0
+    ))
+  )
+  expect_true(is.na(flat$scores[2, "Zhang2019EN"]))
+  expect_false(is.nan(flat$scores[2, "Zhang2019EN"]))
+  expect_equal(gaps_of(flat)$note, "fit")
+
   # one observed value leaves the per-sample sd NA. both floors are open, so
   # neither gate can explain the gap and only the branch's own note can.
   DNAm <- random_betas(clock_scoring_cpgs("Zhang2019EN"), n = 4L)

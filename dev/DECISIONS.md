@@ -14,6 +14,50 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- A zero per-sample sd is a fit failure, not a score of `Inf`
+
+`split_moments()` guarded the *undefined* divisor and not the *zero* one:
+`sk[nk < 2L] <- NA_real_` left a sample with 2 or more observed values that are all the same
+sitting at `sd == 0`. The four `sample_scale` clocks -- `DNAmSex_Wang_ChrX`,
+`DNAmSex_Wang_ChrY`, `Zhang2019EN`, `Zhang2019BLUP` -- then divided by it and returned a number.
+Now `sk[which(sk == 0)] <- NA_real_` sends both down one path.
+
+**The two cases are the same fact about the data.** A z-score against no spread is undefined
+whether the spread could not be measured or was measured as zero, so returning `NA` for one and
+`+/-Inf` for the other was an accident of which line of arithmetic hit first, not a distinction
+anyone would defend. Both now report the `fit` note.
+
+**The reason to care is downstream, not cosmetic.** `NA` propagates harmlessly through
+`calc_accel()` and `score_associations()`. An `Inf` does not: it is a number, it survives every
+type check, and it silently destroys a regression or a mean that a reader then acts on. Given a
+choice between a value nobody can use and a value that looks usable and is not, the missing one
+is the safe default.
+
+**It is `+/-Inf` far more often than `NaN`, which is why this was easy to miss.** `0/0` needs the
+numerator to be exactly zero too, and imputation fills absent probes from the vendored reference,
+so the numerator is almost never zero on a real panel. Measured: a constant sample gives `-Inf`,
+not `NaN`. Anyone reasoning about this from "divide by zero gives NaN" will look for the wrong
+value.
+
+**No new code path.** Both consumers already branch on `is.na(mom[["sd"]])`
+(`score_Zhang2019()`, `score_DNAmSex_Wang()`), so the guard at the source reuses the failure
+collector, the `fit` note and the warning that were already there. What changed with it is
+`say_moment_failure()`, which claimed "fewer than 2 observed CpGs" and now says "no spread",
+because the old lead line was false for half the samples it would name.
+
+**`check_score_values()` lost its per-sample sd hint** in the same pass. It told the reader that
+"a sample with one distinct value has no spread to divide by", which was the one cause this
+change makes unreachable. Text describing behaviour the code no longer has is worse than no text.
+The generic hint and the `samples_coverage()` pointer stay.
+
+**`not_finite` is still worth having, and this does not make it dead.** It stays reachable --
+`Retroelement_AgeMammal_Retro` back-transforms with `exp(x) - 2` and overflows to `Inf` on a wild
+enough linear predictor, which is what the test now uses. More to the point it is a **backstop**:
+its job is that *any* non-finite score is explained rather than sitting silently in the frame, and
+the set of things that can produce one is not enumerable in advance across external packs and
+future syncs. Fixing the one known producer at the source and keeping the general label are
+complementary, not redundant.
+
 ## 2026-08-09 -- Q5 phase 3: `summary.mc_result()`, and `not_finite` joins the note enum
 
 The QC digest shipped. Two decisions in it were not obvious, and one of them turned out to be

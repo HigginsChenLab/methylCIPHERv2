@@ -100,39 +100,14 @@ check_score_values <- function(scores) {
       character(1L)
     )
   }
-  # sample_scale clocks divide by per-sample sd (may be 0 or undefined).
-  scaled <- names(bad)[vapply(
-    names(bad),
-    function(id) !is.null(clock_moment_key(id)),
-    logical(1)
-  )]
-  full <- scaled[vapply(scaled, clock_needs_full_panel, logical(1))]
-  ref <- setdiff(scaled, full)
-  hint <- c(
-    if (length(full)) {
-      c(
-        "i" = "{.val {full}} divide{cli::qty(full)}{?s/} by a per-sample
-               standard deviation over every column of {.arg DNAm}.",
-        "i" = "A sample with one distinct value has no spread to divide by."
-      )
-    },
-    if (length(ref)) {
-      c(
-        "i" = "{.val {ref}} divide{cli::qty(ref)}{?s/} by a per-sample standard
-               deviation over {cli::qty(ref)}{?its/their} declared reference
-               set.",
-        "i" = "A sample with one distinct value on that set has no spread to
-               divide by."
-      )
-    }
-  )
-
+  # the per-sample sd hint that stood here is gone: split_moments() now sends
+  # a zero sd down the same path as a missing one, so a sample with no spread
+  # scores NA and never reaches this gate.
   cli::cli_warn(
     c(
       "{length(bad)} clock{?s} produced {cli::qty(sum(bad))}non-finite
        score{?s}:",
       capped_bullets(names(bad), bad_lines),
-      hint,
       "i" = "A {.code NaN} or {.code Inf} usually means a non-finite value
              reached the calculation. Check {.arg DNAm}.",
       "i" = "{.fn samples_coverage} gives the sample and the clock of each
@@ -221,7 +196,7 @@ resolve_moment_sets <- function(domains, cpgs) {
   })
 }
 
-# per-output mean/sd. mean needs n >= 1, sd needs n >= 2.
+# per-output mean/sd. mean needs n >= 1, sd needs n >= 2 and a spread.
 split_moments <- function(scan, sets) {
   if (is.null(sets)) {
     return(NULL)
@@ -236,6 +211,10 @@ split_moments <- function(scan, sets) {
     sk <- sqrt(row_m2[, k, drop = TRUE] / (nk - 1))
     mk[nk < 1L] <- NA_real_
     sk[nk < 2L] <- NA_real_
+    # a zero sd is no more usable than a missing one: a z-score has nothing
+    # to divide by either way. NA is what the branches already report as a
+    # failure, so this routes both through one path. which() drops the NAs.
+    sk[which(sk == 0)] <- NA_real_
     list(mean = mk, sd = sk)
   })
   names(out) <- names(sets)
