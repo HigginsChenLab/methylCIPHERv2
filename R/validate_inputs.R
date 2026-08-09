@@ -159,7 +159,7 @@ check_pheno <- function(
   }
   # NA is allowed on purpose: a missing covariate warns and scores NA below,
   # rather than refusing the whole cohort
-  checkmate::assert_data_frame(pheno, min.rows = 1, any.missing = TRUE)
+  checkmate::assert_data_frame(pheno, min.rows = 1)
   # front-door pheno structure (cli).
   if (!ID %in% names(pheno)) {
     cli::cli_abort(
@@ -176,6 +176,7 @@ check_pheno <- function(
     pheno[[ID]],
     any.missing = FALSE,
     unique = TRUE,
+    min.chars = 1L,
     null.ok = FALSE,
     .var.name = paste0("pheno$", ID)
   )
@@ -346,6 +347,9 @@ canonicalize_covariates <- function(pheno, covariates, reads, arg = "pheno") {
       call = NULL
     )
   }
+  # the map is symmetric: unique = TRUE above forbids two covariates on one
+  # column, this forbids one covariate on two, which would rename twice
+  checkmate::assert_names(nm, type = "unique", .var.name = "names(covariates)")
   if (is.null(pheno)) {
     cli::cli_abort(
       c(

@@ -135,8 +135,7 @@ construct_mc_result <- function(
         # the gates this batch was scored under, keyed by batch like per_clock
         min_clocks_coverage = stats::setNames(min_clocks_coverage, batch),
         min_samples_coverage = stats::setNames(min_samples_coverage, batch),
-        # the matrix each batch was scored from, keyed by batch: a bound record
-        # holds one shape and one set of value verdicts per batch, never a total
+        # shape and value verdicts of the matrix this batch was scored from
         input = stats::setNames(list(input), batch),
         # clock id -> sample ids the scorer could not fit
         scoring_failures = scoring_failures,

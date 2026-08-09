@@ -1,8 +1,16 @@
 # rbind over mc_result records. record batching, refuse differing caller choices.
 
 # one provenance field, flattened over every record
-prov <- function(recs, field) {
-  unlist(lapply(recs, function(r) r[["provenance"]][[field]]))
+prov <- function(recs, field, recursive = TRUE) {
+  unlist(
+    lapply(recs, function(r) r[["provenance"]][[field]]),
+    recursive = recursive
+  )
+}
+
+# a batch-keyed field: one entry per batch, kept whole and never reconciled
+prov_by_batch <- function(recs, field) {
+  prov(recs, field, recursive = FALSE)
 }
 
 # gates
@@ -150,6 +158,11 @@ stack_by_cols <- function(recs, get, cols) {
   do.call(rbind, lapply(recs, function(r) get(r)[, cols, drop = FALSE]))
 }
 
+# the fold every sample-id collector binds under: one id set, counted once
+union_ids <- function(v) {
+  unique(unlist(v))
+}
+
 # a clock-keyed provenance list, folded over records by `combine`
 bind_by_key <- function(recs, field, combine) {
   each <- lapply(recs, function(r) r[["provenance"]][[field]])
@@ -287,26 +300,18 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         covariates_used = ref[["covariates_used"]],
         normalized = ref[["normalized"]],
         # kept per batch. never reconciled.
-        normalize_requested = unlist(
-          lapply(args, function(r) r[["provenance"]][["normalize_requested"]]),
-          recursive = FALSE
-        ),
+        normalize_requested = prov_by_batch(args, "normalize_requested"),
         min_clocks_coverage = prov(args, "min_clocks_coverage"),
         min_samples_coverage = prov(args, "min_samples_coverage"),
         # kept per batch, like the two coverage arguments. never totalled.
-        input = unlist(
-          lapply(args, function(r) r[["provenance"]][["input"]]),
-          recursive = FALSE
-        ),
+        input = prov_by_batch(args, "input"),
         # clock -> the sample ids it failed on anywhere
-        scoring_failures = bind_by_key(args, "scoring_failures", function(v) {
-          unique(unlist(v))
-        }),
-        # clock -> the sample ids it partly calibrated anywhere
+        scoring_failures = bind_by_key(args, "scoring_failures", union_ids),
+        # clock -> the sample ids it partly calibrated anywhere, same rule
         partial_calibration = bind_by_key(
           args,
           "partial_calibration",
-          function(v) unique(unlist(v))
+          union_ids
         ),
         # intermediates stack by row, like the scores they will become
         pending = bind_by_key(args, "pending", function(v) do.call(rbind, v))

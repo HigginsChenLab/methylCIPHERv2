@@ -294,24 +294,24 @@ new_notes <- function() {
   new.env(parent = emptyenv())
 }
 
-# record that `sample_id` could not be scored for clock `id`
-mc_note_scoring_failure <- function(block, id, sample_id) {
-  notes <- block[["notes"]]
+# add `sample_id` to one collector's entry for clock `id`. the collector is an
+# environment, so the write lands on the block the caller holds.
+mc_note <- function(collector, id, sample_id) {
   if (!length(sample_id)) {
     return(invisible(NULL))
   }
-  notes[[id]] <- union(notes[[id]], sample_id)
+  collector[[id]] <- union(collector[[id]], sample_id)
   invisible(NULL)
+}
+
+# record that `sample_id` could not be scored for clock `id`
+mc_note_scoring_failure <- function(block, id, sample_id) {
+  mc_note(block[["notes"]], id, sample_id)
 }
 
 # record that `sample_id` scored clock `id` from a partial calibration
 mc_note_partial_calibration <- function(block, id, sample_id) {
-  partial <- block[["partial"]]
-  if (!length(sample_id)) {
-    return(invisible(NULL))
-  }
-  partial[[id]] <- union(partial[[id]], sample_id)
-  invisible(NULL)
+  mc_note(block[["partial"]], id, sample_id)
 }
 
 # warn that samples scored NA; reason is the lead line. empty failed is a no-op.
