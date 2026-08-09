@@ -151,9 +151,8 @@ attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
 # a supplied pheno with no sex column. pheno = NULL is silent.
 say_no_recorded <- function() {
   cli::cli_inform(c(
-    "i" = "{.arg pheno} has no {.field Female} column, so the result carries
-           no {.field {RECORDED_SEX}} column and no {.field {SEX_MISMATCH}}
-           column.",
+    "{.arg pheno} has no {.field Female} column, so the result carries no
+     {.field {RECORDED_SEX}} column and no {.field {SEX_MISMATCH}} column.",
     "i" = "Write {.code covariates = c(Female = \"my_column\")} to point
            {.field Female} at the column that holds it."
   ))

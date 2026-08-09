@@ -38,6 +38,14 @@ gap_masks <- function(x, gated, gate, rows, ids) {
   # one sweep per covariate column, not one per clock that reads it
   na_cov <- lapply(x[["pheno"]][rows, , drop = FALSE], is.na)
 
+  # the collector is keyed clock -> cause -> ids, so one closure per cause.
+  fit_mask <- function(cause) {
+    function(id) {
+      lost <- failures[[id]][[cause]]
+      if (is.null(lost)) none else sample_id %in% lost
+    }
+  }
+
   test <- list(
     covariate = function(id) {
       need <- intersect(clock_covariates_required(id), names(na_cov))
@@ -46,10 +54,12 @@ gap_masks <- function(x, gated, gate, rows, ids) {
     # the column gate already graded every clock. this reads its verdict.
     clock_coverage = function(id) if (id %in% gated) !none else none,
     sample_coverage = function(id) gate[[id]][["na"]] %||% none,
-    fit = function(id) {
-      lost <- failures[[id]]
-      if (is.null(lost)) none else sample_id %in% lost
-    }
+    # spelled out rather than built from MC_NOTE_CAUSES: the list order is the
+    # precedence, so it must be readable here and not in a constant. pipeline
+    # order, so a clock that ever hits two reports the cause, not the effect.
+    fit_bmiq = fit_mask("fit_bmiq"),
+    fit_spread = fit_mask("fit_spread"),
+    fit_reduce = fit_mask("fit_reduce")
   )
 
   lapply(test, function(f) stats::setNames(lapply(ids, f), ids))

@@ -62,7 +62,7 @@ test_that("a sample with no z-score reference is scored NA, not silently", {
   expect_true(all(is.na(res$scores)))
   # coverage cannot see this -- the scoring panel itself is complete
   expect_equal(
-    res$provenance$scoring_failures[[WANG[[1]]]],
+    res$provenance$scoring_failures[[WANG[[1]]]][["fit_spread"]],
     rownames(DNAm)
   )
 })

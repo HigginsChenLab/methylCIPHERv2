@@ -44,12 +44,12 @@ bmiq_panel <- function(obs, target, id, block, key) {
   fit <- bmiq_fit(obs, target, id, block, key)
 
   failed <- block[["sample_id"]][!fit[["success"]]]
-  mc_note_scoring_failure(block, id, failed)
+  mc_note_scoring_failure(block, id, failed, "fit_bmiq")
   say_scored_na(
-    id,
     failed,
     cli::format_inline(
-      "BMIQ calibration failed for {length(failed)} sample{?s}:"
+      "{.val {id}} scores {.code NA} for {length(failed)} sample{?s} whose
+       BMIQ calibration failed:"
     )
   )
 

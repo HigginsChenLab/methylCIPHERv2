@@ -8,6 +8,118 @@ There is no open code defect. Everything below is licensing, release plumbing, p
 
 ---
 
+## In progress
+
+### P1. Make `summary()` readable at a glance
+
+The digest is correct and is not yet pleasant to read. It went in on 2026-08-09 and was tightened
+the same day (failed clocks named, `by_sample` collapsed to a spread, the duplicate row-gate
+warning removed, the requested and dependency counts made to reconcile with the header), which
+fixed what it *says*. What is left is how it *looks*.
+
+The whole point of the object is that a reader skims it and stops. Today it is five sections of
+`print.data.frame` output under bracketed headers, so a clean run and a run that lost a third of
+its clocks read at the same visual weight. The model is `summary(lm)`: sections a reader can find
+by shape, and the eye pulled to the line that matters.
+
+Nothing here is a defect and nothing is urgent.
+
+**Decided 2026-08-09, not yet written: hierarchy comes from indentation, not styling.** Two spaces
+under each section header, so every table shares a left edge the eye can track -- which is also
+the cell separator that reads as missing today. Indent survives `capture.output()`, a pasted
+issue, a log file and a non-colour terminal; ANSI bold degrades to nothing, or to literal escape
+codes in a capture. It also keeps `R/print.R` in plain `cat`, with no cli boundary to move.
+
+Four mechanics, none of them free:
+
+- **Spaces, not tabs.** `\t` renders at the terminal's tab stop -- 8 by default, configurable, and
+  different between RStudio, a terminal and a captured file -- and it collides with the leading
+  space `print(df, row.names = FALSE)` already emits.
+- **Indenting needs a capture.** `print(df)` writes straight to stdout, so it is
+  `capture.output()` then `cat(paste0("  ", lines), sep = "\n")` inside `print_table()`. The
+  capture wraps at the current `width`, so the added two can push a wide line past the edge.
+- **Left-aligning text is not a flag.** `print(df, right = FALSE)` left-aligns the numbers too.
+  Pre-pad the character columns with `format(justify = "left")` and keep the default for numerics.
+- **Count only a cut axis.** With the indent carrying the hierarchy, `[1 of 1 row(s)]` on a whole
+  table is noise. Showing a count only where the axis really is cut removes most of the plural
+  hedges in the same pass.
+
+Target shape. The `explanation` column landed 2026-08-09, and with it the print-time drop of
+`note` this mock already showed (DECISIONS 2026-08-09), so the columns below are what prints
+today. What is missing is the indent and the alignment:
+
+```txt
+<mc_summary> 20 samples x 2 clocks
+
+clocks [2 requested]
+  Horvath1, Hannum
+
+failed [1 clock]
+  Hannum
+
+problems by clock
+  clock_id  panel  explanation                 n_samples
+  Hannum    score  too few CpGs for the clock         20
+```
+
+Still open:
+
+- **Section order buries the lede.** `input` and `arguments` sit between the clock list and the
+  problems, so a broken run makes the reader scroll past two tables of boilerplate. `by_sample`
+  is also the more readable of the two problem tables and prints second. Collapsing `input` and
+  `arguments` to one line each when nothing is remarkable does most of this without a reorder.
+- **The remaining plural hedges**, wherever an axis genuinely is cut. All of them come out of
+  `plural_count()`, so one function fixes every print method at once.
+- `mc_batch_id` is a 16-hex hash and is the widest column in three tables.
+- Rounding is **not** an issue here: the digest prints only counts and the two floors. The 7-digit
+  `coverage` column is `samples_coverage()`, a different frame and a separate question.
+
+**Constraints.** `print.mc_summary()` shares the grammar in `R/print.R` with every other
+`print.mc_*` method, so a change here is a change to `fmt_header` / `fmt_section` /
+`print_table` / `print_vector` / `print_more` and lands on `mc_result`, `mc_sim`, `mc_citation`
+and `mc_assets` too. That is the right depth, not a reason to special-case the digest. The
+builders return strings so a cli printer and a `cat` printer emit the same text, and that must
+stay true. `dev/WRITING.md` binds every character of it.
+
+**Indent both helpers or neither.** `print_table()` is summary-only, but `print_block()` is read
+by `print.mc_result` and `print.sim_DNAm`. Indenting one and not the other gives `print(res)` and
+`print(summary(res))` different shapes, which is the drift the one-grammar invariant exists to
+stop. The `explanation` column already widened `by_clock` by the length of a phrase, and
+`shown_notes()` bought the room back by dropping `note` at the print site. `problems by clock`
+now measures about 76 characters against a default width of 80, so an indent of two spends half
+the remaining margin -- measure a multi-batch digest before assuming it fits.
+
+### P2. The cli length problems a bullet count cannot see
+
+The bullet pass landed 2026-08-09 (DECISIONS entry, and the verdicts are now `dev/WRITING.md`
+section 3). It took 42 messages with two or more `"i"` bullets down to 25 and the seven with
+three down to two. What it did **not** reach is everything that makes a message long without
+adding a named bullet, and that class turned out to hold the worst offender in the package.
+
+**The measurement is the thing to fix first.** `dev/cli_scan.R` counts named elements of the
+first argument, so it is blind to a bullet built inside an `if` and to a list block. That is how
+`check_coverage()` sat outside the audited set at fifteen rendered lines. Any second pass needs
+an instrument that renders, or at least one that walks into `if` branches and `capped_bullets()`
+calls.
+
+Known remaining, none urgent:
+
+- **`mc_manifest_bullets()` embeds a table.** Up to ten asset rows plus a total, inside
+  `mc_consent()` and `mc_consent_delete()`. Both run to about fourteen lines on two or three
+  bullets, and in `mc_consent()` the table sits between the assets directory and the fix that
+  refers to it, so the two cannot simply be reordered.
+- **Two more conditional-bullet sites.** `check_DNAm()`'s data.frame branch is the same shape as
+  `check_coverage()` at smaller scale. `resolve_pheno()` puts up to ten sample ids inline in an
+  `"x"` bullet rather than in a list.
+- **Two long `{.code}` spans (R7).** `gate_disjoint_ids()` and `check_DNAm()`'s rownames fix.
+  Both are permitted content, so this is formatting rather than policy.
+
+`dev/cli-audit.md` holds the per-message detail. Its main table is stale for the rows that were
+applied, but the appendix and the nine-message "leave these alone" list are still live, and the
+role taxonomy is what section 3 was written from.
+
+---
+
 ## Before public alpha
 
 ### A1. Package license, forced by the clock weights
@@ -72,7 +184,7 @@ things nothing else can, starting with the unstated-dependency scan and the exam
 2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
 `expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
 where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 933 since, so a second trim may be worth it, but that is a judgement
+there. The suite has grown to 960 since, so a second trim may be worth it, but that is a judgement
 to make against the budget rule, not a queued task.
 
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and

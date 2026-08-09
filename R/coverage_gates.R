@@ -95,7 +95,10 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
         "{length(fail)} clock{?s} {?has/have} too few CpGs in {.arg DNAm} to
          score ({.arg min_clocks_coverage} = {format(threshold)}):",
         capped_bullets(fail, score_lines),
-        if (length(plain)) {
+        # the every-sample line is a contrast with the sex-routed one, so it
+        # earns a bullet only when both kinds are here. on its own it restates
+        # the lead.
+        if (length(plain) && length(modelled)) {
           c(
             "i" = "{cli::qty(plain)}{?That clock scores/Those clocks score}
                    {.code NA} for every sample."
@@ -107,14 +110,15 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
                    that sex."
           )
         },
+        # lowering the floor is worth naming only where a clock would gain by
+        # it, so the caveat rides on that bullet instead of taking its own.
         if (any(observed)) {
-          c("i" = "Lower {.arg min_clocks_coverage} to score more clocks.")
-        },
-        if (!all(observed)) {
-          c(
-            "i" = "A clock with no CpGs in {.arg DNAm} is {.code NA} at every
-                   {.arg min_clocks_coverage}."
-          )
+          c("i" = if (all(observed)) {
+            "Lower {.arg min_clocks_coverage} to score more clocks."
+          } else {
+            "Lower {.arg min_clocks_coverage} to score more clocks. A clock
+             with no CpGs in {.arg DNAm} stays {.code NA} at every value."
+          })
         },
         "i" = "{.fn clock_cpgs} gives the CpGs a clock needs."
       ),

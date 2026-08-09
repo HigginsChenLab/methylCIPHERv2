@@ -16,9 +16,7 @@ check_col_values <- function(scan, cols) {
          value.",
         "i" = "The entries are finite but very large. Beta values normally run
                from {.val {0}} to {.val {1}}.",
-        "i" = "Use {.fn range} on that column before you score.",
-        "i" = "The value check stops at the first such column, so the matrix
-               may hold others."
+        "i" = "Use {.fn range} on that column before you score."
       ),
       call = NULL
     )
@@ -29,11 +27,9 @@ check_col_values <- function(scan, cols) {
     cli::cli_warn(
       c(
         "{.arg DNAm} contains infinite values.",
-        "i" = "An infinite value is treated as missing, then filled or dropped
-               like any other missing value.",
-        "i" = "{.fn clocks_coverage} reports what was filled or dropped. An
-               infinite beta is often a divide by zero earlier in the
+        "i" = "An infinite beta is often a divide by zero earlier in the
                pipeline.",
+        "i" = "{.fn clocks_coverage} gives what was filled or dropped.",
         "i" = SCAN_SCOPE
       ),
       call = NULL
@@ -62,12 +58,14 @@ check_col_values <- function(scan, cols) {
         "{.arg DNAm} contains values above {.val {1}}.",
         "x" = "The largest is {.val {signif(hi, 4)}}, in column
                {.val {cols[scan[['max_col']]]}}.",
-        "i" = "{.fn calc_clocks} expects beta values from {.val {0}} to
-               {.val {1}}.",
-        if (hi > PERCENT_SCALE_AT) {
-          c("i" = "Percent methylation is a common cause at this size.")
+        # expectation and likely cause in one bullet, like the below-zero
+        # warning above: two messages, one job, one shape.
+        "i" = if (hi > PERCENT_SCALE_AT) {
+          "{.fn calc_clocks} expects beta values from {.val {0}} to
+           {.val {1}}. Percent methylation is a common cause at this size."
         } else {
-          c("i" = "Check the scale of {.arg DNAm}.")
+          "{.fn calc_clocks} expects beta values from {.val {0}} to
+           {.val {1}}. Check the scale of {.arg DNAm}."
         },
         "i" = SCAN_SCOPE
       ),

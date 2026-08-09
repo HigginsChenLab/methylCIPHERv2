@@ -12,16 +12,25 @@
 \item{...}{Not used.}
 }
 \value{
-An \code{mc_summary} object. It holds the clocks requested and scored,
-the \code{input} and \code{arguments} tables, the \code{by_clock} and \code{by_sample}
-problem tables, and, when \code{object} holds more than one batch, the
-batches.
+An \code{mc_summary} object. It holds the clocks requested and the
+dependencies they needed, the clocks scored and failed, the \code{input} and
+\code{arguments} tables, the \code{by_clock} and \code{by_sample} problem tables, and,
+when \code{object} holds more than one batch, the batches.
 }
 \description{
 Reports what \code{object} was scored from, what it was asked for, and what
 happened to every score that is missing.
 }
 \details{
+The requested clocks are the ones the \code{clocks} argument of \code{\link[=calc_clocks]{calc_clocks()}}
+asked for. A clock that another clock needs is a dependency, and it gets a
+score column of its own. The two sets together give every score column.
+
+A clock is failed when every sample has a \code{score} note for it, because it
+then produced no value at all. The clocks that produced a value are
+scored. Both sets cover the dependencies as well as the requested clocks.
+A run reports no failed clock when every clock produced one.
+
 The \code{input} table describes the matrix each batch was scored from.
 \code{n_cpgs} is the number of columns it held, and \code{n_scanned} is the number
 of those columns the clocks needed. \code{n_all_missing} counts the scanned
@@ -36,12 +45,16 @@ The \code{arguments} table gives the values each batch was scored under. Two
 batches can differ, because each one keeps the values of the call that
 scored it.
 
-The two problem tables count the same notes two ways, and neither is
-collapsed. \code{by_clock} gives the samples for each clock, panel and note,
-and \code{by_sample} gives the clocks for each sample, panel and note. A note
-on a \code{score} row means the score is missing. A note on a \code{norm} row is
-about the background panel, and the score may still be present. See
-\code{\link[=samples_coverage]{samples_coverage()}} for what each note means.
+The two problem tables count the same notes two ways. \code{by_clock} gives
+the number of samples for each clock, panel and note. \code{by_sample} counts
+the samples that lost the same number of clocks, for each panel and note,
+so it says how far a problem spread and not which sample it reached.
+\code{\link[=samples_coverage]{samples_coverage()}} names the sample.
+
+A note on a \code{score} row means the score is missing. A note on a \code{norm}
+row is about the background panel, and the score may still be present.
+Both tables carry the \code{explanation} of each note beside it, and
+\code{\link[=samples_coverage]{samples_coverage()}} gives the full set of notes.
 
 Totals are never added across batches, because each batch was scored from
 a different matrix.

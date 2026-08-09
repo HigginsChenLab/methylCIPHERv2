@@ -19,12 +19,24 @@ test_that("the problem tables count the same notes two ways", {
   noted <- cov[!is.na(cov[["note"]]), , drop = FALSE]
 
   expect_s3_class(out, "mc_summary")
-  # both halves are long, so neither collapses two notes onto one row
+  # neither half collapses two notes onto one row. by_sample is the spread,
+  # so its identity carries the sample count as well as the clock count.
   expect_equal(sum(out[["by_clock"]][["n_samples"]]), nrow(noted))
-  expect_equal(sum(out[["by_sample"]][["n_clocks"]]), nrow(noted))
+  expect_equal(
+    sum(out[["by_sample"]][["n_clocks"]] * out[["by_sample"]][["n_samples"]]),
+    nrow(noted)
+  )
+  # the spread states no sample id: that is what samples_coverage() is for
+  expect_false("id" %in% names(out[["by_sample"]]))
   expect_equal(
     sort(unique(out[["by_clock"]][["note"]])),
     sort(unique(noted[["note"]]))
+  )
+  # the request and what it pulled in sum to the score columns, which is the
+  # count the header states. a requested count alone never reconciled with it.
+  expect_equal(
+    length(out[["requested"]]) + length(out[["dependencies"]]),
+    out[["n_clocks"]]
   )
   # a digest of one run states no batch it cannot name
   expect_null(out[["batches"]])
@@ -54,6 +66,29 @@ test_that("the batch column appears with the frame it is derived from", {
   expect_equal(sum(out[["batches"]][["n_samples"]]), 8L)
   # never totalled across batches: each row keeps its own matrix
   expect_equal(nrow(unique(out[["input"]])), 2L)
+})
+
+# a column the gate refused is a failed clock, not a scored one, and the
+# refusal is reported once rather than again by every read of the frame.
+test_that("a clock that scored nothing is failed, and is refused once", {
+  skip_on_cran()
+  clocks <- c("Horvath1", "Hannum")
+  sim <- sim_DNAm(clocks, n = 6L)
+  # hole only Hannum, so the two clocks end the run in different states
+  own <- setdiff(clock_scoring_cpgs("Hannum"), clock_scoring_cpgs("Horvath1"))
+  DNAm <- sim[["DNAm"]]
+  DNAm <- DNAm[, setdiff(colnames(DNAm), utils::head(own, 50L)), drop = FALSE]
+
+  expect_warning(res <- calc_clocks(DNAm, clocks))
+  expect_true(all(is.na(res[["scores"]][, "Hannum"])))
+
+  out <- summary(res)
+  expect_equal(out[["failed"]], "Hannum")
+  expect_equal(out[["scored"]], "Horvath1")
+  # both clocks were asked for, so neither is a dependency
+  expect_equal(out[["dependencies"]], character(0))
+  # the column gate already said so, so the frame does not say it again
+  expect_no_warning(samples_coverage(res))
 })
 
 test_that("a clean run reports no problems and no value columns", {

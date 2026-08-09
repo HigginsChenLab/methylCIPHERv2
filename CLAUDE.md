@@ -186,6 +186,18 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       **never reads a score value**, which is what keeps it off `finalized()`'s call-site list --
       `samples_coverage()` finalizes on its behalf, and reading `dim()` for the header is shape,
       not cells. Never total a per-batch row across batches: each came from a different matrix.
+      - **The two problem tables are two views, not a transpose, and `failed` is derived not
+        counted.** `by_clock` is keyed `(clock_id, panel, note)`; `by_sample` is keyed
+        `(panel, note, n_clocks)` and counts **samples**, so it says how far a problem spread and
+        names no sample -- `samples_coverage()` does that. It was a per-sample listing until
+        2026-08-09, which is a coverage frame with a count column, and the model is `summary(lm)`
+        printing residual quantiles rather than residuals. Do not make the id conditional on the
+        count: a second conditional schema beside the batch column is not worth it. The identity
+        is `sum(n_clocks * n_samples)`, not `sum(n_clocks)`. **A failed clock is one with a
+        `score` note for every sample**, read off that frame -- never by counting non-`NA`
+        columns, which the no-score-value rule forbids and which is also wrong, since
+        `finalized()` returns a *local* copy and `object` is still unreduced in `summary()`'s
+        frame (DECISIONS 2026-08-09).
     - **`note` is a verdict on the row's own step, not on the score, and `panel` says which step.**
       It was `reason`, meaning "why this score is `NA`", until 2026-08-08; the frame already carried
       a `score` row and a `norm` row per (sample, clock) and attached a value to the first only, so
@@ -207,6 +219,27 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       a regression. Do not "simplify" either half into the other: guard a divisor where it is
       computed, and keep `not_finite` for whatever a pack or a future sync produces that nobody
       enumerated (DECISIONS 2026-08-09).
+      **A token names a failure mode, and a producer never names a phrase.** `fit` split into
+      `fit_bmiq` / `fit_spread` / `fit_reduce` on 2026-08-09 because a token too coarse to explain
+      is a token no reader can act on -- but the split stops at the *mode*: `fit_bmiq` yes,
+      `fit_bmiq_<params>` no, because instance detail belongs in the cli warning raised where it
+      happened, which already names the clock and the samples. A branch passes a token to
+      `mc_note_scoring_failure()` and `MC_NOTE_CAUSES` (`R/constants.R`) closes the set it may
+      pass; two branches share `fit_spread`, and letting each supply its own wording would put the
+      free-text problem back at a finer grain. That constant is **only the collected half** --
+      the other five tokens are derived in `gap_reasons()` and reach no collector. The collector
+      itself is clock-major with the cause as the value (`scoring_failures[[id]][[cause]]`), which
+      is what keeps `bind_by_key()` untouched; `partial_calibration` takes the same shape under a
+      single key so `mc_note()` has one shape to write (DECISIONS 2026-08-09).
+      **The phrase beside the token is a map applied once, and the token is the canonical
+      column.** `MC_NOTES` (`R/constants.R`) covers all nine tokens; `attach_notes()` is the one
+      site that reads it, so `summary()`'s two tables inherit `explanation` by adding a name to
+      the `group_count()` key -- it is 1-to-1 with `note`, so no grouping moves. An unmapped token
+      is a defect and `explain_notes()` `stop()`s on it. Do not rename `note` to hold the prose: a
+      user matching on the phrase would make a copy-edit a breaking change. **`print.mc_summary()`
+      shows `explanation` alone**, via `shown_notes()`, because both columns wrap `by_clock` past
+      an 80-column terminal -- the one place the printed frame is not the stored one, and it is
+      measured, not stylistic (DECISIONS 2026-08-09).
       `partial` reaches it
       through `provenance$partial_calibration`, a collector mirroring `scoring_failures` and bound
       by the same rule, which is what retired the `say_partial_calibration()` warning: it fired on
@@ -425,6 +458,16 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `resolve_cpgs()`, because declining a scheme empties the background panel and every downstream
     fact reads the resolved panel; that is what keeps it a flag flip instead of a branch
     (DECISIONS 2026-08-06).
+    - **The row gate never re-reports the column gate, and the ordering in `samples_coverage()` is
+      what guarantees it.** `check_row_coverage()` reads the scoring `gate`, which `covered_ids()`
+      bounds to clocks that cleared the column gate, so a clock refused for the whole batch never
+      reaches it. `say_low_samples()` graded every score row until 2026-08-09, casualties included,
+      so one refusal was reported twice under two names and with a samples-times-clocks
+      denominator. `attach_notes()` now runs **before** it and it skips a row already noted
+      `clock_coverage`: the warning grades the cells the frame reports, under the frame's own
+      verdict. Do not restore the old order to warn earlier -- the warning has to see the notes to
+      know what has been said. Both gates keep their message: on a ragged matrix a clock clears the
+      column gate cohort-wide while individual samples fall under the floor (DECISIONS 2026-08-09).
   - **`samples_coverage()` drops an NA-coverage row it built from a record, and only that**: a
     routed member masked on a row its sex did not score. So the counted half carries one row per
     sample per family, under the model that scored it, and a sample no model scored (unknown sex)

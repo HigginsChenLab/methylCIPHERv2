@@ -57,18 +57,50 @@ argument_rows <- function(prov, labels, batch) {
   add_batch(out, batch)
 }
 
-# long (unit, note) counts: one row per unit, panel, note and batch. the frame
-# holds one row per (id, clock_id, panel), so the group size is the count.
-note_counts <- function(noted, unit, counted, count_name, keys) {
-  out <- noted[, c(unit, "panel", "note", keys), drop = FALSE]
-  # first appearance keeps the frame's own order, which is clock major
+# group `df` by `cols` and count the rows of each group. first appearance keeps
+# the frame's own order, which is clock major.
+group_count <- function(df, cols, count_name) {
+  out <- df[, cols, drop = FALSE]
   key <- do.call(paste, c(unname(out), sep = "\r"))
   first <- !duplicated(key)
   out <- out[first, , drop = FALSE]
   out[[count_name]] <- tabulate(match(key, key[first]), sum(first))
   rownames(out) <- NULL
+  out
+}
+
+# one row per clock, panel, note and batch. the frame holds one row per
+# (id, clock_id, panel), so the group size is the sample count. explanation is
+# 1-to-1 with note, so it joins the key and changes no grouping.
+clock_notes <- function(noted, keys) {
+  cols <- c("clock_id", "panel", "note", "explanation")
+  out <- group_count(noted, c(cols, keys), "n_samples")
   # batch last, like every other frame: it is the join key, and it is a hash
-  out[c(unit, "panel", "note", count_name, keys)]
+  out[c(cols, "n_samples", keys)]
+}
+
+# the same notes counted by sample, collapsed onto how far the damage spread:
+# how many samples lost how many clocks, for each panel and note. a digest
+# states the distribution, and samples_coverage() names the sample.
+sample_notes <- function(noted, keys) {
+  cols <- c("panel", "note", "explanation")
+  per_sample <- group_count(noted, c("id", cols, keys), "n_clocks")
+  out <- group_count(per_sample, c(cols, "n_clocks", keys), "n_samples")
+  out[c(cols, "n_clocks", "n_samples", keys)]
+}
+
+# the clocks that produced no value at all: a score-panel note for every
+# sample. derived from the frame, so no score cell is read.
+failed_clocks <- function(noted, clocks, n_samples) {
+  hit <- table(noted[["clock_id"]][noted[["panel"]] == "score"])
+  intersect(clocks, names(hit)[hit >= n_samples])
+}
+
+# a problem table as it prints. the token and its phrase are one fact, and
+# both columns wrap the table past the terminal edge, so only the phrase is
+# shown. the object keeps the token, which is what a script matches on.
+shown_notes <- function(df) {
+  df[setdiff(names(df), "note")]
 }
 
 # one row per batch, with the samples it scored.
@@ -92,6 +124,15 @@ batch_rows <- function(batch, labels) {
 #' @param ... Not used.
 #'
 #' @details
+#' The requested clocks are the ones the `clocks` argument of [calc_clocks()]
+#' asked for. A clock that another clock needs is a dependency, and it gets a
+#' score column of its own. The two sets together give every score column.
+#'
+#' A clock is failed when every sample has a `score` note for it, because it
+#' then produced no value at all. The clocks that produced a value are
+#' scored. Both sets cover the dependencies as well as the requested clocks.
+#' A run reports no failed clock when every clock produced one.
+#'
 #' The `input` table describes the matrix each batch was scored from.
 #' `n_cpgs` is the number of columns it held, and `n_scanned` is the number
 #' of those columns the clocks needed. `n_all_missing` counts the scanned
@@ -106,20 +147,24 @@ batch_rows <- function(batch, labels) {
 #' batches can differ, because each one keeps the values of the call that
 #' scored it.
 #'
-#' The two problem tables count the same notes two ways, and neither is
-#' collapsed. `by_clock` gives the samples for each clock, panel and note,
-#' and `by_sample` gives the clocks for each sample, panel and note. A note
-#' on a `score` row means the score is missing. A note on a `norm` row is
-#' about the background panel, and the score may still be present. See
-#' [samples_coverage()] for what each note means.
+#' The two problem tables count the same notes two ways. `by_clock` gives
+#' the number of samples for each clock, panel and note. `by_sample` counts
+#' the samples that lost the same number of clocks, for each panel and note,
+#' so it says how far a problem spread and not which sample it reached.
+#' [samples_coverage()] names the sample.
+#'
+#' A note on a `score` row means the score is missing. A note on a `norm`
+#' row is about the background panel, and the score may still be present.
+#' Both tables carry the `explanation` of each note beside it, and
+#' [samples_coverage()] gives the full set of notes.
 #'
 #' Totals are never added across batches, because each batch was scored from
 #' a different matrix.
 #'
-#' @returns An `mc_summary` object. It holds the clocks requested and scored,
-#'   the `input` and `arguments` tables, the `by_clock` and `by_sample`
-#'   problem tables, and, when `object` holds more than one batch, the
-#'   batches.
+#' @returns An `mc_summary` object. It holds the clocks requested and the
+#'   dependencies they needed, the clocks scored and failed, the `input` and
+#'   `arguments` tables, the `by_clock` and `by_sample` problem tables, and,
+#'   when `object` holds more than one batch, the batches.
 #'
 #' @seealso
 #' - [clocks_coverage()] for the CpG counts behind each clock's score.
@@ -147,16 +192,23 @@ summary.mc_result <- function(object, ...) {
   # one label vector for every table, or NULL where the frame withheld it
   batch <- if (keep_batch) labels else NULL
 
+  n <- nrow(object[["scores"]])
+  failed <- failed_clocks(noted, prov[["clocks"]], n)
+
   structure(
     list(
-      n_samples = nrow(object[["scores"]]),
+      n_samples = n,
       n_clocks = ncol(object[["scores"]]),
       requested = prov[["requested"]],
-      scored = prov[["clocks"]],
+      # what the request pulled in. the two sets sum to the score columns,
+      # which is what makes the printed counts reconcile.
+      dependencies = prov[["dependencies"]],
+      scored = setdiff(prov[["clocks"]], failed),
+      failed = failed,
       input = input_rows(prov[["input"]][labels], batch),
       arguments = argument_rows(prov, labels, batch),
-      by_clock = note_counts(noted, "clock_id", "id", "n_samples", keys),
-      by_sample = note_counts(noted, "id", "clock_id", "n_clocks", keys),
+      by_clock = clock_notes(noted, keys),
+      by_sample = sample_notes(noted, keys),
       # withheld with the column, so one flag decides the whole object
       batches = if (keep_batch) batch_rows(prov[[MC_BATCH]], labels) else NULL
     ),
@@ -172,6 +224,10 @@ summary.mc_result <- function(object, ...) {
 #' @param n A single whole number. The number of rows to print for each
 #'   table. Default is `6`.
 #' @param ... Not used.
+#'
+#' @details
+#' The two problem tables print the `explanation` of each note. The `note`
+#' itself stays in `x`, for a script that matches on it.
 #'
 #' @returns An `mc_summary` object. Returns `x`, invisibly, after printing it.
 #'
@@ -195,16 +251,34 @@ print.mc_summary <- function(x, n = 6, ...) {
     sep = ""
   )
 
-  # "requested" and "scored" are set sizes, not the cut axis the tail counts
+  # both are set sizes, not the cut axis the tail counts. they sum to the
+  # header's clock count, which a requested count alone never did. a scored
+  # count is arithmetic once the failed clocks are named, so it is left out.
   requested <- x[["requested"]]
+  dependencies <- x[["dependencies"]]
   print_vector(
     "clocks",
     requested,
     min(n, length(requested)),
     "clock",
     sprintf("%d requested", length(requested)),
-    sprintf("%d scored", length(x[["scored"]]))
+    if (length(dependencies)) {
+      sprintf("%d dependencies", length(dependencies))
+    }
   )
+
+  # named, never counted: which clock produced nothing is what the reader
+  # acts on, and a count leaves them to derive it from the problem tables.
+  failed <- x[["failed"]]
+  if (length(failed)) {
+    print_vector(
+      "failed",
+      failed,
+      min(n, length(failed)),
+      "clock",
+      plural_count(length(failed), "clock")
+    )
+  }
 
   # one row per batch, so both count batches and not rows
   print_table("input", x[["input"]], n, "batch", "es")
@@ -214,8 +288,8 @@ print.mc_summary <- function(x, n = 6, ...) {
   if (!nrow(by_clock)) {
     cat("\n", fmt_named_section("problems", "none"), "\n", sep = "")
   } else {
-    print_table("problems by clock", by_clock, n)
-    print_table("problems by sample", x[["by_sample"]], n)
+    print_table("problems by clock", shown_notes(by_clock), n)
+    print_table("problems by sample", shown_notes(x[["by_sample"]]), n)
   }
 
   # the labels, not the component that stores them
