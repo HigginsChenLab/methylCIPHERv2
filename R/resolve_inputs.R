@@ -134,8 +134,8 @@ resolve_clocks <- function(clocks) {
          a clock, a group or a keyword: {.val {capped_vals(bad)}}.",
         "i" = "Closest matches:",
         suggestion_bullets(bad),
-        "i" = "See {.fn list_clocks} or {.fn list_clock_tags}
-               ({.val {names(MC_TAGS)}})."
+        "i" = "{.fn list_clocks} gives the clocks, and {.fn list_clock_tags}
+               gives the tags ({.val {names(MC_TAGS)}})."
       ),
       call = NULL
     )
@@ -256,7 +256,7 @@ resolve_normalize <- function(normalize, clock_sequence) {
           c(
             "Cannot turn on {.arg normalize} for
              {.val {capped_vals(unusable)}}.",
-            "i" = "This package can apply only the {.val {NORM_SCHEMES}}
+            "i" = "{.fn calc_clocks} applies only the {.val {NORM_SCHEMES}}
                    normalization methods, which
                    {cli::qty(unusable)}{?that clock does/those clocks do} not
                    use.",

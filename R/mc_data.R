@@ -186,8 +186,7 @@ set_mc_assets_dir <- function(path = NULL) {
     cli::cli_abort(
       c(
         "The assets directory {.path {dir}} is not writable.",
-        "i" = "Check the permissions on that directory.",
-        "i" = "To use another path, pass it to {.arg path}."
+        "i" = "Check the permissions on that directory."
       ),
       call = NULL
     )
@@ -245,7 +244,7 @@ mc_manifest_bullets <- function(labels, sizes) {
 
 # cli renders the context, askYesNo asks one short line
 mc_ask_yes_no <- function(header, labels, sizes, dir, question) {
-  cli::cli_inform(c("i" = "{header}", "i" = "Assets dir: {.path {dir}}"))
+  cli::cli_inform(c("{header}", "i" = "Assets directory: {.path {dir}}"))
   cli::cli_verbatim(mc_manifest_lines(labels, sizes))
   utils::flush.console()
   isTRUE(utils::askYesNo(question))
@@ -258,8 +257,8 @@ mc_read_pack <- function(path, group_id) {
       c(
         "The asset for {.val {group_id}} is damaged.",
         "i" = "File: {.path {path}}",
-        "i" = "Delete that file.",
-        "i" = "Then run {.fn download_mc_assets} to get a new copy."
+        "i" = "Delete that file, then run {.fn download_mc_assets} to get a
+               new copy."
       ),
       parent = cnd,
       call = NULL
@@ -295,9 +294,8 @@ mc_fetch <- function(row, dir) {
           "The asset for {.val {row[['group_id']]}} did not download.
            {conditionMessage(e)}.",
           "i" = "URL: {.url {url}}",
-          "i" = "Run {.fn download_mc_assets} again to retry.",
-          "i" = "Or fetch that URL by hand and point {.arg ext_data} at the
-                 directory."
+          "i" = "Run {.fn download_mc_assets} again to retry, or fetch that
+                 URL by hand and point {.arg ext_data} at the directory."
         ),
         call = NULL
       )
@@ -309,9 +307,8 @@ mc_fetch <- function(row, dir) {
         "The asset for {.val {row[['group_id']]}} did not download
          (status {status}).",
         "i" = "URL: {.url {url}}",
-        "i" = "Run {.fn download_mc_assets} again to retry.",
-        "i" = "Or fetch that URL by hand and point {.arg ext_data} at the
-               directory."
+        "i" = "Run {.fn download_mc_assets} again to retry, or fetch that URL
+               by hand and point {.arg ext_data} at the directory."
       ),
       call = NULL
     )
@@ -334,7 +331,7 @@ mc_consent <- function(rows, dir, ask) {
       c(
         "{length(rows)} clock-data asset{?s} cannot be downloaded in a
          non-interactive session.",
-        "i" = "Assets dir: {.path {dir}}",
+        "i" = "Assets directory: {.path {dir}}",
         mc_manifest_bullets(ids, sizes),
         "i" = "Pass {.code ask = FALSE} to allow the download.",
         "i" = "Or put the file{cli::qty(length(rows))}{?s} in that directory
@@ -356,9 +353,7 @@ mc_consent <- function(rows, dir, ask) {
     cli::cli_abort(
       c(
         "You cancelled the download of {.val {ids}}.",
-        "i" = "Run {.fn download_mc_assets} again to answer the prompt a
-               second time.",
-        "i" = "Or point {.arg ext_data} at a directory that holds the
+        "i" = "Point {.arg ext_data} at a directory that holds the
                asset{cli::qty(ids)}{?s}."
       ),
       call = NULL
@@ -628,8 +623,6 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
         cli::cli_abort(
           c(
             "The {.val {g}} asset is not in {.arg ext_data}.",
-            "i" = "When {.arg ext_data} is a loaded asset list,
-                   {.fn load_mc_assets} uses only the assets it holds.",
             "i" = "Add the {.val {g}} asset to {.arg ext_data}, or pass an
                    assets directory path or {.code NULL} to download it."
           ),
@@ -645,9 +638,8 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
           "{length(extra)} asset{?s} in {.arg ext_data}
            {cli::qty(extra)}{?is/are} not used:
            {.val {capped_vals(extra)}}.",
-          "i" = "{.fn load_mc_assets} reads only the
-                 asset{cli::qty(extra)}{?s} for the groups you asked for.",
-          "i" = "Run {.fn list_mc_assets} to see the declared groups."
+          "i" = "Name the group in {.arg groups} to use its asset.",
+          "i" = "{.fn list_mc_assets} gives the declared groups."
         ),
         call = NULL
       )
@@ -669,8 +661,6 @@ load_mc_assets <- function(groups, ext_data = NULL, ask = TRUE) {
         c(
           "The {.val {gone}} asset{cli::qty(gone)}{?s}
            {cli::qty(gone)}{?is/are} not in {.path {dir}}.",
-          "i" = "When {.arg ext_data} is a directory path,
-                 {.fn load_mc_assets} reads only the files already there.",
           "i" = "Put the missing file{cli::qty(gone)}{?s} in {.path {dir}}, or
                  pass {.code ext_data = NULL} to download
                  {cli::qty(gone)}{?it/them}."
@@ -765,7 +755,7 @@ mc_consent_delete <- function(files, dir, ask, n_stale = 0L) {
     cli::cli_abort(
       c(
         "{what} cannot be deleted in a non-interactive session.",
-        "i" = "Assets dir: {.path {dir}}",
+        "i" = "Assets directory: {.path {dir}}",
         mc_manifest_bullets(labels, sizes),
         "i" = "Pass {.code ask = FALSE} to allow the deletion."
       ),

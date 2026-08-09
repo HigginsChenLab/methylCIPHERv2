@@ -41,10 +41,8 @@ gate_disjoint_ids <- function(recs) {
         "{length(dup)} sample id{?s} appear{?s/} in more than one
          {.cls mc_result}:",
         capped_bullets(dup, val_lines),
-        "i" = "Give each batch its own sample ids before scoring.",
-        "i" = "For example,
-               {.code rownames(DNAm) <- paste0(rownames(DNAm), '_T1')}.",
-        "i" = "The returned value must not count one sample twice."
+        "i" = "Give each batch its own sample ids before scoring, for example
+               {.code rownames(DNAm) <- paste0(rownames(DNAm), '_T1')}."
       ),
       call = NULL
     )
@@ -163,6 +161,15 @@ union_ids <- function(v) {
   unique(unlist(v))
 }
 
+# a note collector is clock -> cause -> ids, so the fold runs one cause deep
+union_causes <- function(v) {
+  causes <- sort(unique(unlist(lapply(v, names))))
+  stats::setNames(
+    lapply(causes, function(k) union_ids(lapply(v, function(e) e[[k]]))),
+    causes
+  )
+}
+
 # a clock-keyed provenance list, folded over records by `combine`
 bind_by_key <- function(recs, field, combine) {
   each <- lapply(recs, function(r) r[["provenance"]][[field]])
@@ -187,8 +194,6 @@ say_pending <- function(x) {
     "!" = "After {.fn rbind}, {cli::qty(ids)}column{?s} {.val {ids}}
            {cli::qty(ids)}{?holds/hold} one value per batch, across
            {n_batch} batches.",
-    "i" = "{cli::qty(ids)}{?That clock uses/Those clocks use} every sample at
-           once, and {.fn calc_clocks} scored each batch on its own.",
     "i" = "Call {.fn refinalize_clocks} to compute {cli::qty(ids)}{?it/them}
            again from all {nrow(x[['scores']])} samples."
   ))
@@ -305,13 +310,13 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         min_samples_coverage = prov(args, "min_samples_coverage"),
         # kept per batch, like the two coverage arguments. never totalled.
         input = prov_by_batch(args, "input"),
-        # clock -> the sample ids it failed on anywhere
-        scoring_failures = bind_by_key(args, "scoring_failures", union_ids),
-        # clock -> the sample ids it partly calibrated anywhere, same rule
+        # clock -> cause -> the sample ids it failed on anywhere
+        scoring_failures = bind_by_key(args, "scoring_failures", union_causes),
+        # clock -> cause -> the ids it partly calibrated anywhere, same rule
         partial_calibration = bind_by_key(
           args,
           "partial_calibration",
-          union_ids
+          union_causes
         ),
         # intermediates stack by row, like the scores they will become
         pending = bind_by_key(args, "pending", function(v) do.call(rbind, v))

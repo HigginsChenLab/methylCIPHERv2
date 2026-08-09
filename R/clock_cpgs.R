@@ -72,9 +72,9 @@ clock_panels_union <- function(clock_ids, packs, normalize) {
       c(
         "{length(unresolved)} clock{?s} {cli::qty(unresolved)}{?has/have} no
          scoring CpGs: {.val {capped_vals(unresolved)}}.",
-        "i" = "An external clock keeps its CpGs in an asset.",
-        "i" = "Call {.fn load_mc_assets} to load the assets, or
-               {.fn list_mc_assets} to see which assets are on disk."
+        "i" = "An external clock keeps its CpGs in an asset.
+               {.fn load_mc_assets} loads them.",
+        "i" = "{.fn list_mc_assets} gives the assets on disk."
       ),
       call = NULL
     )

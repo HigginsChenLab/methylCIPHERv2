@@ -40,7 +40,7 @@ test_that("PhysAge composites run, and one sample has no cohort z-score", {
   res1 <- calc_clocks(one, "DNAmPhysAge")
   expect_true(is.na(res1$scores[, "DNAmPhysAge"]))
   expect_equal(
-    res1$provenance$scoring_failures$DNAmPhysAge,
+    res1$provenance$scoring_failures$DNAmPhysAge$fit_reduce,
     rownames(one)
   )
 })
@@ -58,7 +58,7 @@ test_that("a surrogate that goes constant NAs the clock, not the cohort", {
 
   expect_true(all(is.na(res$scores[, "DNAmPhysAge"])))
   expect_equal(
-    res$provenance$scoring_failures$DNAmPhysAge,
+    res$provenance$scoring_failures$DNAmPhysAge$fit_reduce,
     rownames(DNAm)
   )
 })

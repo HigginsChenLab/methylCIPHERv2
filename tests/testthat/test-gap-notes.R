@@ -104,7 +104,7 @@ test_that("a sample the moments cannot describe is reported as a fit failure", {
   )
   expect_true(is.na(flat$scores[2, "Zhang2019EN"]))
   expect_false(is.nan(flat$scores[2, "Zhang2019EN"]))
-  expect_equal(gaps_of(flat)$note, "fit")
+  expect_equal(gaps_of(flat)$note, "fit_spread")
 
   # one observed value leaves the per-sample sd NA. both floors are open, so
   # neither gate can explain the gap and only the branch's own note can.
@@ -122,10 +122,10 @@ test_that("a sample the moments cannot describe is reported as a fit failure", {
   )
   expect_true(is.na(res$scores[2, "Zhang2019EN"]))
   expect_equal(
-    res$provenance$scoring_failures$Zhang2019EN,
+    res$provenance$scoring_failures$Zhang2019EN$fit_spread,
     rownames(DNAm)[[2L]]
   )
-  expect_equal(gaps_of(res)$note, "fit")
+  expect_equal(gaps_of(res)$note, "fit_spread")
 })
 
 test_that("the column is present with no gaps, and sits before the label", {
@@ -147,7 +147,12 @@ test_that("the column is present with no gaps, and sits before the label", {
     ))
   ))
   sc <- suppressWarnings(suppressMessages(samples_coverage(bound)))
-  # mc_batch_id is the join key and stays last, so note goes in front of it
-  expect_equal(utils::tail(names(sc), 2L), c("note", "mc_batch_id"))
+  # mc_batch_id is the join key and stays last, so the notes go in front of it
+  expect_equal(
+    utils::tail(names(sc), 3L),
+    c("note", "explanation", "mc_batch_id")
+  )
   expect_setequal(sc$id[!is.na(sc$note)], rownames(short))
+  # the prose is joined onto the token, so the two cannot come apart
+  expect_equal(sc$explanation, unname(MC_NOTES[sc$note]))
 })

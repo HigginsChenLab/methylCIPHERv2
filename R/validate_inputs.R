@@ -46,15 +46,17 @@ check_DNAm <- function(DNAm) {
   if (length(cn) && !cn_probes && (transposed || d[[1L]] > d[[2L]])) {
     cli::cli_warn(
       c(
+        # the transposed lead already states the wanted orientation, so only
+        # the else branch has to carry it
         if (transposed) {
-          "{.arg DNAm} looks transposed. The probe ids are in the rows."
+          "{.arg DNAm} looks transposed. The probe ids are in the rows, and
+           the CpGs belong in the columns."
         } else {
           "No {.arg DNAm} column name looks like a probe id
            ({.val {PROBE_ID_PREFIXES}}), and the matrix has more rows than
+           columns. The samples belong in the rows and the CpGs in the
            columns."
         },
-        "i" = "{.fn calc_clocks} reads the samples from the rows and the CpGs
-               from the columns.",
         "i" = "Use {.code t(DNAm)} if the matrix has the other orientation."
       ),
       call = NULL
@@ -112,7 +114,6 @@ check_DNAm <- function(DNAm) {
     cli::cli_abort(
       c(
         "{.arg DNAm} needs sample ids as {.fn rownames}.",
-        "i" = "The score rows carry those ids.",
         "i" = "Name unnamed rows with
                {.code rownames(DNAm) <- paste0(\"sample\", seq_len(nrow(DNAm)))}."
       ),
@@ -138,8 +139,8 @@ say_full_panel_clocks <- function(clock_ids) {
   }
   cli::cli_inform(
     c(
-      "i" = "{.val {full}} use{cli::qty(full)}{?s/} every column of
-             {.arg DNAm}, not only {cli::qty(full)}{?its/their} own CpG list.",
+      "{.val {full}} use{cli::qty(full)}{?s/} every column of {.arg DNAm}, not
+       only {cli::qty(full)}{?its/their} own CpG list.",
       "i" = "Pass the full matrix you measured. A smaller set of columns
              changes {cli::qty(full)}{?this/these} score{?s}."
     )
@@ -246,8 +247,7 @@ warn_age_units <- function(pheno, ID, sample_id) {
         "x" = "The largest is {.val {signif(age[[at]], 6)}}, for sample
                {.val {ids[[at]]}}.",
         "i" = "{.field Age} should be in years. {.val {AGE_MAX_YEARS}} is the
-               verified human maximum.",
-        "i" = "{.fn calc_accel} reads this column."
+               verified human maximum."
       ),
       call = NULL
     )
@@ -384,10 +384,11 @@ canonicalize_covariates <- function(pheno, covariates, reads, arg = "pheno") {
   if (length(absent)) {
     cli::cli_abort(
       c(
-        "{.arg {arg}} has no {cli::qty(absent)}column{?s}
-         {.val {capped_vals(unname(absent))}}.",
-        "i" = "{.arg covariates} points {.field {names(absent)[[1L]]}} at
-               {.val {absent[[1L]]}}.",
+        # the lead carries the mapping, so which covariate named the absent
+        # column survives without a bullet that restates the column
+        "{.arg covariates} points {.field {capped_vals(names(absent))}} at
+         {cli::qty(absent)}column{?s} {.val {capped_vals(unname(absent))}},
+         which {.arg {arg}} does not have.",
         "i" = "{.arg {arg}} has {.field {capped_vals(names(pheno))}}."
       ),
       call = NULL

@@ -262,9 +262,14 @@ finalize_samples_gate <- function(x) {
 
 # re-warn on the assembled frame, so a bound record says it once under one floor
 say_low_samples <- function(out, threshold) {
-  # grade score rows only (not norm or composite).
+  # grade score rows only (not norm or composite), and never a clock the column
+  # gate refused: those cells carry that note, and calc_clocks() already said
+  # so. grading them here reports one refusal twice, under two names.
+  note <- out[["note"]]
   out <- out[
-    out[["panel"]] == "score" & !is.na(out[["coverage"]]),
+    out[["panel"]] == "score" &
+      !is.na(out[["coverage"]]) &
+      (is.na(note) | note != "clock_coverage"),
     ,
     drop = FALSE
   ]
@@ -278,9 +283,9 @@ say_low_samples <- function(out, threshold) {
       "{n_samp} sample{?s} {cli::qty(n_samp)}{?is/are} under
        {.arg min_samples_coverage} = {format(threshold)} on the {.val score}
        panel ({sum(low)} of {nrow(out)} row{?s}).",
-      "i" = "Filter the returned frame to see {cli::qty(sum(low))}{?the
-             row/the rows}. For example, {.code cov[cov$panel == \"score\" &
-             cov$coverage < {format(threshold)}, ]}.",
+      "i" = "Filter the returned frame on {.field panel} and
+             {.field coverage} to see {cli::qty(sum(low))}{?the row/the
+             rows}.",
       "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
     ),
     call = NULL
@@ -309,7 +314,9 @@ say_low_samples <- function(out, threshold) {
 #' `note` says what happened to the panel in that row, and is `NA` when
 #' nothing did. `panel` says which step the note is about, so a sample that
 #' normalized and then scored can carry a note for each. Where more than one
-#' note applies to a row, the first of these is given.
+#' note applies to a row, the first of these is given. `explanation` gives
+#' the same note in words. Match on `note`, because it is the value that
+#' stays the same between versions of this package.
 #'
 #' On a `score` row, a note means the score is missing:
 #'
@@ -318,8 +325,12 @@ say_low_samples <- function(out, threshold) {
 #' - `clock_coverage`, when the clock is under `min_clocks_coverage`. Every
 #'   sample is missing this score.
 #' - `sample_coverage`, when the sample is under `min_samples_coverage`.
-#' - `fit`, when the clock reached the sample but could not be calculated
-#'   for it.
+#' - `fit_bmiq`, when the `bmiq` method failed for the sample, so the clock
+#'   had no normalized values to score from.
+#' - `fit_spread`, when the values of the sample have no spread, so the clock
+#'   could not calculate a z-score for it.
+#' - `fit_reduce`, when a clock that uses all the samples could not be
+#'   calculated for the sample.
 #' - `dependency`, when a clock that this clock is calculated from is
 #'   missing for that sample.
 #' - `not_finite`, when the score was calculated but is not a finite
@@ -346,8 +357,8 @@ say_low_samples <- function(out, threshold) {
 #' only when `x` holds more than one batch.
 #'
 #' @returns A data.frame. One row for each sample, clock, and panel, with
-#'   `n_observed`, `n_needed`, `coverage`, `note`, and, when `x` holds more
-#'   than one batch, `mc_batch_id`.
+#'   `n_observed`, `n_needed`, `coverage`, `note`, `explanation`, and, when
+#'   `x` holds more than one batch, `mc_batch_id`.
 #'
 #' @seealso
 #' - [clocks_coverage()] for the same panels counted for each clock.
@@ -403,8 +414,15 @@ samples_coverage <- function(x) {
     c(list(empty_sample_rows(keep)), list(counted), composite)
   )
   rownames(out) <- NULL
+  # notes first: the warning grades the same cells the frame reports, so the
+  # two cannot disagree about which gate refused what.
+  out <- attach_notes(
+    drop_single_batch(out, batch),
+    gap_reasons(x),
+    partial_cells(x)
+  )
   say_low_samples(out, finalize_samples_gate(x))
-  attach_notes(drop_single_batch(out, batch), gap_reasons(x), partial_cells(x))
+  out
 }
 
 # join key for one (sample, clock, panel) cell. build it the same way everywhere.
@@ -421,9 +439,28 @@ cell_key <- function(id, clock_id, panel) {
 partial_cells <- function(x) {
   partial <- x[["provenance"]][["partial_calibration"]]
   unlist(
-    lapply(names(partial), function(id) cell_key(partial[[id]], id, "norm")),
+    lapply(names(partial), function(id) {
+      cell_key(partial[[id]][["partial"]], id, "norm")
+    }),
     use.names = FALSE
   )
+}
+
+# the prose beside each token. `[` yields NA for a key the map does not hold,
+# so an unmapped token is caught here rather than printed as a blank cell.
+explain_notes <- function(note) {
+  out <- unname(MC_NOTES[note])
+  bad <- !is.na(note) & is.na(out)
+  if (any(bad)) {
+    stop(
+      sprintf(
+        "explain_notes(): unknown note %s.",
+        paste(unique(note[bad]), collapse = ", ")
+      ),
+      call. = FALSE
+    )
+  }
+  out
 }
 
 # attach each row's note: score rows from the gap walk, norm rows from the
@@ -435,6 +472,9 @@ attach_notes <- function(out, gaps, partial) {
   cols <- names(out)
   rows <- cell_key(out[["id"]], out[["clock_id"]], out[["panel"]])
   out[["note"]] <- note[match(rows, key)]
+  # one application site, so one place the map is read and one guard
+  out[["explanation"]] <- explain_notes(out[["note"]])
   # mc_batch_id stays last: it is the join key, and it is a hash
-  out[c(setdiff(cols, MC_BATCH), "note", intersect(MC_BATCH, cols))]
+  keep <- c(setdiff(cols, MC_BATCH), "note", "explanation")
+  out[c(keep, intersect(MC_BATCH, cols))]
 }

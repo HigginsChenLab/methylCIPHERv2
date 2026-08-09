@@ -198,6 +198,49 @@ were obvious on one reading of the output and invisible while writing the source
   short line. `mc_ask_yes_no()` in `R/mc_data.R` is the one door.
 - **Tests assert *that* a message errors, never its wording.**
 
+### How many bullets, and which
+
+Audited 2026-08-09 over all 78 cli calls in `R/`. Every non-lead bullet was classified, and the
+verdicts below are what the pass applied. They took 42 messages with two or more `"i"` bullets
+down to 25, and the seven with three down to two. Treat them as the standing rule for a new
+message, not as a one-time cleanup.
+
+**Two bullets is the shape to aim for**, because a cause and a fix are usually two different
+facts. Two is not a budget to spend: `check_pheno()` at `validate_inputs.R` and `norm_gate()` at
+`coverage_gates.R` are the model, and several messages are correct at one bullet or none.
+
+Bullets that **stay**:
+
+- **The fix.** An action the reader takes. Every message wants exactly one, and an "Or ..."
+  alternative merges into it unless the two fixes answer two different absences (`assoc_age()` is
+  the case where they do).
+- **The offending value or location.** A path, a URL, the columns that do exist.
+- **The cause**, where the lead cannot carry it. Where the lead is one short clause, fold the
+  cause in and save the bullet.
+- **One diagnostic pointer**, in the settled declarative form (section 2).
+
+Bullets that **go**:
+
+- **A mechanism of our own code.** How the package works is not a next step. Three of these named
+  the function they were raised from, which R4 bans outright.
+- **A restatement of the lead** from another angle.
+- **A consequence the reader cannot act on**, which is R4's "never state that scoring continues"
+  read widely. The exception is a consequence that is the *cost* of ignoring the warning:
+  `warn_missing_covariates()` keeps "a sample with a missing covariate scores `NA` for the clocks
+  that need it", because without it the reader does not know what the warning is worth.
+- **A caveat with nothing to qualify.** A conditional bullet that only makes sense beside another
+  conditional bullet rides on that bullet instead of taking its own. `check_coverage()` is the
+  worked case: "a clock with no CpGs stays `NA` at every value" is a second sentence on the
+  lower-the-floor bullet, and both vanish when neither applies.
+
+**An `inform` takes a lead.** Three of them opened with an `"i"` and had no lead at all, so cli
+rendered an info bullet with nothing above it. The first line is the lead; the rest are bullets.
+A mid-message list header (`resolve_clocks()`'s "Closest matches:") is not a lead and keeps its
+`"i"`.
+
+**Do not abbreviate an API noun in a message.** "Assets dir" became "Assets directory": the
+argument is `ext_data` and the functions are `*_mc_assets`, so the prose says the whole word.
+
 ---
 
 ## 4. Roxygen: the template

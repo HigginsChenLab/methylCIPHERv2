@@ -138,8 +138,8 @@ merge_accel_data <- function(pheno, data, pheno_id) {
   if (MC_BATCH %in% names(data)) {
     cli::cli_abort(
       c(
-        "{.arg data} has a {.field {MC_BATCH}} column.",
-        "i" = "That name is reserved for the batch label of the run.",
+        "{.arg data} has a {.field {MC_BATCH}} column, which is reserved for
+         the batch label of the run.",
         "i" = "Rename the column in {.arg data}."
       ),
       call = NULL
@@ -186,7 +186,6 @@ merge_accel_data <- function(pheno, data, pheno_id) {
         "{.arg data} changes {length(bad)} column{?s} the scores were
          computed from:",
         capped_bullets(bad),
-        "i" = "{.arg data} may add a column. It may not change one.",
         "i" = "Call {.fn calc_clocks} again with the pheno you want."
       ),
       call = NULL
@@ -311,7 +310,6 @@ say_fill_batch <- function(x, rhs_vars) {
   cli::cli_inform(c(
     "!" = "The returned value has {n_batch} batch{?es}, and
            {.fn calc_clocks} filled some absent CpGs with a per-batch mean.",
-    "i" = "That fill can shift the scores of one batch against another.",
     "i" = "Add {.field {MC_BATCH}} to {.arg formula} so the model accounts for
            the batch."
   ))

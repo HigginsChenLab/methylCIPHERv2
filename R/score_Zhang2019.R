@@ -22,7 +22,7 @@ score_Zhang2019 <- function(id, cpgs, block, results) {
   # sample_scale over all DNAm columns. split_moments() leaves the sd NA for
   # a sample with under 2 observed values, and for one with no spread.
   failed <- block[["sample_id"]][is.na(s)]
-  mc_note_scoring_failure(block, id, failed)
+  mc_note_scoring_failure(block, id, failed, "fit_spread")
   say_moment_failure(id, failed)
 
   score_matrix(clock_intercept(id) + z_sum, block[["sample_id"]], id)

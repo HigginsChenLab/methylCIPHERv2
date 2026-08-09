@@ -198,7 +198,10 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   res <- suppressWarnings(horvath1_normalized(DNAm))
   got <- res$scores[, "Horvath1"]
 
-  expect_equal(res$provenance$scoring_failures$Horvath1, rownames(DNAm)[2])
+  expect_equal(
+    res$provenance$scoring_failures$Horvath1$fit_bmiq,
+    rownames(DNAm)[2]
+  )
   expect_true(is.na(got[[2]]))
   expect_false(anyNA(got[-2]))
 
@@ -217,7 +220,7 @@ test_that("a partial calibration marks the norm panel and leaves the score", {
   DNAm <- methylation_betas(background = 1000L)
   res <- suppressWarnings(horvath1_normalized(DNAm))
   marked <- rownames(DNAm)[c(1, 3)]
-  res$provenance$partial_calibration <- list(Horvath1 = marked)
+  res$provenance$partial_calibration <- list(Horvath1 = list(partial = marked))
 
   sc <- samples_coverage(res)
   noted <- sc[!is.na(sc$note), ]

@@ -20,6 +20,10 @@ An \code{mc_summary} object. Returns \code{x}, invisibly, after printing it.
 \description{
 Prints the tables of an \code{mc_summary} object.
 }
+\details{
+The two problem tables print the \code{explanation} of each note. The \code{note}
+itself stays in \code{x}, for a script that matches on it.
+}
 \examples{
 clocks <- c("Horvath1", "Hannum")
 sim <- sim_DNAm(clocks, n = 20)

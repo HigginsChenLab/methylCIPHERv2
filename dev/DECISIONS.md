@@ -14,6 +14,203 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- `explanation` ships beside `note`, and the printed digest shows the phrase alone
+
+The second half of `dev/to-do.md` P3, on top of the grain split below. `MC_NOTES` in
+`R/constants.R` maps all nine tokens to a phrase, `attach_notes()` applies it once, and every
+reader downstream inherits the column -- `summary()`'s two problem tables get it by adding one
+name to the `group_count()` key, because it is 1-to-1 with `note` and so changes no grouping.
+`MC_NOTES[tok]` returns `NA` for a key it does not hold, so `explain_notes()` checks and `stop()`s
+with a greppable prefix; that is a defect, not user input, hence a plain `stop()`.
+
+**The token keeps the canonical name, and the prose is the added column.** Swapping them was
+rejected when P3 was scoped: prose in the slot named `note` invites `note == "too few CpGs for the
+clock"` in user scripts and turns a copy-edit into a breaking change. The roxygen now says to match
+on `note` for exactly that reason.
+
+**`print.mc_summary()` shows `explanation` and hides `note`, and the printed table is therefore
+not the stored one.** That divergence was the open question, and the measurement settled it: both
+columns put `problems by clock` at about 99 characters, so `print.data.frame` wraps it into two
+stacked blocks at the default width of 80 and the table stops being skimmable, which is the entire
+purpose of the digest. Showing the phrase alone lands at about 76. The token is not lost -- it is
+in the object, which is where a script reads it, and `shown_notes()` is one `setdiff` at the print
+site rather than a second column set to maintain. This is P1's recorded target shape arriving
+early; the alignment work still wants doing, and `mc_batch_id` still wraps a multi-batch digest.
+
+**The two prose sets are still unlinked by design.** The roxygen at `R/coverage_report.R` defines
+each note as a sentence with a cause clause and `MC_NOTES` holds a table cell; they cannot be one
+string, so generating one from the other is out. A `lint_notes()` asserting set equality of the
+*names* is the cheap guard if they ever drift, and is deliberately not built yet.
+
+Verified: `FAIL 0 | WARN 0 | SKIP 2 | PASS 963`. `R CMD check` and the parity tier were not run.
+
+---
+
+## 2026-08-09 -- `fit` splits into three, and a producer names a token it cannot invent
+
+`note` is a machine key, and `samples_coverage()` is a frame people work in, so a reader meets
+`fit` in their own script and cannot act on it. The fix queued in `dev/to-do.md` P3 is a second
+`explanation` column carrying prose beside the token. Writing that map is what exposed the real
+defect: a phrase is only worth printing if the token is specific, and `fit -> "could not be
+calculated"` says nothing. `fit` covered three unrelated failures, so the map could not be written
+until the enum was split. **The grain came first, and shipped on its own.**
+
+`fit_bmiq` (the calibration failed), `fit_spread` (no spread, so no z-score), `fit_reduce` (the
+cohort reduction produced no value). Two producers already shared what is now `fit_spread`, which
+is why a **producer names a token and never a phrase**: had each handed over its own wording, the
+free-text problem would have come back at a finer grain and been harder to see. The token set is
+`MC_NOTE_CAUSES` in `R/constants.R` and `mc_note()` `stop()`s on anything else, so the check sits
+where the stack names the branch that invented it. It is **only the collected half** of the enum:
+the other five tokens are derived in `gap_reasons()` and never pass a collector.
+
+**A named vector carrying the phrase from the producer was considered and does not work.** The
+idea is right in shape -- one declaration, not two lists that drift -- but the pipeline between a
+branch and the frame is lossy twice over. `gap_masks()` turns the collected ids into a **logical**
+vector and `gap_walk()` writes into a plain **character matrix**; both discard attributes by
+construction. And five of the nine tokens have no assignment site to carry a name from. The map
+therefore lands at the join, and the named vector survives as the shape of the constant itself.
+
+**The collector is clock-major, cause as the value** (`scoring_failures[[id]][[cause]]`), not
+cause-major. The deciding site is `rbind`: clock-major leaves `bind_by_key()` untouched and needs
+only a new fold beside `union_ids()`, where cause-major needs a nested one. `partial_calibration`
+takes the same shape under a single `"partial"` key, which costs one wasted level and buys one
+collector shape, so `mc_note()` stays uniform instead of growing an optional-cause branch. Folding
+the two provenance fields into one note-cell field is real and was left alone: it moves panel
+semantics into the enum, which is a second change wearing the same coat.
+
+**The three new masks are spelled out in `gap_masks()`, not generated from the constant.** The
+list order *is* the precedence, so building it from `MC_NOTE_CAUSES` would make precedence a
+property of a constant's declaration order, readable nowhere near the walk. Measured the same day,
+the tiebreak is vacuous -- bmiq is `Horvath1` and `Knight`, the spread producers are the two
+Zhang2019 arms and the Wang pair, the reduction producer is the two DNAmPhysAge clocks, pairwise
+disjoint -- so this buys nothing today and is written in pipeline order for the sync that collides
+them.
+
+Done now because `man/samples_coverage.Rd` publishes the tokens: free at 0.1.0 unreleased, a
+breaking change to a documented column afterwards. Six test call sites read the collector shape
+directly and moved with it. `devtools::test()`: 962 pass, 0 fail. Check was not run, and neither
+was the parity tier.
+
+---
+
+## 2026-08-09 -- The cli bullet audit: 42 multi-bullet messages down to 25
+
+Every `cli_abort` / `cli_warn` / `cli_inform` in `R/` was walked from the parse tree and counted.
+78 messages, of which 42 carried two or more `"i"` bullets and 7 carried three. That is not a
+handful of offenders, it is the house style, which is what made a per-message pass the wrong
+instrument.
+
+**The pass was run off a role taxonomy, not off the messages.** All 91 non-lead bullets were
+classified first, verdicts were set per role, and the per-message edits then followed from the
+verdicts. Six calls covered all 42: cut every bullet that explains our own mechanism (7), cut
+every bullet that restates the lead (3), cut a consequence bullet that only reassures (3 of 5),
+allow one diagnostic pointer per message in the settled declarative form, give an `inform` a
+lead instead of opening on an `"i"` (4), and judge a cause bullet case by case (13). The
+verdicts are now in `dev/WRITING.md` section 3 as the standing rule.
+
+The reason for that order is that 42 independent judgements drift. Made one at a time, the cut
+at message 3 and the cut at message 38 would not have matched, and the maintainer would have
+been reconciling the pass afterwards instead of reviewing it.
+
+**Result: 42 messages with two or more bullets became 25, and the seven with three became two.**
+Both survivors are deliberate. `mc_consent()` keeps the assets directory, the fix and a genuine
+alternative. The infinite-value warning keeps a cause, a pointer and the scan-scope caveat.
+
+Three findings the count did not describe:
+
+- **Three bullets named the function they were raised from**, all in `load_mc_assets()`, which R4
+  bans by name. They were mechanism bullets and were cut, so the breach went with them.
+- **`missingness.R`'s infinite-value warning opened by saying nothing stopped.** That is the one
+  thing R4 names explicitly. Cut, and the cause sentence that was buried behind a pointer in the
+  next bullet ("an infinite beta is often a divide by zero earlier in the pipeline") is now the
+  first thing the reader sees.
+- **`check_coverage()` was the longest message in the package and was outside the audited set.**
+  Up to fifteen lines: one named `"i"`, four built inside `if` blocks, and a ten-row list. The
+  parse-tree count could not see it because the conditional bullets are unnamed at parse time,
+  which is a limit of the measurement worth remembering. It now emits one or two bullets in the
+  common cases. Two conditional bullets were removed as such: "those clocks score `NA` for every
+  sample" is kept only when a sex-routed clock is also in the failing set, where it is a contrast
+  rather than a restatement, and "a clock with no CpGs is `NA` at every floor" became a second
+  sentence on the lower-the-floor bullet, so it cannot appear when nothing suggested lowering it.
+
+**`say_scored_na()` lost its `id` argument.** Its "`{id}` scores `NA` for these samples" bullet
+sat directly under the list of those samples and restated it; the only new fact was the clock id.
+Both callers now name the clock in the `reason` lead they already supply, so the bullet is gone
+and the lead reads "`DNAmSex_Wang_ChrX` scores `NA` for 1 sample with no spread in the z-score
+reference:".
+
+**Verified by rendering, not by the suite.** A broken `{?}` plural marker throws at render time,
+and the always-on tier does not reach every branch, so every edited message was forced to print
+against a real matrix, including all four branches of `check_coverage()` and both the singular
+and plural forms of the rewritten `canonicalize_covariates()` lead. The suite stayed at
+`FAIL 0 | PASS 962` throughout, which by itself would have proved nothing here: tests assert
+*that* a message errors and never its wording.
+
+---
+
+## 2026-08-09 -- The row gate stops re-reporting the column gate, and `by_sample` becomes a spread
+
+Three changes to what a degraded run tells the reader, found by reading the output of one rather
+than the code.
+
+**`say_low_samples()` no longer grades a clock the column gate refused.** The two paths disagreed
+by construction. `calc_clocks()`'s `check_row_coverage()` reads the scoring `gate`, which
+`covered_ids()` bounds to clocks that cleared the column gate, so a clock refused for the whole
+batch never reaches it. `say_low_samples()` graded every score row in the assembled frame,
+casualties included. Hole two thirds of Hannum's panel and the reader got "1 clock has too few
+CpGs" from `calc_clocks()` and then, from `samples_coverage()`, "20 samples are under
+`min_samples_coverage` (20 of 40 rows)" -- the same 20 cells, a second name for one refusal, and a
+denominator of 40 that is samples times clocks and reads like half the cohort is bad.
+
+The fix is an ordering change, not a filter bolted on: `attach_notes()` now runs **before**
+`say_low_samples()`, and the warning skips rows whose note is already `clock_coverage`. So the
+warning grades the cells the frame reports, under the frame's own verdict, and the two cannot
+drift. Cheap, because `gap_reasons()` was going to run anyway. **Do not restore the old order to
+"warn earlier"** -- the warning has to see the notes to know what has already been said.
+
+This is not a case for removing one of the two gates' messages. They say different things on a
+ragged matrix, where a clock clears the column gate cohort-wide and individual samples still fall
+under the floor. They coincided only because whole columns were removed.
+
+**`summary()` reports failed clocks, and its `scored` set excludes them.** The header read
+`2 requested, 2 scored` with one column entirely `NA`. `scored` was `provenance$clocks`, the
+output column set, so it counted a column holding nothing, on the first line of a digest whose
+job is to say what went wrong.
+
+The count is derived from the note frame -- a clock with a `score` note for every sample produced
+no value -- and **not** by counting non-`NA` columns, which the invariant forbids and which would
+also be wrong. `finalized()` hands back a *local* copy, so `samples_coverage()` finalizes and
+`object` in `summary()`'s frame stays unreduced: reading its cells would report every
+cross-sample column as failed for everyone on any multi-batch record, a fabricated failure. The
+frame is already post-reduction, so the derivation is both legal and correct.
+
+**`by_sample` collapses to the distribution.** It was one row per (sample, panel, note) with a
+clock count, which is a coverage frame with a count column and reads as one: 20 identical rows in
+the case above, 12 in a FitAge run, all carrying one distinct fact. It is now keyed by
+`(panel, note, n_clocks)` with an `n_samples` count, so the FitAge run reads "6 samples lost 1
+clock to coverage, 2 lost 8 to a covariate, 4 lost 2 to a dependency" in three rows. That is a
+question `by_clock` cannot answer, which is what makes the pair two views rather than a transpose.
+
+The model is `summary(lm)`, which prints residual **quantiles** and not residuals. What it costs
+is the sample id, and that is the right thing to lose: a digest that lists 500 ids is the frame it
+exists to summarise, and `samples_coverage()` is the drill-down, reachable from `@seealso` since
+this morning. **Do not make the id conditional on the count** -- a second conditional schema next
+to the batch column is a cost this package accepts once, reluctantly. The counting identity moved
+with the grain, from `sum(n_clocks)` to `sum(n_clocks * n_samples)`, and both still equal the
+noted-row count.
+
+**What was considered and rejected: making `clocks_coverage()` finalize.** The argument was that
+every exit should report the post-reduction view so the digest cannot disagree with them.
+`samples_coverage()` already does, and must, because its `note` column reads the `NA` pattern of
+`$scores`. `clocks_coverage()` cannot disagree with anything: `reduce_pending()` mutates exactly
+`$scores` and `provenance$scoring_failures`, and `clocks_coverage()` reads neither. Measured on a
+two-batch `DNAmPhysAge` record where the reduction does move `$scores`: `clocks_coverage()` is
+`identical()` before and after `refinalize_clocks()`. So the change is a discarded reduction, and
+its real cost is that `finalized()`'s call-site list stops being derived from the two-clause test
+and goes back to being maintained by hand, which is how it drifted twice before.
+
+---
+
 ## 2026-08-09 -- The `@seealso` coverage group becomes quality control, and `predict_sex` joins analysis
 
 Two links added to the closed set of 2026-08-03, on the maintainer's call. `dev/WRITING.md`

@@ -294,28 +294,38 @@ new_notes <- function() {
   new.env(parent = emptyenv())
 }
 
-# add `sample_id` to one collector's entry for clock `id`. the collector is an
-# environment, so the write lands on the block the caller holds.
-mc_note <- function(collector, id, sample_id) {
+# add `sample_id` to one collector's entry for clock `id` under `cause`. the
+# collector is an environment, so the write lands on the block the caller holds.
+mc_note <- function(collector, id, sample_id, cause) {
+  # the branch names a token, never a phrase, so the set closes here
+  if (!cause %in% MC_NOTE_CAUSES) {
+    stop(
+      sprintf("mc_note(): unknown note cause %s (clock %s).", cause, id),
+      call. = FALSE
+    )
+  }
   if (!length(sample_id)) {
     return(invisible(NULL))
   }
-  collector[[id]] <- union(collector[[id]], sample_id)
+  entry <- collector[[id]]
+  entry[[cause]] <- union(entry[[cause]], sample_id)
+  collector[[id]] <- entry
   invisible(NULL)
 }
 
-# record that `sample_id` could not be scored for clock `id`
-mc_note_scoring_failure <- function(block, id, sample_id) {
-  mc_note(block[["notes"]], id, sample_id)
+# record that `sample_id` could not be scored for clock `id`, and what failed
+mc_note_scoring_failure <- function(block, id, sample_id, cause) {
+  mc_note(block[["notes"]], id, sample_id, cause)
 }
 
 # record that `sample_id` scored clock `id` from a partial calibration
 mc_note_partial_calibration <- function(block, id, sample_id) {
-  mc_note(block[["partial"]], id, sample_id)
+  mc_note(block[["partial"]], id, sample_id, "partial")
 }
 
-# warn that samples scored NA; reason is the lead line. empty failed is a no-op.
-say_scored_na <- function(id, failed, reason) {
+# warn that samples scored NA. reason is the lead line, and it names the clock
+# and the cause, so the list below it needs no summary. empty failed is a no-op.
+say_scored_na <- function(failed, reason) {
   if (!length(failed)) {
     return(invisible(NULL))
   }
@@ -323,8 +333,6 @@ say_scored_na <- function(id, failed, reason) {
     c(
       reason,
       capped_bullets(failed, val_lines),
-      "i" = "{.val {id}} scores {.code NA} for
-             {cli::qty(failed)}{?this sample/these samples}.",
       "i" = "{.fn samples_coverage} gives the {.field note} for each missing
              score."
     ),
@@ -341,22 +349,25 @@ say_moment_failure <- function(id, failed) {
     "the z-score reference"
   }
   say_scored_na(
-    id,
     failed,
     cli::format_inline(
-      "{length(failed)} sample{?s} {cli::qty(failed)}{?has/have} no spread
-       in {where}:"
+      "{.val {id}} scores {.code NA} for {length(failed)} sample{?s} with no
+       spread in {where}:"
     )
   )
 }
 
-# union clock-keyed note lists (also env collector -> list).
+# union clock-keyed note lists one cause deep (also env collector -> list).
 merge_notes <- function(a, b) {
   if (!length(b)) {
     return(a)
   }
   for (id in names(b)) {
-    a[[id]] <- union(a[[id]], b[[id]])
+    entry <- a[[id]]
+    for (cause in names(b[[id]])) {
+      entry[[cause]] <- union(entry[[cause]], b[[id]][[cause]])
+    }
+    a[[id]] <- entry
   }
   a[sort(names(a))]
 }
@@ -546,10 +557,11 @@ finalize_cross_sample <- function(scores, pending) {
       )
     )
     scores[[p]] <- col
-    # note reduction losses only when intermediates existed.
+    # note reduction losses only when intermediates existed. built in collector
+    # shape by hand: this runs after assembly, so there is no block to write to.
     lost <- rownames(raws)[rowSums(!is.na(raws)) > 0L & is.na(col[, 1L])]
     if (length(lost)) {
-      notes[[p]] <- lost
+      notes[[p]] <- list(fit_reduce = lost)
     }
   }
   list(scores = scores, notes = notes)

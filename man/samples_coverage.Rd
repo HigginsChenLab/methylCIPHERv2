@@ -11,8 +11,8 @@ samples_coverage(x)
 }
 \value{
 A data.frame. One row for each sample, clock, and panel, with
-\code{n_observed}, \code{n_needed}, \code{coverage}, \code{note}, and, when \code{x} holds more
-than one batch, \code{mc_batch_id}.
+\code{n_observed}, \code{n_needed}, \code{coverage}, \code{note}, \code{explanation}, and, when
+\code{x} holds more than one batch, \code{mc_batch_id}.
 }
 \description{
 Reports each sample's CpG coverage for every clock in \code{x}, and a note on
@@ -31,7 +31,9 @@ A clock that normalizes has a second row for each sample, under
 \code{note} says what happened to the panel in that row, and is \code{NA} when
 nothing did. \code{panel} says which step the note is about, so a sample that
 normalized and then scored can carry a note for each. Where more than one
-note applies to a row, the first of these is given.
+note applies to a row, the first of these is given. \code{explanation} gives
+the same note in words. Match on \code{note}, because it is the value that
+stays the same between versions of this package.
 
 On a \code{score} row, a note means the score is missing:
 \itemize{
@@ -40,8 +42,12 @@ An unknown \code{Female} value is the usual cause.
 \item \code{clock_coverage}, when the clock is under \code{min_clocks_coverage}. Every
 sample is missing this score.
 \item \code{sample_coverage}, when the sample is under \code{min_samples_coverage}.
-\item \code{fit}, when the clock reached the sample but could not be calculated
-for it.
+\item \code{fit_bmiq}, when the \code{bmiq} method failed for the sample, so the clock
+had no normalized values to score from.
+\item \code{fit_spread}, when the values of the sample have no spread, so the clock
+could not calculate a z-score for it.
+\item \code{fit_reduce}, when a clock that uses all the samples could not be
+calculated for the sample.
 \item \code{dependency}, when a clock that this clock is calculated from is
 missing for that sample.
 \item \code{not_finite}, when the score was calculated but is not a finite

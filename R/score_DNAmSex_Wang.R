@@ -37,7 +37,7 @@ score_DNAmSex_Wang <- function(id, cpgs, block, results) {
 
   # under 2 observed values on the ref, or no spread, leaves the sd NA.
   failed <- block[["sample_id"]][is.na(mom[["sd"]])]
-  mc_note_scoring_failure(block, id, failed)
+  mc_note_scoring_failure(block, id, failed, "fit_spread")
   say_moment_failure(id, failed)
 
   score_matrix(score, block[["sample_id"]], id)
