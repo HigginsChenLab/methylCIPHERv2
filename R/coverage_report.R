@@ -263,8 +263,7 @@ finalize_samples_gate <- function(x) {
 # re-warn on the assembled frame, so a bound record says it once under one floor
 say_low_samples <- function(out, threshold) {
   # grade score rows only (not norm or composite), and never a clock the column
-  # gate refused: those cells carry that note, and calc_clocks() already said
-  # so. grading them here reports one refusal twice, under two names.
+  # gate refused. those cells already carry that note, so it would be said twice.
   note <- out[["note"]]
   out <- out[
     out[["panel"]] == "score" &

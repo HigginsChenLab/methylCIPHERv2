@@ -58,11 +58,8 @@ list_clocks <- function(
   pattern = NULL,
   all_columns = FALSE
 ) {
-  # each token selects a set, so a repeat asks for nothing new and one of each
-  # is the ceiling. bounded here rather than downstream: an oversized vector is
-  # refused before anything reads it, including the nearest-match search. the
-  # group bound counts every declared group, which is at or above the number
-  # that can be selected once routed members are dropped.
+  # one of each token is the ceiling, and it runs ahead of every other line so
+  # an oversized vector reaches neither the pool nor the nearest-match search.
   checkmate::assert_character(
     group,
     null.ok = TRUE,

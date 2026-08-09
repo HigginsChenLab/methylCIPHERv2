@@ -52,8 +52,7 @@ resolve_clocks <- function(clocks) {
   routed <- sex_routed_members()
   callable <- setdiff(clock_ids, names(routed[["alias"]]))
   # every token the argument accepts, so one of each is the most a request can
-  # hold. the bound says nothing without unique = TRUE, and the pair is what
-  # keeps an unbounded vector out of the resolve loop and the typo search.
+  # hold. the bound says nothing without the unique = TRUE below it.
   accepted <- unique(c("all", names(MC_TAGS), mc_index[["group_id"]], callable))
 
   checkmate::assert_character(
