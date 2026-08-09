@@ -88,7 +88,7 @@ rows <- lapply(matched, function(cl) {
     age_slope = rnd(asl[["pooled"]], 4),
     age_slope_lo = rnd(asl[["lo"]], 4),
     age_slope_hi = rnd(asl[["hi"]], 4),
-    # expected sex effect (clock units, male vs female) + how often it matters
+    # expected sex effect (clock units, female vs male) + how often it matters
     sex_coef = rnd(sx[["pooled"]], 4),
     sex_coef_lo = rnd(sx[["lo"]], 4),
     sex_coef_hi = rnd(sx[["hi"]], 4),
