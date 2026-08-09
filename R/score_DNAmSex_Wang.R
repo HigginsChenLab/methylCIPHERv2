@@ -35,7 +35,7 @@ score_DNAmSex_Wang <- function(id, cpgs, block, results) {
     mom[["sd"]] -
     sum(center[present] * r)
 
-  # n < 2 on the ref leaves moments NA. sample is unscorable.
+  # under 2 observed values on the ref, or no spread, leaves the sd NA.
   failed <- block[["sample_id"]][is.na(mom[["sd"]])]
   mc_note_scoring_failure(block, id, failed)
   say_moment_failure(id, failed)

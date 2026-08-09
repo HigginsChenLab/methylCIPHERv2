@@ -199,6 +199,14 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       its warning because it names a cause the enum cannot carry. `-Inf` is why the set is
       `is.na(m) | is.infinite(m)` and not merely NaN -- an infinite score is not `NA` at all, so
       un-excluding `NaN` alone would have left it out of the frame entirely (DECISIONS 2026-08-09).
+      **It is a backstop, not the handler for a known producer.** The one producer in the catalog
+      was fixed at its source the same day: `split_moments()` now NAs a **zero** per-sample sd as
+      well as an undefined one, so the four `sample_scale` clocks report `fit` rather than
+      returning `+/-Inf`. A z-score against no spread is undefined either way, and `NA` propagates
+      harmlessly through `calc_accel()` / `score_associations()` where an `Inf` silently destroys
+      a regression. Do not "simplify" either half into the other: guard a divisor where it is
+      computed, and keep `not_finite` for whatever a pack or a future sync produces that nobody
+      enumerated (DECISIONS 2026-08-09).
       `partial` reaches it
       through `provenance$partial_calibration`, a collector mirroring `scoring_failures` and bound
       by the same rule, which is what retired the `say_partial_calibration()` warning: it fired on

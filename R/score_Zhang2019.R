@@ -19,7 +19,8 @@ score_Zhang2019 <- function(id, cpgs, block, results) {
   csum <- sum(coef[present])
   z_sum <- (as.numeric(lp[["cpg_contrib"]]) - m * csum) / s
 
-  # sample_scale over all DNAm columns; need 2 observed values or sd is NA.
+  # sample_scale over all DNAm columns. split_moments() leaves the sd NA for
+  # a sample with under 2 observed values, and for one with no spread.
   failed <- block[["sample_id"]][is.na(s)]
   mc_note_scoring_failure(block, id, failed)
   say_moment_failure(id, failed)
