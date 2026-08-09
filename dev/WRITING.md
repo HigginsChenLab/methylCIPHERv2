@@ -180,8 +180,11 @@ were obvious on one reading of the output and invisible while writing the source
   Every bullet path goes through that one door.
 - **Cap first, then format** (`capped_bullets(x, fmt)`). At most ten elements are ever formatted,
   which is what makes per-element markup affordable.
-- **`say_*` emits to the user. `note_*` records into the block's collector.** Never use `note_`
-  for something that prints.
+- **`say_*` emits to the user. `mc_note_*` records into the block's collector.** Never use
+  `mc_note_` for something that prints. The prefix carries `mc_` because `note` is also the name of
+  a user-facing column in `samples_coverage()`, and a bare `note_*` reads like a builder for it
+  rather than a writer into a collector -- which two of them now feed, but indirectly, by way of
+  `$provenance` (renamed 2026-08-08).
 - **Bind every `{?}` plural marker with an explicit `cli::qty()`** unless the quantity is the
   interpolation immediately before it. cli binds a marker to the last interpolated value earlier
   in the same string, and the quantity does not carry across elements of a `c()` message vector.

@@ -72,7 +72,7 @@ things nothing else can, starting with the unstated-dependency scan and the exam
 2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
 `expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
 where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 915 since, so a second trim may be worth it, but that is a judgement
+there. The suite has grown to 919 since, so a second trim may be worth it, but that is a judgement
 to make against the budget rule, not a queued task.
 
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
@@ -121,11 +121,18 @@ hash were ever swapped.
 
 ## Open questions
 
-### Q5. QC digest, in three phases. DESIGNED, NOT BUILT -- pick up here
+### Q5. QC digest. PHASE 1 SHIPPED -- pick up at phase 2
 
-Phases 1 and 2 are independent of each other; phase 3 needs both. Phase 1 fixes a live defect and
-stands alone. Q2 (BMIQ partial calibration) is resolved inside phase 1 and no longer has its own
-entry.
+Phase 1 (`reason` -> `note`, a per-row step verdict, and BMIQ partial calibration onto the norm
+row) landed 2026-08-08; see the DECISIONS entry of that date, including the two changes it
+considered and rejected on measurement. Q2 is resolved and gone. **Phase 2 and phase 3 are what is
+left**, and phase 3 needs phase 2.
+
+One thing phase 1 deliberately deferred: under `note` = "what happened", a `NaN` score is the
+clearest case of something happening, and it is still explained by a warning instead
+(`missing_scores()` excludes it at `R/gap_reasons.R`). That is the same duplication phase 1 removed
+for partial calibration. Decide whether it belongs in the enum before the digest is written, since
+the digest is what would otherwise have to special-case it.
 
 **Decided: post-flight, not pre-flight.** A pre-flight `report(DNAm)` arm was asked for and is
 refused. It is a second beta reader (see the one-entry-point invariant), and the measurement kills
@@ -135,64 +142,7 @@ about nothing expensive and is pure overhead. It also cannot report `fit` failur
 declined normalization, or which clocks came back `NA` -- none of that exists until scoring runs.
 Post-flight is a strict superset, and it describes the matrix that was actually scored.
 
-#### Phase 1. `reason` becomes `note`, a per-row stage verdict
-
-**`samples_coverage()` already has a stage axis and only half-uses it.** `panel` is `score` or
-`norm`, one row each per (sample, clock), but `attach_reasons()` (`R/coverage_report.R`) is
-commented "attach reason to score rows only", so the norm row carries five counts and says nothing
-about whether normalization worked. That is a real misattribution, not an aesthetic one: when BMIQ
-fails a sample, `failed.sample = "NA"` NAs its betas, the score goes `NA`, and `gap_reasons()`
-reports `fit` **on the score row**. The failure happened at the norm stage and is reported at the
-calculation stage, with the norm row for that exact cell sitting silent.
-
-- **Rename `reason` -> `note`.** Once the column stops meaning "why this score is `NA`", the name
-  has to stop promising it: `reason` on a row where nothing went wrong asks the reader to accept
-  `NA` as "no reason". `note` reads correctly at both ends. It stays a **closed enum**, enumerated
-  in the roxygen -- the name must not become an invitation to free text.
-- **`panel` says which stage, `note` says what happened there.** Score rows keep the five values.
-  Norm rows gain `partial` (BMIQ skipped its H step, the score is real) and `fit` (calibration
-  failed for this sample). This is strictly more information than today: `norm = fit` plus
-  `score = fit` means the failure originated in normalization, `norm = NA` plus `score = fit` means
-  it failed in the arithmetic, and those are currently indistinguishable.
-- **`h.applied` already has the right grain.** It is per sample within one clock's `bmiq_fit()`
-  call (`R/score_normalized.R`), which is exactly the norm row's key. No reshaping, no invented key.
-  `say_partial_calibration()` then drops -- that was Q2's whole goal, and a counted line in the
-  digest was rejected because it cannot be filtered back to the affected samples.
-- **Make `note` total, and do it in one place.** `anti_trafo` and `log_offset_anti_trafo`
-  (`R/score_default.R`) happen to be total functions of one number -- the negative branch of
-  `anti_trafo` is bounded by `exp(x) <= 1`, and `exp(x) - 2` overflows only past `x ~ 709` -- so
-  they propagate non-finiteness and never create it, and need no verdict. **But that is an accident
-  of these two, not a property of the class.** A `log()` on a linear predictor would be partial. So
-  do not add a collector per transform: in `gap_walk()` (`R/gap_reasons.R`), after the mask loop and
-  the dependency loop, any cell still `gone` with `is.na(r)` takes `fit`, whose documented meaning
-  already covers it. The invariant to write down is **an `NA` score always has a note**, and the
-  real deliverable is the output-level test over an adversarial fixture; the fallback makes it hold
-  by construction rather than by every branch remembering.
-- **This is insurance, not a bug fix. Do not write it up as one.** An earlier read of this plan
-  claimed a live defect -- that a flat PhysAge surrogate NAs the whole column with nothing to
-  explain it -- reasoning that `finalize_PhysAge` is not among the three `note_scoring_failure()`
-  call sites. **Measured 2026-08-08 and false.** Flattening one of `DNAmPhysAge`'s 8 surrogates NAs
-  all 12 scores and `samples_coverage()` reports `fit` for every one, because
-  `finalize_cross_sample()` (`R/score_cohort.R`) records reduction losses generically one frame
-  above the branch. The reduction layer is covered; what the fallback still buys is the per-sample
-  branch layer, where a future partial output transform would depend on that branch remembering.
-- **`na.rm = TRUE` in `finalize_PhysAge()` was proposed and rejected.** The worry was that one
-  coverage-failed sample would NA the whole cohort. Measured: it does not -- `scale()` already
-  ignores `NA` per column, so a single `NA` cell NAs only its own row, and **only a flat surrogate
-  (cohort sd 0) takes out every sample**. What `na.rm = TRUE` would change is that flat case, where
-  it turns a loud correct `NA` into a silent wrong number: PhysAge sums z-scores into a polynomial
-  calibrated on all 8 terms, so summing 7 is a plausible score on the wrong scale, and per-sample
-  drops would make samples non-comparable to each other. A degenerate cohort should say so.
-- Needs a `dev/DECISIONS.md` entry. It reverses a documented contract and will read as drift
-  otherwise. No `NAMESPACE` change -- `note` is a column, not an export -- but it is a breaking
-  change to a returned frame, which pre-alpha absorbs.
-
-**Still open, and deliberately deferred:** under `note` = "what happened", a `NaN` score is the
-clearest case of something happening, and it is currently explained by a warning instead
-(`missing_scores()` excludes it at `R/gap_reasons.R`). That is the same duplication phase 1 removes
-for partial calibration. Decide whether it rides along.
-
-#### Phase 2. The front-door findings reach the record
+#### Phase 2. The front-door findings reach the record -- start here
 
 `check_col_values()` (`R/missingness.R`) reads `min_val` / `max_val` / `min_col` / `max_col` /
 `any_inf` off the `col_stats()` sweep, warns, and returns `invisible(NULL)`. `scan_missing_cpgs()`

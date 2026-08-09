@@ -825,8 +825,9 @@ write or edit any text a user can see. It is tracked, so it resolves in a fresh 
   here.
 - **The roxygen template**: tag order, the `DOC_TYPES` param vocabulary, the shared-parameter donor
   and its one footgun, the closed `@seealso` groups, and the example rules.
-- **`say_*` emits to the user; `note_*` records into the block's collector.** Do not use `note_` for
-  something that prints.
+- **`say_*` emits to the user; `mc_note_*` records into the block's collector.** Do not use
+  `mc_note_` for something that prints. The prefix is `mc_`-qualified because `note` is also a
+  user-facing column in `samples_coverage()`.
 - **The audit section**: the known-good exceptions an independent reader will otherwise report as
   defects, and the three CRAN shape rules the manual currently satisfies.
 
