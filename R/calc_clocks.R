@@ -103,6 +103,8 @@ calc_clocks <- function(
     normalize_requested = names(spec[["normalize"]])[spec[["normalize"]]],
     min_clocks_coverage = min_clocks_coverage,
     min_samples_coverage = min_samples_coverage,
+    # what the front door found in the matrix this batch was scored from
+    input = facts[["input"]],
     scoring_failures = merge_notes(scored[["notes"]], final[["notes"]]),
     partial_calibration = scored[["partial"]],
     # kept, not discarded, so a bound record can re-finalize exactly

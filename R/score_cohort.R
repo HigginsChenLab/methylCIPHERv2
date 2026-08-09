@@ -245,7 +245,9 @@ mc_cohort <- function(DNAm, spec, pheno = NULL, min_clocks_coverage = 0.75) {
     # partial_fill names are the column classification.
     partial_fill = mna[["col_mean"]],
     # null unless a sample_scale clock declared a domain for the sweep to count
-    sample_moments = mna[["sample_moments"]]
+    sample_moments = mna[["sample_moments"]],
+    # what the sweep found in this batch's matrix, for the record to keep
+    input = mna[["input"]]
   )
 }
 

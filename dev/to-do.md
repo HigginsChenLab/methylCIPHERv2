@@ -72,7 +72,7 @@ things nothing else can, starting with the unstated-dependency scan and the exam
 2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
 `expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
 where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 919 since, so a second trim may be worth it, but that is a judgement
+there. The suite has grown to 928 since, so a second trim may be worth it, but that is a judgement
 to make against the budget rule, not a queued task.
 
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
@@ -121,12 +121,12 @@ hash were ever swapped.
 
 ## Open questions
 
-### Q5. QC digest. PHASE 1 SHIPPED -- pick up at phase 2
+### Q5. QC digest. PHASES 1 AND 2 SHIPPED -- pick up at phase 3
 
 Phase 1 (`reason` -> `note`, a per-row step verdict, and BMIQ partial calibration onto the norm
-row) landed 2026-08-08; see the DECISIONS entry of that date, including the two changes it
-considered and rejected on measurement. Q2 is resolved and gone. **Phase 2 and phase 3 are what is
-left**, and phase 3 needs phase 2.
+row) and phase 2 (`provenance$input`, the front-door sweep kept per batch) both landed 2026-08-08;
+see the two DECISIONS entries of that date, including the two changes phase 1 considered and
+rejected on measurement. Q2 is resolved and gone. **Phase 3 is what is left.**
 
 One thing phase 1 deliberately deferred: under `note` = "what happened", a `NaN` score is the
 clearest case of something happening, and it is still explained by a warning instead
@@ -142,30 +142,13 @@ about nothing expensive and is pure overhead. It also cannot report `fit` failur
 declined normalization, or which clocks came back `NA` -- none of that exists until scoring runs.
 Post-flight is a strict superset, and it describes the matrix that was actually scored.
 
-#### Phase 2. The front-door findings reach the record -- start here
+#### Phase 3. `summary.mc_result()` -- start here
 
-`check_col_values()` (`R/missingness.R`) reads `min_val` / `max_val` / `min_col` / `max_col` /
-`any_inf` off the `col_stats()` sweep, warns, and returns `invisible(NULL)`. `scan_missing_cpgs()`
-drops them; `mc_cohort()` also drops `all_na_cols`; `construct_mc_result()` has no field for any of
-it. Three things must start being recorded (down from four -- partial calibration became a coverage
-fact in phase 1):
-
-- input shape (`ncol(DNAm)` -- `nrow` is already `sample_id`)
-- the value verdicts (min / max with the offending column, `any_inf`)
-- the all-NA column count
-
-**Keyed by batch**, like the floors and `normalize_requested`. Each `rbind`-ed record came from a
-different matrix, so a flat `n_cpgs` would be a lie after a bind. This is the part most likely to
-get built wrong.
-
-Also tighten the range warning in the same pass: the scan covers **panel columns only**, and
-"`DNAm` contains values above 1" does not say so.
-
-Already available, no change needed: clocks requested vs dependencies, `normalized` vs
-`normalize_requested`, both floors, `scoring_failures`, NaN/Inf scores (recomputable -- `$scores`
-keeps `NaN` distinct from `NA`), and both collapses from `samples_coverage()`.
-
-#### Phase 3. `summary.mc_result()`
+Everything it reads now exists. `provenance$input` (phase 2) carries per batch: `n_cpgs`,
+`n_scanned`, `n_all_na`, `min_val` / `max_val` with the offending column, `any_inf`. Already there
+before that: clocks requested vs dependencies, `normalized` vs `normalize_requested`, both floors,
+`scoring_failures`, NaN/Inf scores (recomputable -- `$scores` keeps `NaN` distinct from `NA`), and
+both collapses from `samples_coverage()`.
 
 **Returns the tables invisibly and prints by default.** It ingests a record and returns something
 else, the same shape as `summary.lm`. It builds strictly on `samples_coverage()`, which is already
@@ -195,9 +178,9 @@ mandatory argument is a contradiction.
 
 **Constraints on the print.** Reuse `R/print.R`'s builders. `$` in that grammar means "a component
 you may reach for", so the input / problems / collapse sections take `fmt_named_section()`, the
-un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. The phase-2
-input block is the section that can get wide and ugly -- at two batches it is two matrix shapes,
-two floor pairs and two sets of value verdicts -- so sketch its layout before building it.
+un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. The input
+block is the section that can get wide and ugly -- at two batches it is two matrix shapes, two
+floor pairs and two sets of value verdicts -- so sketch its layout before building it.
 
 ### Q1. Chunked front end. PARKED
 

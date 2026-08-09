@@ -293,6 +293,11 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         ),
         min_clocks_coverage = prov(args, "min_clocks_coverage"),
         min_samples_coverage = prov(args, "min_samples_coverage"),
+        # kept per batch, like the two coverage arguments. never totalled.
+        input = unlist(
+          lapply(args, function(r) r[["provenance"]][["input"]]),
+          recursive = FALSE
+        ),
         # clock -> the sample ids it failed on anywhere
         scoring_failures = bind_by_key(args, "scoring_failures", function(v) {
           unique(unlist(v))

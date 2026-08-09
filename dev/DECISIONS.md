@@ -14,6 +14,36 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-08 -- The front-door value sweep is recorded, keyed by batch (QC phase 2)
+
+**The findings existed and were thrown away.** `col_stats()` already computes the whole value
+verdict in one pass -- running min and max with the column each came from, an `any_inf` flag -- and
+`check_col_values()` read all of it, warned, and returned `invisible(NULL)`. `scan_missing_cpgs()`
+dropped it on the floor, and `mc_cohort()` did the same to `all_na_cols` once it had subtracted them
+from `usable_cols`. So a user who cleared a scrollback, or who scored in a script that captured no
+warnings, had no way back to what the front door saw. Recording it costs one list per call and no
+extra pass over the matrix.
+
+**Keyed by batch, and this is the part that would have been built wrong.** The obvious shape is a
+flat `n_cpgs` on the record, and it is wrong the moment two records bind: each came from a different
+matrix, so a single number is either one batch's shape presented as the whole, or a sum of column
+counts that overlap and means nothing. `input` therefore follows `min_clocks_coverage` and
+`normalize_requested` -- one entry per batch label, concatenated by `rbind`, never reconciled and
+never totalled. The test pins `names(provenance$input) == names(coverage$per_clock)`, because the
+failure this design prevents is a verdict attached to the wrong matrix.
+
+**`n_cpgs` and `n_scanned` are two numbers because the sweep is narrower than the matrix.** It reads
+the requested panels alone, so on a 450K matrix scored for one clock it looks at a few hundred
+columns. That was already true of the warnings and they did not say so: "`DNAm` contains values above
+1" reads as a verdict on the matrix. All three value warnings now carry the scope as a shared
+constant, so a clean warning cannot be misread as a clean matrix.
+
+**Not recorded: the all-NA column names.** Only the count. Names are unbounded in the input, and the
+one consumer that wants them -- the digest -- wants a number. `clocks_coverage(all_columns = TRUE)`
+already names missing CpGs per clock, which is the question a name answers.
+
+---
+
 ## 2026-08-08 -- `samples_coverage()$reason` becomes `$note`, a verdict on the row's own step
 
 **The frame already had a step axis and only half-used it.** `panel` is `score` or `norm`, one row
