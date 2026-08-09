@@ -121,67 +121,6 @@ hash were ever swapped.
 
 ## Open questions
 
-### Q5. QC digest. PHASES 1 AND 2 SHIPPED -- pick up at phase 3
-
-Phase 1 (`reason` -> `note`, a per-row step verdict, and BMIQ partial calibration onto the norm
-row) and phase 2 (`provenance$input`, the front-door sweep kept per batch) both landed 2026-08-08;
-see the two DECISIONS entries of that date, including the two changes phase 1 considered and
-rejected on measurement. Q2 is resolved and gone. **Phase 3 is what is left.**
-
-One thing phase 1 deliberately deferred: under `note` = "what happened", a `NaN` score is the
-clearest case of something happening, and it is still explained by a warning instead
-(`missing_scores()` excludes it at `R/gap_reasons.R`). That is the same duplication phase 1 removed
-for partial calibration. Decide whether it belongs in the enum before the digest is written, since
-the digest is what would otherwise have to special-case it.
-
-**Decided: post-flight, not pre-flight.** A pre-flight `report(DNAm)` arm was asked for and is
-refused. It is a second beta reader (see the one-entry-point invariant), and the measurement kills
-its rationale: on 50 x 323,499, everything up to normalization is 0.37s of a 3.03s call, and the
-scoring loop itself is 0.12s. BMIQ is 87% and sits *after* where a pre-flight stops, so it warns
-about nothing expensive and is pure overhead. It also cannot report `fit` failures, NaN scores,
-declined normalization, or which clocks came back `NA` -- none of that exists until scoring runs.
-Post-flight is a strict superset, and it describes the matrix that was actually scored.
-
-#### Phase 3. `summary.mc_result()` -- start here
-
-Everything it reads now exists. `provenance$input` (phase 2) carries per batch: `n_cpgs`,
-`n_scanned`, `n_all_na`, `min_val` / `max_val` with the offending column, `any_inf`. Already there
-before that: clocks requested vs dependencies, `normalized` vs `normalize_requested`, both floors,
-`scoring_failures`, NaN/Inf scores (recomputable -- `$scores` keeps `NaN` distinct from `NA`), and
-both collapses from `samples_coverage()`.
-
-**Returns the tables invisibly and prints by default.** It ingests a record and returns something
-else, the same shape as `summary.lm`. It builds strictly on `samples_coverage()`, which is already
-one of `finalized()`'s five call sites, so it inherits cross-sample finalization for free and must
-**not** add a sixth.
-
-**Grain: long `(unit, note)`, both halves.** Not collapsed. Collapsing is lossy exactly where the
-digest earns its keep -- a clock failing 3 for `covariate` and 2 for `sample_coverage` becomes one
-unreadable row, `all_failed` turns ambiguous, and the decode stops matching the closed set. Human
-readable text is a named vector over the enum, not a parser. Long costs nothing in the common case:
-in an adversarial 12-sample fixture, 16 clocks failed and **0 were mixed** -- `clock_coverage` is a
-per-batch column verdict, so it cannot co-occur with a per-sample note on the same cell.
-
-**Batch: derive it from the frame, do not re-test.** `samples_coverage()` already adds
-`mc_batch_id` only when the record spans more than one batch, so `summary()` reads whether the
-column is present rather than calling `is_multi_batch()` itself. That is strictly better than
-becoming a fifth call site: it cannot disagree with the frame, which is the failure the
-appear-and-vanish-together rule exists to prevent. The grain genuinely must include batch rather
-than pool across it, because **both floors are per batch** -- a `clock_coverage` note from a batch
-that ran at 0.8 and one from a batch that ran at 0.5 are the same enum value meaning different
-verdicts, so pooling gives a correct count attached to an unattributable reason. Multi-batch prints
-a section listing each label with its sample count; single-batch prints no section and carries no
-column.
-
-**`score_associations()` stays out.** It needs an age vector, and a `summary`-shaped call taking a
-mandatory argument is a contradiction.
-
-**Constraints on the print.** Reuse `R/print.R`'s builders. `$` in that grammar means "a component
-you may reach for", so the input / problems / collapse sections take `fmt_named_section()`, the
-un-`$` form the multi-batch `mc_batch_id` block uses. Nothing may name `$provenance`. The input
-block is the section that can get wide and ugly -- at two batches it is two matrix shapes, two
-floor pairs and two sets of value verdicts -- so sketch its layout before building it.
-
 ### Q1. Chunked front end. PARKED
 
 Every piece exists: batch-wise fill regimes, derived batch labels, `rbind`, retained `pending`,

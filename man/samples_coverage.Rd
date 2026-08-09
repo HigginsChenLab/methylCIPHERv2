@@ -44,6 +44,8 @@ sample is missing this score.
 for it.
 \item \code{dependency}, when a clock that this clock is calculated from is
 missing for that sample.
+\item \code{not_finite}, when the score was calculated but is not a finite
+number, such as \code{NaN} or \code{Inf}.
 }
 
 On a \code{norm} row, a note is about the background panel, and the score may
@@ -54,8 +56,9 @@ could not be applied to it. The score is real, and is calculated from a
 background that was only partly calibrated.
 }
 
-A score that is not a number, such as \code{NaN}, is not a missing score. It
-gets no note, and \code{calc_clocks()} warns about it instead.
+A score that is not a finite number is present, and is still a \code{score}
+row with a note. \code{\link[=calc_clocks]{calc_clocks()}} warns about it as well, and that warning
+names the likely cause.
 \code{min_clocks_coverage} and \code{min_samples_coverage} are read for the batch
 that scored the sample, because those are the values that decided the
 score.

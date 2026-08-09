@@ -122,6 +122,7 @@ DOC_TYPES <- c(
   "An `mc_citation` object.",
   "An `mc_sim` object.",
   "An `mc_assets` object.",
+  "An `mc_summary` object.",
   "A one-sided formula.",
   "A named logical vector.",
   "A named character vector.",

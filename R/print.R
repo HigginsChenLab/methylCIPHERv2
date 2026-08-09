@@ -38,6 +38,23 @@ fmt_section <- function(name, ...) {
   fmt_named_section(paste0("$", name), ...)
 }
 
+# one named section over a data.frame. the caller writes the header bits,
+# because a section keyed by batch counts batches and not rows.
+print_table <- function(name, df, n, ...) {
+  cat("\n", fmt_named_section(name, ...), "\n", sep = "")
+  ni <- min(n, nrow(df))
+  if (!ni) {
+    return(invisible(NULL))
+  }
+  print(df[seq_len(ni), , drop = FALSE], row.names = FALSE)
+
+  tail <- more_count(ni, nrow(df), "row")
+  if (length(tail)) {
+    cat("... ", tail, "\n", sep = "")
+  }
+  invisible(NULL)
+}
+
 # one component block. cut_cols = false when columns stay whole.
 print_block <- function(name, x, ni, pi, col_noun, cut_cols = TRUE) {
   nr <- nrow(x)
