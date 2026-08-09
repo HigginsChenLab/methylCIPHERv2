@@ -82,7 +82,6 @@ bmiq_fit <- function(obs, target, id, block, key) {
   betas <- obs[["values"]]
   args <- list(
     goldstandard.beta = target[obs[["cols"]]],
-    nfit = ncol(betas),
     verbose = FALSE,
     on.sample.error = "continue",
     failed.sample = "NA"
