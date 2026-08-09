@@ -14,6 +14,59 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- `predict_sex()` declares its own `covariates`, because it is the reader
+
+`covariates =` reached two front doors and not the third. `predict_sex()` forwarded it through
+`...` to `calc_clocks()`, where `canonicalize_covariates()` graded it against
+`spec[["covariates"]]` -- the covariates the *scored clocks* declare. Both `DNAmSex_Wang` members
+declare `character(0)`, so `covariates = c(Female = "sex_f")` hit the `!length(reads)` branch and
+aborted with **"this call reads no covariate"**, which is the opposite of the truth: `predict_sex()`
+reads `Female`, just not through the scoring loop. The 2026-08-03 entry below had already written
+down why -- `Female` is validated in `recorded_from_female()` "because nothing else does" -- so the
+function was the declared reader of a covariate it never declared at its own front door.
+
+**A formal, not a wider helper.** The alternative was to let `covariates` keep flowing through `...`
+and give `canonicalize_covariates()` a way to be told about an extra read. That splits one rule
+across two frames and leaves `predict_sex()`'s signature still silent about the one covariate it
+consumes, so `?predict_sex` could not document it and `args()` could not show it. The formal makes
+the third door declare its reads the way the other two do.
+
+**`reads` is derived, not the constant it happens to be.**
+`union(clock_covariates_required(<both members>), "Female")` is exactly `"Female"` today, because
+neither member declares one. It is written as a union anyway: if upstream ever gives a member a
+covariate, the derived form lets a caller point at it, and the hard-coded form would refuse a map
+`calc_clocks()` would have honored. Accessors are the executable schema, and this is one accessor
+read, not a spec build.
+
+**Canonicalize once at the top, then forward `covariates = NULL`.** The rename has to run above
+*every* read, because there are two: `calc_clocks()`'s pheno gates and the id-join in
+`attach_recorded()`. Doing it in one place is also what fixed the second half of the defect --
+`attach_recorded()` tested `!"Female" %in% names(pheno)` against the caller's raw frame, so the
+mismatch comparison was silently dropped for exactly the callers who had supplied a map. Passing
+`covariates = NULL` down is not defensive: it says the map is already spent, so nobody grades it
+twice against a `reads` set that does not contain `Female`.
+
+**The silence got a message, and only in the one case that is worth it.** A `pheno` with no
+`Female` column now emits a `cli_inform` naming the two columns that were not built and the
+`covariates` form that would build them. `pheno = NULL` stays silent, because a caller who supplied
+no metadata asked for no comparison. The case in between -- metadata supplied, no sex in it -- is
+the one where the argument bought the caller nothing, and the comparison is all `pheno` buys
+beyond the id column.
+
+**Unchanged, and not to be re-opened.** `predict_sex()` is still composition over `calc_clocks()`
+and reads no beta matrix of its own, so the one-beta-entry-point invariant is untouched. The frozen
+`calc_clocks()` API is untouched too -- the 2026-08-02 freeze was about a `sex =` argument on
+`calc_clocks()`, not about this function's own signature. `Female` still does not reach `$pheno` on
+a `predict_sex()` run, because the members require no covariate and `resolve_pheno()` narrows to
+what the run required, so the comparison still reads the caller's frame and never the returned
+value.
+
+Always-on suite **933 pass / 0 fail / 2 skip / 0 warn**. `lint_roxygen()` and `lint_seealso()` both
+empty. `NAMESPACE` unchanged -- `predict_sex` was already exported and the change is one formal.
+Parity not run; `R CMD check` not run.
+
+---
+
 ## 2026-08-08 -- The front-door value sweep is recorded, keyed by batch (QC phase 2)
 
 **The findings existed and were thrown away.** `col_stats()` already computes the whole value

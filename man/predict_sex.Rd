@@ -4,7 +4,7 @@
 \alias{predict_sex}
 \title{Predicted Sex Karyotype}
 \usage{
-predict_sex(DNAm, pheno = NULL, ...)
+predict_sex(DNAm, pheno = NULL, covariates = NULL, ...)
 }
 \arguments{
 \item{DNAm}{A numeric matrix. The methylation beta values, with samples in
@@ -12,6 +12,10 @@ the rows and CpGs in the columns.}
 
 \item{pheno}{A data.frame. The sample metadata, with one row for each
 sample. Default is \code{NULL}.}
+
+\item{covariates}{A named character vector. Points a covariate at the column
+that holds it, for metadata that names its columns something else. Default
+is \code{NULL}.}
 
 \item{...}{Passed to \code{\link[=calc_clocks]{calc_clocks()}}.}
 }
@@ -36,7 +40,31 @@ carries \code{recorded_sex} and \code{sex_mismatch}. \code{sex_mismatch} is \cod
 where \code{predicted_sex} disagrees with a binary \code{recorded_sex}. A
 \code{"47,XXY"} or \code{"45,XO"} call is never flagged, because a binary \code{Female}
 column cannot record it.
+
+\code{predict_sex()} reads \code{Female} itself, and the two clocks it scores read no
+covariate. Write \code{covariates = c(Female = "sex_f")} to point \code{Female} at a
+column of another name. \code{pheno} with no \code{Female} column builds no
+comparison, and says so.
 }
+\section{Covariate columns}{
+
+Some clocks read a covariate from the sample metadata. A clock names the
+covariate it reads, and looks for a column of that name.
+
+\code{covariates} points a covariate at a column that holds it under another
+name. Write the covariate on the left and your own column on the right, as
+in \code{covariates = c(Age = "age_yrs")}. Only a covariate this call reads can
+be pointed at a column, and each one may be pointed once.
+
+A covariate that is already a column of the metadata needs no entry. The
+\code{covariates} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives the
+covariates each clock reads.
+
+A pointer moves the name and nothing else. \code{Female} pointed at a column that
+holds \code{1} for male scores every clock that reads sex, and scores all of them
+wrong, so check what the column means before you point at it.
+}
+
 \examples{
 sim <- sim_DNAm("DNAmSex_Wang", n = 6, Female = TRUE)
 predict_sex(sim[["DNAm"]], sim[["pheno"]])

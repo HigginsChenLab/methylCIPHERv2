@@ -104,3 +104,30 @@ test_that("calc_accel points its own data at a covariate", {
   months[["age_yrs"]] <- ages * 12
   expect_warning(calc_accel(res, data = months, covariates = c(Age = "age_yrs")))
 })
+
+# predict_sex reads Female itself, and the clocks it scores read no covariate,
+# so the map has to be resolved here rather than forwarded to calc_clocks().
+test_that("predict_sex points its own pheno at the recorded sex", {
+  skip_on_cran()
+  sim <- sim_DNAm("DNAmSex_Wang", n = 6L, Female = TRUE)
+  ph <- sim[["pheno"]]
+  names(ph)[names(ph) == "Female"] <- "sex_f"
+
+  want <- suppressMessages(predict_sex(sim[["DNAm"]], sim[["pheno"]]))
+  got <- suppressMessages(predict_sex(
+    sim[["DNAm"]],
+    ph,
+    covariates = c(Female = "sex_f")
+  ))
+  expect_equal(got, want)
+  expect_true(all(c("recorded_sex", "sex_mismatch") %in% names(got)))
+
+  # a covariate this call does not read is still refused
+  expect_error(predict_sex(sim[["DNAm"]], ph, covariates = c(Age = "sex_f")))
+  # and so is a column that is not there
+  expect_error(predict_sex(
+    sim[["DNAm"]],
+    ph,
+    covariates = c(Female = "no_such_column")
+  ))
+})
