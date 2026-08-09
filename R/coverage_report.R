@@ -68,9 +68,10 @@ miss_vec <- function(x, id, panel = c("score", "norm")) {
 # one record field down a column, typed by `empty`. a NULL record read no CpGs,
 # so it has nothing to report on any field.
 rec_field <- function(per_clock, nm, empty) {
+  mode <- typeof(empty)
   unname(vapply(
     per_clock,
-    function(r) if (is.null(r)) empty else as.vector(r[[nm]], typeof(empty)),
+    function(r) if (is.null(r)) empty else as.vector(r[[nm]], mode),
     empty
   ))
 }
@@ -402,33 +403,34 @@ samples_coverage <- function(x) {
   attach_notes(drop_single_batch(out, batch), gap_reasons(x), partial_cells(x))
 }
 
-# join key for one (sample, clock) cell. sample first, clock second, everywhere:
-# built the other way round it matches nothing and says nothing.
-cell_key <- function(id, clock_id) {
-  paste(id, clock_id, sep = "\r")
+# join key for one (sample, clock, panel) cell. build it the same way everywhere.
+cell_key <- function(id, clock_id, panel) {
+  # paste() recycles the scalar panel up, but returns one element rather than
+  # none for an empty id -- which would shift every note off its key
+  if (!length(id)) {
+    return(character(0))
+  }
+  paste(id, clock_id, panel, sep = "\r")
 }
 
-# (sample, clock) keys whose normalization was only partly applied
+# the norm-panel cells whose calibration was only partly applied
 partial_cells <- function(x) {
   partial <- x[["provenance"]][["partial_calibration"]]
   unlist(
-    lapply(names(partial), function(id) cell_key(partial[[id]], id)),
+    lapply(names(partial), function(id) cell_key(partial[[id]], id, "norm")),
     use.names = FALSE
   )
 }
 
-# attach each row's stage verdict: score rows from the gap walk, norm rows
-# from the calibrations that were only partly applied.
+# attach each row's note: score rows from the gap walk, norm rows from the
+# calibrations that were only partly applied.
 attach_notes <- function(out, gaps, partial) {
-  rows <- cell_key(out[["id"]], out[["clock_id"]])
-  hit <- match(rows, cell_key(gaps[["id"]], gaps[["clock_id"]]))
-  score_row <- out[["panel"]] == "score"
-  hit[!score_row] <- NA_integer_
+  key <- c(cell_key(gaps[["id"]], gaps[["clock_id"]], "score"), partial)
+  note <- c(gaps[["note"]], rep("partial", length(partial)))
 
   cols <- names(out)
-  note <- gaps[["note"]][hit]
-  note[!score_row & rows %in% partial] <- "partial"
-  out[["note"]] <- note
+  rows <- cell_key(out[["id"]], out[["clock_id"]], out[["panel"]])
+  out[["note"]] <- note[match(rows, key)]
   # mc_batch_id stays last: it is the join key, and it is a hash
   out[c(setdiff(cols, MC_BATCH), "note", intersect(MC_BATCH, cols))]
 }

@@ -75,7 +75,8 @@ test_that("pointing a column does not disarm the checks that read it", {
   expect_error(score(bad_sex))
 
   # the age-units warning still fires
-  months <- renamed_pheno(grip_fixture(age = mc_ages(4L) * 12))
+  months <- renamed_pheno(fx)
+  months[["age_yrs"]] <- months[["age_yrs"]] * 12
   expect_warning(score(months))
 
   # and so does the missing-covariate warning

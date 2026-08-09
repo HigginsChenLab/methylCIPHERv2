@@ -299,13 +299,9 @@ say_fill_batch <- function(x, rhs_vars) {
   filled <- vapply(
     per_clock,
     function(recs) {
-      any(vapply(
-        recs,
-        function(r) {
-          !is.null(r) && as.integer(r[["score_imputed_partial"]]) > 0L
-        },
-        logical(1L)
-      ))
+      # NA where a clock read no CpGs, which is not a fill
+      partial <- rec_field(recs, "score_imputed_partial", NA_integer_)
+      any(partial > 0L, na.rm = TRUE)
     },
     logical(1L)
   )
@@ -391,12 +387,7 @@ calc_accel <- function(
   check_mc_result(x)
   # NA allowed for the same reason as check_pheno: a gap drops that sample
   # from the fit, and is not a reason to refuse the frame
-  checkmate::assert_data_frame(
-    data,
-    min.rows = 1,
-    any.missing = TRUE,
-    null.ok = TRUE
-  )
+  checkmate::assert_data_frame(data, min.rows = 1, null.ok = TRUE)
   checkmate::assert_flag(long)
   type <- match.arg(type)
   formula <- accel_formula(formula, type)

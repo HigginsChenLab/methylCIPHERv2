@@ -25,6 +25,18 @@ horvath1_score <- function(m) {
   as.numeric(tf(clock_intercept("Horvath1") + m[, names(coef)] %*% coef))
 }
 
+# the record-half runs share one call: Horvath1 normalized over a thinned
+# background, with both gates off because that background is deliberately short.
+horvath1_normalized <- function(DNAm = methylation_betas(background = 1000L)) {
+  calc_clocks(
+    DNAm,
+    "Horvath1",
+    normalize = c(Horvath1 = TRUE),
+    min_clocks_coverage = 0,
+    min_samples_coverage = 0
+  )
+}
+
 bmiq_calibrated <- function(m) {
   bmiq_calibration(
     m,
@@ -127,14 +139,7 @@ test_that("a clock with no norm panel keeps its entry rather than losing it", {
 # normalized arithmetic is in test-fixtures-parity.R. this file covers the record half.
 test_that("a normalized run says on the record that it normalized", {
   skip_on_cran()
-  # record-only: gates off because a thinned background is deliberately short
-  res <- calc_clocks(
-    methylation_betas(background = 1000L),
-    "Horvath1",
-    normalize = c(Horvath1 = TRUE),
-    min_clocks_coverage = 0,
-    min_samples_coverage = 0
-  )
+  res <- horvath1_normalized()
 
   # the record must be able to say which Horvath1 it holds
   expect_equal(res$provenance$normalized, "Horvath1")
@@ -190,15 +195,7 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   DNAm <- methylation_betas(background = 1000L)
   DNAm[2, ] <- 0.5
 
-  res <- suppressWarnings(
-    calc_clocks(
-      DNAm,
-      "Horvath1",
-      normalize = c(Horvath1 = TRUE),
-      min_clocks_coverage = 0,
-      min_samples_coverage = 0
-    )
-  )
+  res <- suppressWarnings(horvath1_normalized(DNAm))
   got <- res$scores[, "Horvath1"]
 
   expect_equal(res$provenance$scoring_failures$Horvath1, rownames(DNAm)[2])
@@ -218,15 +215,7 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
 test_that("a partial calibration marks the norm panel and leaves the score", {
   skip_on_cran()
   DNAm <- methylation_betas(background = 1000L)
-  res <- suppressWarnings(
-    calc_clocks(
-      DNAm,
-      "Horvath1",
-      normalize = c(Horvath1 = TRUE),
-      min_clocks_coverage = 0,
-      min_samples_coverage = 0
-    )
-  )
+  res <- suppressWarnings(horvath1_normalized(DNAm))
   marked <- rownames(DNAm)[c(1, 3)]
   res$provenance$partial_calibration <- list(Horvath1 = marked)
 
