@@ -41,8 +41,8 @@ gate_disjoint_ids <- function(recs) {
         "{length(dup)} sample id{?s} appear{?s/} in more than one
          {.cls mc_result}:",
         capped_bullets(dup, val_lines),
-        "i" = "Give each batch its own sample ids before scoring, for example
-               {.code rownames(DNAm) <- paste0(rownames(DNAm), '_T1')}."
+        "i" = "Give each batch its own sample ids before scoring. A suffix on
+               {.code rownames(DNAm)} is enough."
       ),
       call = NULL
     )

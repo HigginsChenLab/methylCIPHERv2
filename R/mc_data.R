@@ -331,10 +331,9 @@ mc_consent <- function(rows, dir, ask) {
       c(
         "{length(rows)} clock-data asset{?s} cannot be downloaded in a
          non-interactive session.",
-        "i" = "Assets directory: {.path {dir}}",
         mc_manifest_bullets(ids, sizes),
         "i" = "Pass {.code ask = FALSE} to allow the download.",
-        "i" = "Or put the file{cli::qty(length(rows))}{?s} in that directory
+        "i" = "Or put the file{cli::qty(length(rows))}{?s} in {.path {dir}}
                yourself, then point {.arg ext_data} at it."
       ),
       call = NULL
@@ -754,8 +753,8 @@ mc_consent_delete <- function(files, dir, ask, n_stale = 0L) {
   if (!interactive()) {
     cli::cli_abort(
       c(
-        "{what} cannot be deleted in a non-interactive session.",
-        "i" = "Assets directory: {.path {dir}}",
+        "{what} in {.path {dir}} cannot be deleted in a non-interactive
+         session.",
         mc_manifest_bullets(labels, sizes),
         "i" = "Pass {.code ask = FALSE} to allow the deletion."
       ),
