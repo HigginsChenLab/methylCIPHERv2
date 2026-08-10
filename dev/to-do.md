@@ -8,41 +8,6 @@ There is no open code defect. Everything below is licensing, release plumbing, p
 
 ---
 
-## In progress
-
-### P2. The cli length problems a bullet count cannot see
-
-Two passes landed 2026-08-09, each with a DECISIONS entry and each now a rule in
-`dev/WRITING.md` section 3: the bullet pass (42 messages with two or more `"i"` bullets down to
-25), and the list pass (a coverage warning counts, fixes and points, and never enumerates what
-`clocks_coverage()` or `samples_coverage()` gives). What is left is short.
-
-**Do not rebuild `dev/cli_scan.R` to weight `capped_bullets()`.** That was scoped and dropped:
-the block is one bullet whose job is to refuse more than `MC_MSG_CAP` items, so ranking by it
-puts the cap at the top of the list of things to remove. The scanner is still blind to a bullet
-built inside an `if` (five messages) and reports `NA` for every line number, because `srcref`
-attaches only to a top-level expression. Neither is worth fixing alone, and a renderer is not
-reachable: the templates interpolate call-site locals, and two of the long messages are
-interactive prompts the suite never triggers.
-
-Known remaining, none urgent:
-
-- **`mc_manifest_bullets()` embeds a table.** Up to ten asset rows plus a total, inside
-  `mc_consent()` and `mc_consent_delete()`. Both run to about fourteen lines on two or three
-  bullets, and in `mc_consent()` the table sits between the assets directory and the fix that
-  refers to it, so the two cannot simply be reordered.
-- **Two more conditional-bullet sites.** `check_DNAm()`'s data.frame branch is the same shape
-  `check_coverage()` had at smaller scale. `resolve_pheno()` puts up to ten sample ids inline in
-  an `"x"` bullet rather than in a list. Both name the input, so neither is a list to cut.
-- **Two long `{.code}` spans (R7).** `gate_disjoint_ids()` and `check_DNAm()`'s rownames fix.
-  Both are permitted content, so this is formatting rather than policy.
-
-`dev/cli-audit.md` holds the per-message detail. Its main table is stale for the rows that were
-applied, but the appendix and the nine-message "leave these alone" list are still live, and the
-role taxonomy is what section 3 was written from.
-
----
-
 ## Before public alpha
 
 ### A1. Package license, forced by the clock weights

@@ -14,6 +14,41 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- The last cli length items, and the two that were already right
+
+Closes the cli work. Three things were on the list and only one of them was a list problem.
+
+**The consent manifest stays.** It was the longest block left, up to eleven lines inside
+`mc_consent()` and `mc_consent_delete()`, and it is exactly what section 3 of `dev/WRITING.md`
+says a message may enumerate: the assets a prompt is asking to download or delete. A reader
+cannot look them up, and consenting to a count is not consent. What was wrong was **placement** --
+"Assets directory:" sat above the manifest and "put the files in that directory yourself" below
+it, so a pronoun pointed back across eleven lines. The path moved into the bullet that uses it,
+and into the lead for the delete prompt where nothing uses it twice. Both prompts lost a bullet.
+The general rule is now in section 3: a list is the widest block in a message, so nothing may
+refer across one.
+
+**`resolve_pheno()` was already right and is not a defect.** It puts up to ten missing sample ids
+inline in an `"x"` bullet rather than as a list. That is one line instead of ten for the same
+content, and the ids are the reader's own input. It was on the list as a shape to look at, and
+looking at it is the whole answer.
+
+**The two long `{.code}` spans were the same shape.** `gate_disjoint_ids()` and `check_DNAm()`'s
+rownames refusal both marked up a whole assignment with a nested call
+(`rownames(DNAm) <- paste0(...)`, 45 and 52 characters). R7 says mark the identifier, so both now
+mark `rownames(DNAm)` and put the recipe in prose. The rownames one also stopped being one of the
+file's over-80 source lines.
+
+**Do not rebuild `dev/cli_scan.R` to weight `capped_bullets()`.** Carried here from the to-do so
+it survives the item being deleted. The block is one bullet whose job is to refuse more than
+`MC_MSG_CAP` items, so ranking messages by it puts the cap at the top of the list of things to
+remove. The scanner is also blind to a bullet built inside an `if` (five messages) and reports
+`NA` for every line number, because `srcref` attaches only to a top-level expression. Neither is
+worth fixing alone, and a renderer is not reachable: the templates interpolate call-site locals,
+and two of the long messages are interactive prompts the suite never triggers.
+
+---
+
 ## 2026-08-09 -- Two spaces carry the hierarchy, and the digest leads with what went wrong
 
 The layout half of P1, landing on `R/print.R` and so on every `print.mc_*` method. Indentation

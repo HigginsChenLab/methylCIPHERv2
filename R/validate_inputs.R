@@ -87,8 +87,8 @@ check_DNAm <- function(DNAm) {
         "i" = "Convert the {.cls data.frame} with {.code {conv}}.",
         if (!transposed && !cn_probes) {
           c(
-            "i" = "Most methylation tables hold the CpGs in the rows.",
-            "i" = "Check the orientation before you convert."
+            "i" = "Most methylation tables hold the CpGs in the rows, so check
+                   the orientation before you convert."
           )
         }
       ),
@@ -114,8 +114,7 @@ check_DNAm <- function(DNAm) {
     cli::cli_abort(
       c(
         "{.arg DNAm} needs sample ids as {.fn rownames}.",
-        "i" = "Name unnamed rows with
-               {.code rownames(DNAm) <- paste0(\"sample\", seq_len(nrow(DNAm)))}."
+        "i" = "Set {.code rownames(DNAm)} to one unique id for each sample."
       ),
       call = NULL
     )

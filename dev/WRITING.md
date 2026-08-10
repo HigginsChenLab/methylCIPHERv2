@@ -256,6 +256,13 @@ one of these messages ends on one. This also removed the only reason the gates f
 label at all: `gate_label()` and `panel_line()` are deleted, and no message names a routed member
 id any more.
 
+**A kept list still has to sit somewhere, and nothing may refer across it.** A list is the widest
+block in any message, so a bullet cannot point back over one. `mc_consent()` put "Assets
+directory:" above the manifest and "put the files in that directory yourself" below it, up to
+eleven lines apart, and the pronoun had nothing near it. Put the value in the bullet that uses it
+(`{.path {dir}}` moved into the fix), or into the lead where nothing uses it twice
+(`mc_consent_delete()`). Both lost a bullet by it (2026-08-09).
+
 **An `inform` takes a lead.** Three of them opened with an `"i"` and had no lead at all, so cli
 rendered an info bullet with nothing above it. The first line is the lead; the rest are bullets.
 A mid-message list header (`resolve_clocks()`'s "Closest matches:") is not a lead and keeps its
