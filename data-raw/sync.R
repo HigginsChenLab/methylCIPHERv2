@@ -1396,13 +1396,19 @@ attach_karyotype_euploid <- function(catalog) {
 
 # bmiq gold standards
 
-# every bmiq clock and the panel its gold must carry. hard-coded on purpose:
-# a resized gold, a renamed role or a new bmiq clock stops the build rather
-# than silently shipping a constant nobody measured.
+# every bmiq clock and the gold it must carry, by size and by content.
+# hard-coded on purpose: anything unexpected stops the build rather than
+# silently shipping a refitted constant.
 BMIQ_GOLD_ROLE <- "bmiq_gold_standard"
 BMIQ_GOLD_EXPECTED <- list(
-  "Horvath1" = 21368L,
-  "Knight" = 21368L
+  "Horvath1" = list(
+    n_cpgs = 21368L,
+    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+  ),
+  "Knight" = list(
+    n_cpgs = 21368L,
+    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+  )
 )
 
 # legacy BMIQ fit settings. the panel is never subsampled, so no RNG is drawn.
@@ -1446,12 +1452,12 @@ fit_bmiq_gold <- function(gold, cid) {
     unmethylated.mode = as.numeric(fit[["unmethylated.mode"]]),
     methylated.mode = as.numeric(fit[["methylated.mode"]]),
     nL = as.integer(fit[["nL"]]),
-    # the vector does not ship, so this is the only thing that can later say
-    # the gold moved or a setting moved.
+    # the vector does not ship, so this is the only record that the gold or a
+    # setting moved. the settings come from the fitter, never a copy of ours.
     source = list(
       n_cpgs = length(gold),
       gold_hash = payload_hash_of(unname(as.numeric(gold))),
-      settings = s
+      settings = fit[["settings"]]
     )
   )
 }
@@ -1472,58 +1478,47 @@ attach_bmiq_gold_prefit <- function(catalog, bundles) {
     if (!identical(tolower(as.character(entry[["normalization"]])), "bmiq")) {
       next
     }
+    bad <- function(...) stop("clock '", cid, "': ", ..., call. = FALSE)
+
     want <- BMIQ_GOLD_EXPECTED[[cid]]
     if (is.null(want)) {
-      stop(
-        "clock '",
-        cid,
-        "' normalizes with bmiq but BMIQ_GOLD_EXPECTED does not cover it",
-        call. = FALSE
-      )
+      bad("normalizes with bmiq but BMIQ_GOLD_EXPECTED does not cover it")
     }
     ps <- entry[["probe_sets"]][[BMIQ_GOLD_ROLE]]
     if (is.null(ps)) {
-      stop(
-        "clock '",
-        cid,
-        "': no ",
-        BMIQ_GOLD_ROLE,
-        " probe_set to fit",
-        call. = FALSE
-      )
+      bad("no ", BMIQ_GOLD_ROLE, " probe_set to fit")
     }
     gid <- entry[["group_id"]]
     gold <- bundles[[gid]][["tensors"]][[ps[["file"]]]]
     if (is.null(gold)) {
-      stop(
-        "clock '",
-        cid,
-        "': no bundled tensor at ",
-        ps[["file"]],
-        call. = FALSE
-      )
+      bad("no bundled tensor at ", ps[["file"]])
     }
-    if (length(gold) != want) {
-      stop(
-        "clock '",
-        cid,
-        "': gold standard carries ",
+    if (length(gold) != want[["n_cpgs"]]) {
+      bad(
+        "gold standard carries ",
         length(gold),
         " CpGs but BMIQ_GOLD_EXPECTED declares ",
-        want,
-        call. = FALSE
+        want[["n_cpgs"]]
+      )
+    }
+    # the length alone would pass a gold whose values moved
+    got_hash <- payload_hash_of(unname(as.numeric(gold)))
+    if (!identical(got_hash, want[["gold_hash"]])) {
+      bad(
+        "gold standard hashes to ",
+        got_hash,
+        " but BMIQ_GOLD_EXPECTED declares ",
+        want[["gold_hash"]],
+        ". If the revision is intended, update the registry."
       )
     }
     # dropping the tensor is only safe because the probe_set already holds
     # the panel. verify that rather than trusting it.
     if (!identical(names(gold), as.character(ps[["cpgs"]]))) {
-      stop(
-        "clock '",
-        cid,
-        "': gold tensor names differ from the ",
+      bad(
+        "gold tensor names differ from the ",
         BMIQ_GOLD_ROLE,
-        " probe_set, so dropping the tensor would lose the panel",
-        call. = FALSE
+        " probe_set, so dropping the tensor would lose the panel"
       )
     }
 

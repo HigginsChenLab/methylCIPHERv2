@@ -192,6 +192,22 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     front of `clock_id`. **There is no third coverage frame.** Why an `NA` score is `NA` is the
     `note` column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()`
     and never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06).
+    - **The frame and its warning are two functions, and an internal consumer takes the frame.**
+      `sample_coverage_rows()` builds it; `samples_coverage()` is that plus `say_low_samples()`.
+      The split exists because `predict_sex()` joins these rows onto its own columns, and calling
+      the export there raised a second warning about a fact `calc_clocks()` had already warned
+      about, in different words. A consumer joining the rows is not a reader being told about
+      them. Do not "simplify" an internal call site back onto the export, and do not fix a
+      duplicate by suppressing the warning -- the frame is what is wanted, so take the frame
+      (DECISIONS 2026-08-10).
+    - **`predict_sex()` carries `_coverage` and `_note` per score, and stays a data.frame.**
+      Per clock, never summarized across the pair: the two Wang panels are 4047 and 284 CpGs, so
+      one `min()` would put the same number on two panels where it means different things, and it
+      would erase the chrX-kept-chrY-stripped case that Q4 in `dev/to-do.md` turns on. **`note` is
+      not redundant with `coverage`** and that is why the frame is four columns rather than two:
+      the Wang branch emits `fit_spread`, so a sample can read `1` coverage and still score `NA`.
+      `clocks_coverage()` is **not** joined and cannot be -- it has no sample axis, so every column
+      it contributed would be constant down the frame (DECISIONS 2026-08-10).
     - **`summary()` counts those notes, and counts nothing itself.** It is the QC digest
       (DECISIONS 2026-08-09), and it is not a third coverage frame: it takes `samples_coverage()`'s
       output and returns an `mc_summary` of `input` / `arguments` / `by_clock` / `by_sample`. Two
@@ -555,6 +571,19 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `resolve_cpgs()`, because declining a scheme empties the background panel and every downstream
     fact reads the resolved panel; that is what keeps it a flag flip instead of a branch
     (DECISIONS 2026-08-06).
+    - **A value a sample cannot be calibrated from fails that sample, never the run.** BMIQ fits
+      per sample, so a non-finite or out-of-range cell is a per-sample fact and is graded inside
+      `process_sample()`'s `tryCatch`, where it degrades to `NA` plus a `fit_bmiq` note like every
+      other BMIQ failure. Upstream betanorm scans the whole matrix up front and a re-vendor will
+      bring that back: it aborted the entire `calc_clocks()` call over one cell, taking clocks that
+      do not normalize down with it. **`norm_gate()` is the wrong home for this and was refused
+      twice over.** It cannot be made sound there, because the only value facts before
+      `resolve_cpgs()` are `input_scan()`'s single global `min_val` / `max_val` and the one column
+      each was found in, so a second, smaller out-of-range value in the background reads as clean.
+      And it grades a panel, which is cohort-wide, so it would answer a per-cell problem by
+      declining the scheme for everybody. The check stays closed `[0, 1]` because `fit_mixture()`
+      clips the endpoints inward, and it cannot simply be deleted: that turns a loud abort into a
+      silent clamp (DECISIONS 2026-08-10).
     - **The row gate never re-reports the column gate, and the ordering in `samples_coverage()` is
       what guarantees it.** `check_row_coverage()` reads the scoring `gate`, which `covered_ids()`
       bounds to clocks that cleared the column gate, so a clock refused for the whole batch never
@@ -631,6 +660,19 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `src/*.dll`, so a changed or newly added kernel silently does not exist. Run
   `pkgbuild::compile_dll(".", force = TRUE)` first; the symptom of skipping it is the same
   "not available for .Call()" error above.
+- **A kernel bounds-checks its own arguments, and a mutating parameter takes `SEXP`.** Two rules,
+  both from defects that were live and both undone by a careless re-vendor, so
+  `tests/testthat/test-value-gates.R` pins them and each vendored file names them in its header.
+  **Widen before you compare**: a block coordinate arithmetic'd in `int` wraps negative on a large
+  or `NA` argument and *passes* the bounds test, which is how `gather_sample_block_cpp()` and
+  `scatter_sample_block_cpp()` each segfaulted; do it in `R_xlen_t` and reject `NA_INTEGER` first,
+  because `NA_INTEGER` is `INT_MIN` and `x - 1` is already overflow. **And a parameter the kernel
+  writes through must be `SEXP`, validated before wrapping** -- declared as `NumericMatrix`, a
+  non-`REALSXP` argument is coerced into a temporary, mutated, and dropped with no error, so the
+  caller reads its own matrix back unchanged. A `TYPEOF()` check *after* Rcpp has coerced inspects
+  the copy and always passes. `MAYBE_SHARED()` is **not** the companion rule and must not be added:
+  the generated R wrapper binds the argument, so the count is above one at every legitimate call
+  (DECISIONS 2026-08-10).
 
 ## sync.R workflow (`data-raw/sync.R`)
 
@@ -791,7 +833,7 @@ output**, not implementation detail (see "Test altitude").
     (1284 -> 799 expectations) the internal half of this tier carries `skip_on_cran()`, so CRAN
     runs a fraction of it: the smoke tier, the front-door refusals, and the `mc_result` contract.
     **Re-measure before quoting a number.** The suite grows, and the pair moved from 799 / 391 to
-    **1001 / 477** by 2026-08-10 with no change to what is gated. **CRAN
+    **1030 / 477** by 2026-08-10 with no change to what is gated. **CRAN
     therefore applies no numeric gate at all** -- parity was already skipped there, so a green
     CRAN check proves the package loads, refuses correctly and returns a well-formed record, and
     proves nothing about the scores. Do not read it as more than that, and do not "restore
@@ -806,7 +848,7 @@ output**, not implementation detail (see "Test altitude").
     suites; say which one a result came from.
   - **The gate is per `test_that`, first line, never at file level** -- testthat runs top-level
     code at collection, so a file-level skip reads as one skipped file instead of N skipped tests.
-    Under `NOT_CRAN=false` the suite reports 111 skipped blocks across 28 files (measured
+    Under `NOT_CRAN=false` the suite reports 116 skipped blocks across 28 files (measured
     2026-08-10, was 89 across 24); a file-level gate would show 28. The point is the ratio, not
     either number. Anything calling a non-exported function is gated by default.
   - **Four goldens are kept against "parity owns it", because parity is structurally blind to

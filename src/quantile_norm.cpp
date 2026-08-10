@@ -13,8 +13,18 @@ namespace
         double value;
         int index;
 
+        // Total, with NaN last. A bare value < other.value makes NaN
+        // equivalent to everything, which breaks std::sort's precondition.
         bool operator<(const DataItem &other) const
         {
+            if (std::isnan(value))
+            {
+                return false;
+            }
+            if (std::isnan(other.value))
+            {
+                return true;
+            }
             return value < other.value;
         }
     };
@@ -31,6 +41,22 @@ namespace
             return 0.5 * (target[k - 1] + target[k]);
 
         return target[k - 1];
+    }
+
+    // 1-based target rank, clamped into [1, m]. Clamp in double: a negative
+    // double cast to size_t is UB, not a wrap.
+    inline std::size_t clamp_rank(double rank, std::size_t m)
+    {
+        double k = std::floor(rank);
+        if (!(k >= 1.0))
+        {
+            k = 1.0;
+        }
+        if (k > static_cast<double>(m))
+        {
+            k = static_cast<double>(m);
+        }
+        return static_cast<std::size_t>(k);
     }
 
     // unequal length: linear interpolation of the target quantile.
@@ -54,18 +80,15 @@ namespace
         {
             fraction = 0.0;
         }
+        // Both early returns clamp like the interpolating branch below.
         if (fraction == 0.0)
         {
-            const std::size_t k = static_cast<std::size_t>(
-                std::floor(target_floor + 0.5));
-            return target[k - 1];
+            return target[clamp_rank(target_floor + 0.5, m) - 1];
         }
 
         if (fraction == 1.0)
         {
-            const std::size_t k = static_cast<std::size_t>(
-                std::floor(target_floor + 1.5));
-            return target[k - 1];
+            return target[clamp_rank(target_floor + 1.5, m) - 1];
         }
 
         const std::size_t k = static_cast<std::size_t>(

@@ -12,6 +12,193 @@ second-guessed; do not restate rules already stated in `CLAUDE.md`.
 **Archive:** entries before 2026-07-30 live in `dev/DECISIONS.old.md` (unchanged full log).
 Older dated citations in `CLAUDE.md` resolve there. Do not restate that history here.
 
+## 2026-08-10 - predict_sex() carries coverage per score, and stays a data.frame
+
+Upstream's ask was to surface probe coverage beside the call, because `Female` is the
+classifier's residual and a `FALSE` in `sex_aneuploidy` from a thin panel must not read like a
+`FALSE` from a full one. `predict_sex()` discarded the `mc_result`, so neither coverage frame was
+reachable from what it returned.
+
+**It keeps returning a plain data.frame.** Four columns join on: a `_coverage` and a `_note` for
+each of the two scores, named after the score. Returning the record as well was considered and
+declined -- it changes a documented `@returns` for information the four columns already carry at
+the grain a reader of this function wants.
+
+**Per clock, not summarized, and this is the load-bearing choice.** `DNAmSex_Wang_ChrX` declares
+4047 CpGs and `DNAmSex_Wang_ChrY` declares 284, so one `min()` across the pair would put 90%
+coverage on two panels where it means very different things. It also erases the distinction the
+package's own open question turns on: a deposit that strips chrY and keeps chrX is a different
+failure from the reverse, and `cohort_450K` really does strip both.
+
+**The `note` column is not redundant with `coverage`, which is what settled the width.**
+`score_DNAmSex_Wang.R` emits `fit_spread`, so a sample can read **100% coverage and still score
+`NA`** when it has no spread across the reference domain. A coverage column alone would sit at
+`1` beside an unexplained `NA`. That was measured on the branch, not assumed, and it is the
+reason the frame is four columns wide rather than two.
+
+**`clocks_coverage()` cannot be joined and is not.** It has no sample axis at all -- two rows,
+cohort-wide -- so a left join produces columns that are constant down every row. The proposal
+that opened this named both frames; only `samples_coverage()` has the shape.
+
+**`samples_coverage()` had to be split, and that is the part worth remembering.** It ends in
+`say_low_samples()`, so calling it inside `predict_sex()` raised a second warning about a fact
+`calc_clocks()` had already warned about, in different words: "Some samples have too few CpGs ..."
+followed immediately by "1 sample is under `min_samples_coverage` ...". The frame builder is now
+`sample_coverage_rows()` and the export is that plus the warning. An internal consumer joining the
+rows is not a reader being told about them. Verified: one warning, and the joined columns are
+`identical()` to what `samples_coverage()` returns rather than a second count that could drift.
+
+## 2026-08-10 - The kernels bounds-check their own arguments, and two do not
+
+A defensive memory-safety audit of the whole of `src/` turned up four real defects, all
+reproduced against the compiled kernels before and after. **None was reachable from
+`calc_clocks()`**, which is why this is hardening rather than a fix; it is worth doing because
+`src/bmiq_norm.cpp` is vendored and every guard below already existed and read as though it
+were total.
+
+**Two segfaults, from the same one-line mistake.** `gather_sample_block_cpp()` and
+`scatter_sample_block_cpp()` computed `first_sample - 1 + sample_count` in `int`. A large or
+`NA` `first_sample` overflows, wraps negative, passes the bounds test, and the access then
+happens in `R_xlen_t` at roughly 2^31. Three `SIGSEGV`s reproduced, and the scatter's is a heap
+**write**. The arithmetic is now done in `R_xlen_t` with `NA_INTEGER` rejected first, because
+`NA_INTEGER` is `INT_MIN` and `first_sample - 1` is itself overflow before any test can see it.
+Every non-overflowing bad input already stopped cleanly, so the guard was right and only
+overflow defeated it.
+
+**One that returned wrong numbers rather than crashing, which is the worse kind.**
+`fill_imp_col()` declared its mutating parameter as `NumericMatrix`, so a non-`REALSXP` matrix
+was coerced into a temporary, filled, and discarded with no error. Confirmed: an integer matrix
+came back untouched and silent. Had it fired, `build_partial_cache()` would have returned an
+unimputed cache and every partial-NA CpG would have scored from `NA`. **The fix is the parameter
+type, not a check**: a mutating parameter now takes `SEXP` and validates before wrapping, since
+a `TYPEOF()` check after Rcpp has already coerced is inspecting the copy. `scatter_sample_block_cpp()`
+had the identical hazard on `destination` and got the identical treatment.
+
+**One that was UB and silently plausible.** `qnorm_target_rows_cpp()` sorted with
+`value < other.value`, which `NaN` makes a non-strict-weak-ordering, so `std::sort`'s
+precondition is violated. Measured over six trials it did not crash; it silently dropped every
+`NaN` and returned fully finite, plausible, wrong numbers. The comparator is now total with
+`NaN` last. That converts UB into defined behaviour and nothing more: a `NaN` still leaves as
+the largest target value, because the kernel replaces every cell with a target quantile by
+construction. The loud refusal stays where the user is, in `normalize_quantile()`.
+
+**Two findings left standing, both deliberately.**
+
+`scatter_sample_block_cpp()` writes through a shared SEXP, and `MAYBE_SHARED()` **cannot** police
+it: the generated R wrapper binds `destination` as a formal, so the reference count is already
+above one at every legitimate call and the check would refuse the only real caller. In-place
+mutation is the point of the scatter, so the protection has to stay a caller invariant, and the
+comment now says so rather than asserting a rule nothing enforces.
+
+`1.0 / (n - 1)` on a `std::size_t n == 0` wraps to `SIZE_MAX`. That is defined behaviour, and it
+is harmless only because no loop body runs at `n == 0`, which is safety by accident. It is
+blocked by `min.cols = 1L` upstream and left alone rather than guarded on a hypothesis.
+
+**The durable artifact is the invariant list, not the diffstat.** The kernels rely on
+preconditions they do not check, and two are subtle enough that a well-meaning refactor breaks
+them silently. `col_stats()`'s `inv_v` reciprocal table is in bounds only because the two-pass
+`pending` protocol guarantees each column contributes to a given (row, slot) pair at most once.
+And `beta_mixture_em_cpp()` holds raw pointers into R objects across `Rf_mkChar` allocations,
+which is safe because R does not relocate, not because anything protects them.
+`Rcpp::checkUserInterrupt()` at the top of the EM loop was checked and is **correct** as written:
+it wraps `R_CheckUserInterrupt` in `R_ToplevelExec` and converts the interrupt into a C++
+exception, so destructors run. Do not replace it with a raw `R_CheckUserInterrupt`.
+
+The scalar arguments the EM never validated are now validated, ahead of any allocation:
+`min_shape > 0` is what keeps the Newton step off the digamma and lgamma poles, and the halving
+loop tests `h <= max_halving`, which overflows its own counter at `INT_MAX`. R asserts only
+`niter` and `beta.maxit`; the rest rode on the RcppExports defaults.
+
+## 2026-08-10 - A bad BMIQ cell fails its sample, and the value check is per sample
+
+The abort the simplify pass promoted to a to-do (entry below) is fixed by moving
+`scan_finite_unit_interval_cpp()` from the whole matrix to the first stage inside
+`process_sample()`'s `tryCatch`. A non-finite or out-of-range cell is now that sample's
+failure: `NA` for that clock, a `fit_bmiq` note, and the run continues. Measured on the
+repro that opened the to-do - one `1.5` in a background-only probe of one sample - the
+call now returns `Hannum` for every sample and `Horvath1` for all but the bad one, where
+it used to return nothing at all.
+
+**Not `norm_gate()`, which is where the to-do said to put it.** Two reasons, and the first
+is decisive.
+
+It cannot be made sound there with the facts that exist. `norm_gate()` runs before
+`resolve_cpgs()` and the only value facts on hand are `input_scan()`'s, which are a single
+global `min_val` / `max_val` and the one column each was found in. A matrix whose extreme
+value sits in some other clock's scoring panel while a *second*, less extreme out-of-range
+value sits in the bmiq background reads as clean, so the gate would pass and the abort
+would fire anyway. Closing that needs per-column ranges in `col_stats()`, which is a kernel
+change for one gate, and even then the verdict would still be cohort-wide.
+
+And it is the wrong axis. BMIQ fits per sample, so an out-of-range cell is a per-sample
+fact; `norm_gate()` grades a panel, which is a cohort-wide structural one. Declining the
+scheme for everybody because sample 7 has one bad cell answers a per-cell problem at cohort
+scale. The per-sample form is also what every other BMIQ failure already does, which is the
+consistency the invariant asks for.
+
+**What the fix costs, and what it does not.** Total scan work is unchanged - the same n x p
+cells, one sample at a time instead of one matrix - so the "re-scan per sample" the to-do
+priced in does not exist. Nothing numeric moved: both the removed and the added call are
+`void` validators that only ever `Rcpp::stop`, and neither touches a fitted value. The
+strict default still aborts, and now names the sample and the stage rather than saying
+`datM`.
+
+`any.missing = FALSE` came off the `assert_matrix()` at the same time, and for the same
+reason: an `NA` in the background was the identical whole-run abort behind a different
+trigger, and the per-sample scan already covers non-finite. Verified that `NA`, `Inf` and
+`1.5` each fail exactly their own sample under `continue` and abort under `stop`, and that
+exact `0` and `1` still calibrate - `fit_mixture()` clips the endpoints inward, which is
+why the scan is closed `[0, 1]` and not open.
+
+The front door is unchanged and still warns naming the offending column, so a user who
+hits this is told twice: once about the value, once about the sample that could not be
+calibrated from it.
+
+## 2026-08-10 - The BMIQ simplify pass, and what it deliberately left standing
+
+Parity passed on the prefit change, which closes the gate the entry below left open.
+A four-angle review then cut `R/normalize_bmiq.R` by 267 lines with the calibrated
+output **bit-identical** on a seeded 5-sample panel, checked before and after.
+
+**What went, and why it was safe.** The `debug` surface (argument, `em_diagnostics()`,
+per-sample diagnostic lists, the cpp trace plumbing), `verbose` (both call sites passed
+`FALSE`, and its per-sample `message()` duplicated the `cli_progress_step()` already
+raised in `bmiq_panel()`), and the result's `failures` / `call` / `settings` fields plus
+its S3 class. The two consumers read `calibrated`, `success` and `h.applied`; nothing
+read the rest, and there was never a `print` method for the class.
+
+**`call <- match.call()` was a memory leak, not just dead weight.** `bmiq_fit()` invokes
+`do.call(bmiq_calibration, c(list(betas), args))`, which splices the *values* into the
+recorded call, so `match.call()` captured the whole n x 21368 matrix. `norm_cached()`
+then held it for the life of the block: measured 3.23 MB of a 6.00 MB cache entry at
+n = 8, scaling to roughly 81 MB at n = 500, per cached background panel. `quote = TRUE`
+would not have fixed it.
+
+**Two defects in the 2026-08-10 prefit work, both found by review.** The provenance stamp
+recorded `nL, th1.v, niter, tol, beta.maxit, beta.score.tol` and **omitted `nfit`**, which
+is the one setting the whole RNG argument rests on; it now takes `fit[["settings"]]` from
+the fitter rather than a hand-kept copy. And `gold_hash` was recorded but **asserted by
+nothing** - a gold keeping its length and changing its values cleared every gate. The
+registry now pins content as well as size, verified by mutating the expected hash and
+watching the build stop.
+
+**Deliberately not done.** The `nL = 2` arm (156 lines) is unreachable as shipped, since
+every prefit is `nL = 3`, but it is upstream generality rather than a special case of
+ours; deleting it is a one-way door that makes every future re-vendor harder. Both
+vendored files now carry a header listing the divergences we intend to keep, which is the
+artifact a re-vendor actually reads. Upstream's own `debug` plumbing in the cpp stays for
+the same reason.
+
+**The one finding promoted to a to-do instead of fixed.** `scan_finite_unit_interval_cpp()`
+sits *outside* the per-sample `tryCatch`, so it bypasses `on.sample.error = "continue"`.
+Verified: a single out-of-range cell in the background panel aborts the entire
+`calc_clocks()` run, taking clocks that do not normalize down with it - `Hannum` died
+alongside `Horvath1` in the test. That contradicts both the front door's warn-never-abort
+posture and "normalization is not constitutive". It cannot simply be deleted: `fit_mixture()`
+clips to strictly inside (0, 1) before the kernel, so removing the scan turns a loud abort
+into a silent clamp. The fix belongs in `norm_gate()`, which is well outside a simplify
+pass. Fixed the same day, and *not* in `norm_gate()` - see the entry above.
+
 ## 2026-08-10 - The BMIQ gold ships as a fit, and betanorm stays in data-raw
 
 Upstream betanorm hoisted the gold fit out of the sample loop and exported
