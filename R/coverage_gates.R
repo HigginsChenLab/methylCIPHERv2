@@ -58,15 +58,17 @@ check_coverage <- function(cpg_list, threshold = 0.75) {
          score ({.arg min_clocks_coverage} = {format(threshold)}).",
         # lowering the floor is worth naming only where a clock would gain by
         # it, so the caveat rides on that bullet instead of taking its own.
-        c("i" = if (!any(observed)) {
-          "A clock with no CpGs in {.arg DNAm} stays {.code NA} at every
+        c(
+          "i" = if (!any(observed)) {
+            "A clock with no CpGs in {.arg DNAm} stays {.code NA} at every
            {.arg min_clocks_coverage}."
-        } else if (all(observed)) {
-          "Lower {.arg min_clocks_coverage} to score more clocks."
-        } else {
-          "Lower {.arg min_clocks_coverage} to score more clocks. A clock
+          } else if (all(observed)) {
+            "Lower {.arg min_clocks_coverage} to score more clocks."
+          } else {
+            "Lower {.arg min_clocks_coverage} to score more clocks. A clock
            with no CpGs in {.arg DNAm} stays {.code NA} at every value."
-        }),
+          }
+        ),
         "i" = "{.fn clocks_coverage} gives the panel counts for each clock."
       ),
       call = NULL
@@ -184,15 +186,17 @@ check_row_coverage <- function(gate, threshold = 0.75) {
         "Some samples have too few CpGs in {.arg DNAm} for
          {length(blank)} clock{?s} ({.arg min_samples_coverage} =
          {format(threshold)}).",
-        c("i" = if (!thin) {
-          "A sample with no scoring CpGs stays {.code NA} at every
+        c(
+          "i" = if (!thin) {
+            "A sample with no scoring CpGs stays {.code NA} at every
            {.arg min_samples_coverage}."
-        } else if (!any_of(function(s) any(s[["dead"]]))) {
-          "Lower {.arg min_samples_coverage} to score more samples."
-        } else {
-          "Lower {.arg min_samples_coverage} to score more samples. A sample
+          } else if (!any_of(function(s) any(s[["dead"]]))) {
+            "Lower {.arg min_samples_coverage} to score more samples."
+          } else {
+            "Lower {.arg min_samples_coverage} to score more samples. A sample
            with no scoring CpGs stays {.code NA} at every value."
-        }),
+          }
+        ),
         "i" = "{.fn samples_coverage} gives the coverage of every sample."
       ),
       call = NULL
