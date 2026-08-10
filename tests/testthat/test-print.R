@@ -37,11 +37,15 @@ test_that("a block is indented under its header, and pads no line", {
   # a whole axis states its size, and drops the "of" that means it was cut
   expect_true(any(grepl("3 rows", txt, fixed = TRUE)))
 
-  # print(row.names = FALSE) leads every line with a space of its own, which
-  # comes off so that two spaces do not become three. a row-name column is
-  # not a gutter, so a block that has one keeps its header padding.
-  expect_equal(reindent(c(" a  n", " xx 1")), c("  a  n", "  xx 1"))
-  expect_equal(reindent(c("   A B", "r1 1 2")), c("     A B", "  r1 1 2"))
+  # one rule under the header, and nothing else added
+  grid <- fmt_grid(data.frame(a = c("x", "yy"), n = c(1L, 20L)))
+  expect_equal(length(grid), 4L)
+  expect_match(grid[[2L]], "^[- ]+$")
+
+  # a grid too wide for the terminal continues below rather than being folded
+  # mid-cell by the terminal itself
+  wide <- as.data.frame(matrix(1:6, nrow = 1L))
+  expect_gt(length(fmt_grid(wide, width = 10L)), 3L)
 })
 
 test_that("a run with no pheno argument still carries the id column", {
