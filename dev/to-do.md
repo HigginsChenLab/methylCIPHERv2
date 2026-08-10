@@ -182,6 +182,43 @@ prose agree.
 Do not split the two axes across two passes. Fixing the one spelling outlier without settling the
 markup leaves the same inconsistency in a different place.
 
+### B3. Re-audit the cli surface against the current rule set, on Opus 4.8
+
+The last full cli audit predates R9, so every message has been graded against a rule set that has
+since grown. Re-read `dev/WRITING.md` first, as the invariant requires, and grade the whole
+user-facing surface: cli message text, roxygen prose, `README.Rmd`, `vignettes/*.Rmd`.
+
+**Run this one on Opus 4.8, not Opus 5**, on the maintainer's judgement that 4.8 writes better
+prose. That is a standing preference for prose passes, not a one-off.
+
+Two things this pass should not repeat. The audit section of `dev/WRITING.md` already lists the
+known-good exceptions an independent reader will otherwise re-report as defects, so read it before
+flagging anything. And a rule the shipped files violate is worse than no rule, so where a message
+and the file disagree, fix the file in the same pass rather than filing it.
+
+Newest messages, least audited: `say_no_recorded()` and `say_mismatch()` in `R/predict_sex.R`, the
+`sex_aneuploidy` roxygen, and the `summary()` / `print.mc_summary()` block from 2026-08-09.
+
+### B4. Simplify pass over the vendored BMIQ
+
+Three candidates, and one of them is already done, so measure before cutting.
+
+**The RNG path is gone.** There is nothing left to drop in `R/`: no `set.seed`, no `sample.int`, no
+`nfit`, no `.Random.seed` save and restore. The only RNG-adjacent thing left in the whole change is
+the `nfit = length(gold)` argument sync passes to betanorm, and that one is load-bearing, not
+residue. See the 2026-08-10 DECISIONS entry.
+
+**The debug machinery is genuinely dead.** 21 references in `R/normalize_bmiq.R`: the `debug`
+argument, `em_diagnostics()`, `sample.diagnostics`, and the per-sample `diagnostic` lists.
+`bmiq_fit()` never passes `debug`, no test sets it, and the prefit now arrives with its
+`diagnostics` already fixed at sync. This is the largest and safest cut.
+
+**The scan overlap needs care rather than deletion.** `scan_finite_unit_interval_cpp(datM)` re-reads
+columns that `col_stats()` already swept once at the front door (`R/missingness.R:218`). But the two
+are not interchangeable: the front-door value gates **warn** where BMIQ needs a hard precondition,
+and the kernel itself now stops on a boundary value. Work out which layer owns the invariant before
+removing either, and do not leave it owned by nobody.
+
 ---
 
 ## Open questions
