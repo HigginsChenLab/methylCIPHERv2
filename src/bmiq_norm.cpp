@@ -18,7 +18,6 @@ namespace
         double m2 = 0.0;
         double sum_log_y = 0.0;
         double sum_log1m_y = 0.0;
-        R_xlen_t positive_count = 0;
 
         void add(
             double y,
@@ -30,8 +29,6 @@ namespace
             {
                 return;
             }
-
-            ++positive_count;
 
             const double new_weight = weight + effective_weight;
             const double delta = y - mean;
@@ -68,6 +65,15 @@ namespace
         std::string reason = "unknown failure";
     };
 
+    // -log B(a, b). Shared by the component loglik and the E-step prior so
+    // the two sites cannot drift.
+    inline double log_beta_norm(double a, double b)
+    {
+        return std::lgamma(a + b) -
+               std::lgamma(a) -
+               std::lgamma(b);
+    }
+
     inline double beta_loglik_stats(
         double a,
         double b,
@@ -75,10 +81,7 @@ namespace
     {
         return (a - 1.0) * stats.sum_log_y +
                (b - 1.0) * stats.sum_log1m_y +
-               stats.weight *
-                   (std::lgamma(a + b) -
-                    std::lgamma(a) -
-                    std::lgamma(b));
+               stats.weight * log_beta_norm(a, b);
     }
 
     inline void set_beta_fit(
@@ -435,8 +438,19 @@ Rcpp::List beta_mixture_em_cpp(
 
     for (R_xlen_t i = 0; i < n; ++i)
     {
-        log_y[i] = std::log(y_ptr[i]);
-        log1m_y[i] = std::log1p(-y_ptr[i]);
+        const double value = y_ptr[i];
+
+        // Own the EM's precondition here; a boundary value would otherwise
+        // surface later as an obscure non-finite likelihood error.
+        if (!(value > 0.0 && value < 1.0))
+        {
+            Rcpp::stop(
+                "y must lie strictly inside (0, 1) "
+                "for the Beta mixture EM");
+        }
+
+        log_y[i] = std::log(value);
+        log1m_y[i] = std::log1p(-value);
     }
 
     // Deep-copy responsibilities (assignment would alias the caller's SEXP).
@@ -468,7 +482,7 @@ Rcpp::List beta_mixture_em_cpp(
 
     std::vector<double> log_component(
         static_cast<std::size_t>(K), 0.0);
-    std::vector<double> log_norm(
+    std::vector<double> exp_shifted(
         static_cast<std::size_t>(K), 0.0);
     std::vector<double> log_prior(
         static_cast<std::size_t>(K), 0.0);
@@ -584,17 +598,10 @@ Rcpp::List beta_mixture_em_cpp(
 
             mu[k] = a[k] / (a[k] + b[k]);
 
-            log_norm[k] =
-                std::lgamma(a[k] + b[k]) -
-                std::lgamma(a[k]) -
-                std::lgamma(b[k]);
-        }
-
-        // E-step terms independent of observation index i.
-        for (R_xlen_t k = 0; k < K; ++k)
-        {
+            // E-step terms independent of observation index i; eta, a and b
+            // are final for this iteration here.
             log_prior[k] =
-                std::log(eta[k]) + log_norm[k];
+                std::log(eta[k]) + log_beta_norm(a[k], b[k]);
             am1[k] = a[k] - 1.0;
             bm1[k] = b[k] - 1.0;
         }
@@ -621,8 +628,9 @@ Rcpp::List beta_mixture_em_cpp(
 
             for (R_xlen_t k = 0; k < K; ++k)
             {
-                sum_exp +=
+                exp_shifted[k] =
                     std::exp(log_component[k] - maximum);
+                sum_exp += exp_shifted[k];
             }
 
             if (!(sum_exp > 0.0) ||
@@ -637,11 +645,15 @@ Rcpp::List beta_mixture_em_cpp(
 
             loglikelihood += log_mixture;
 
+            // Single-exp E-step: reuse the max-shifted exponentials rather
+            // than re-exponentiating against log_mixture. Not bit-identical
+            // to the log-space form; parity pins the numerics.
+            const double inv_sum = 1.0 / sum_exp;
+
             for (R_xlen_t k = 0; k < K; ++k)
             {
                 responsibility_ptr[i + n * k] =
-                    std::exp(
-                        log_component[k] - log_mixture);
+                    exp_shifted[k] * inv_sum;
             }
         }
 

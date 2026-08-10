@@ -73,8 +73,8 @@ things nothing else can, starting with the unstated-dependency scan and the exam
 2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
 `expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
 where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 960 since, so a second trim may be worth it, but that is a judgement
-to make against the budget rule, not a queued task.
+there. The suite has grown to 996 since (2026-08-10), so a second trim may be worth it, but that is
+a judgement to make against the budget rule, not a queued task.
 
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
 `BugReports:` were settled 2026-08-04.
@@ -141,88 +141,25 @@ hash were ever swapped.
 
 ## Backlog
 
-### B1. An aneuploidy column on `predict_sex()`
+### B1. Should `predict_sex()` surface probe coverage alongside the call
 
-Add `sex_aneuploidy` to the `predict_sex()` frame, beside `recorded_sex` and `sex_mismatch`:
-`TRUE` for a non-euploid call, `FALSE` for a euploid one, `NA` where `predicted_sex` is `NA`.
+The aneuploidy column shipped 2026-08-10 (DECISIONS 2026-08-10, and the rule is in `CLAUDE.md`).
+This is the half that did not.
 
-The point is not convenience. The label set is catalog-declared and open, so a user filtering on
-`predicted_sex %in% c("47,XXY", "45,XO")` hardcodes a vocabulary a sync can grow, and their filter
-then silently misses the new call.
+Upstream recommends surfacing probe coverage beside the call, because `"Female"` is the residual
+and a `FALSE` in `sex_aneuploidy` from a sample missing its sex-chromosome probes should not read
+the same as one from a full panel. `predict_sex()` cannot do that today: it discards the
+`mc_result` and returns a bare data.frame, so `clocks_coverage()` and `samples_coverage()` are
+unreachable from what it hands back.
 
-**Upstream landed its half on 2026-08-10, and the sync is done.** Synced at `b6c157d`: 137 clocks,
-same set, zero panels moved, one new field. `routing.karyotype_call` in
-`weights/DNAmSex_Wang/_group.meta.json` now declares
+The extreme case is already handled and is not the argument for this. A sample with zero observed
+CpGs scores `NA` at every floor, so it never reaches a `"Female"` call at all, which was measured
+on 2026-08-10. The live case is **partial** coverage, where a weak signal still falls through to
+the default.
 
-```json
-"karyotype": { "Female": "46,XX", "Male": "46,XY" }
-```
-
-Only the two labels that are not already karyotypes get a binding. `47,XXY` and `45,XO` resolve to
-themselves, and upstream's gate rejects a self-referential entry. Upstream **declined to declare
-`euploid`**, deliberately, for the fall-through reason below. The hand-off is
-`dev/DOWNSTREAM_SYNC_2026-08-10.md`.
-
-**Hard-code the mapping at the sync level. Do not derive it at runtime.** Upstream suggests
-`startsWith(karyotype_of(label), "46,")`. We are not doing that: a string parse standing in for a
-flag is exactly the silent-drift shape the package refuses elsewhere, and it fails soft, quietly
-classifying whatever it does not recognise. Instead `data-raw/sync.R` carries one closed
-hard-coded table covering every emitted label:
-
-```r
-# label -> (karyotype, euploid). the build stops if upstream's karyotype_call
-# does not match this exactly, in both directions.
-KARYOTYPE_EXPECTED <- list(
-  "Female" = list(karyotype = "46,XX",  euploid = TRUE),
-  "Male"   = list(karyotype = "46,XY",  euploid = TRUE),
-  "47,XXY" = list(karyotype = "47,XXY", euploid = FALSE),
-  "45,XO"  = list(karyotype = "45,XO",  euploid = FALSE)
-)
-```
-
-The build asserts exact agreement both ways against the labels reachable from `default` plus
-`rules[].predicted_sex`, and `stop()`s naming the offending label otherwise, alongside
-`assert_declared_n_cpgs()`. So a new, renamed or dropped label fails the sync loudly instead of
-being classified by a prefix test. The catalog then carries `euploid` as a **declared field**, and
-`R/` reads that field. No `grep`, no `startsWith`, no string parsing in the scoring path, and
-`BINARY_CALLS` retires.
-
-**This is a second package-side registry, and CLAUDE.md currently says there is one.** The stated
-invariant names `attach_sex_routed_aliases()` as the single closed registry adapting the upstream
-contract. This adds a second. It needs a DECISIONS entry on landing and a CLAUDE.md amendment, or
-the invariant is quietly false.
-
-**Why upstream refused `euploid`, and what it costs the column.** `Female` is the author's
-unconditional default, overwritten by three positive tests; the `X>0 & Y<0` quadrant that is
-genuine `46,XX` is never evaluated. So `Male`, `47,XXY` and `45,XO` are positively tested and
-`Female` is the residual. `sex_aneuploidy = FALSE` on a `Female` row therefore means "no aneuploidy
-pattern was detected", not "euploidy was confirmed", and the roxygen must say so rather than
-implying a symmetric call.
-
-**Upstream's worked example does not apply to us, and that is verified.** The hand-off warns that a
-sample with no sex-chromosome probes scores exactly 0 and falls through to `Female`, citing all 80
-`cohort_450K` samples. That is the oracle's behaviour. Ours returns `NA`: `clock_gate_verdict()`
-returns `dead` at `present == 0` at every floor. Measured 2026-08-10 by stripping all 4331 sex
-probes from a sim with the autosomal reference intact, `predicted_sex` was `NA` for every sample
-and no score was 0. This is the same divergence `KNOWN_PARITY_GAPS` already records. What remains
-of upstream's concern is the **partial** coverage case, where a weak signal still falls through.
-
-**The `NA` decision, worth its own DECISIONS line:** `NA` rather than `FALSE` for an unscorable
-sample. `sex_mismatch` folds unscored to `FALSE`, defensibly, since no call is not a disagreement.
-Here `FALSE` would read as a euploid call we never made. The inconsistency between the two
-neighbouring columns is deliberate.
-
-**Two shapes considered and rejected.** A character column carrying the label and `NA_character_`
-otherwise is a verbatim copy of a value already on the row, two columns that can disagree for no
-new fact. Canonicalizing `predicted_sex` to uniform karyotype notation re-spells upstream's literal
-output and breaks the comparison against a binary `Female` column. We mirror the author's strings.
-
-**Open, and not part of this item unless you say so.** Upstream recommends surfacing probe coverage
-alongside the call. `predict_sex()` cannot today: it discards the `mc_result` and returns a bare
-data.frame, so the coverage that would qualify a residual `Female` call is unreachable from what it
-hands back. Fixing that is a change to the return contract, not a column.
-
-Docs to touch when it lands: `@details` and `@returns` on `predict_sex()`.
+This is a change to the return contract, not a column, which is why it was not folded into the
+aneuploidy work. Deciding it means deciding whether `predict_sex()` keeps returning a plain
+data.frame at all.
 
 ### B2. Harmonize how `data.frame` is written across user-facing text
 

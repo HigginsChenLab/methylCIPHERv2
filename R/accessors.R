@@ -172,13 +172,23 @@ norm_background_probe_set <- function(id) {
   )
 }
 
-# vendored normalization target, or NULL when the scheme is not expressible
+# vendored per-probe background, or NULL when the scheme ships no vector
 clock_norm_target <- function(id) {
-  if (!(clock_norm_scheme(id) %in% NORM_SCHEMES)) {
+  if (!(clock_norm_scheme(id) %in% NORM_SCHEMES_VECTOR_TARGET)) {
     return(NULL)
   }
   ps <- norm_background_probe_set(id)
   bundle_tensor(clock_group_id(id), ps[["file"]])
+}
+
+# sync-minted bmiq gold summaries. the gold vector itself never ships, so the
+# fit is a constant over the whole declared panel, not over what a run observed.
+clock_norm_prefit <- function(id) {
+  prefit <- norm_background_probe_set(id)[["prefit"]]
+  if (is.null(prefit)) {
+    catalog_bug("Clock %s declares no bmiq gold prefit.", id)
+  }
+  prefit
 }
 
 # package-minted classification: "clock", or "sex_routed_alias"

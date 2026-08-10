@@ -554,14 +554,62 @@ map_beta_q <- function(x, a.sample, b.sample, a.gold, b.gold, lower.tail) {
   )
 }
 
-# BMIQ calibrate beta matrix onto gold standard (defaults follow legacy BMIQ).
-# Every mixture is fitted on the whole panel; legacy BMIQ subsampled `nfit` of it.
+# the gold summaries a sample fit is mapped onto. minted by sync, never here.
+GOLD_PREFIT_FIELDS <- c(
+  "a",
+  "b",
+  "thresholds",
+  "unmethylated.mode",
+  "methylated.mode",
+  "nL"
+)
+
+# a prefit is the whole gold standard as far as this file is concerned.
+check_gold_prefit <- function(gold) {
+  missing <- setdiff(GOLD_PREFIT_FIELDS, names(gold))
+  if (!is.list(gold) || length(missing)) {
+    stop(
+      "gold must be a BMIQ gold prefit; missing ",
+      paste(missing, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  nL <- as.integer(gold[["nL"]])
+  if (length(nL) != 1L || is.na(nL) || nL < 2L || nL > 3L) {
+    stop("gold$nL must be 2 or 3.", call. = FALSE)
+  }
+  for (field in c("a", "b")) {
+    if (length(gold[[field]]) != nL || any(!is.finite(gold[[field]]))) {
+      stop(
+        "gold$",
+        field,
+        " must be ",
+        nL,
+        " finite values.",
+        call. = FALSE
+      )
+    }
+  }
+  check_thresholds(
+    gold[["thresholds"]],
+    nL = nL,
+    name = "gold$thresholds",
+    require.unit.interval = TRUE
+  )
+  for (field in c("unmethylated.mode", "methylated.mode")) {
+    if (length(gold[[field]]) != 1L || !is.finite(gold[[field]])) {
+      stop("gold$", field, " must be one finite value.", call. = FALSE)
+    }
+  }
+  nL
+}
+
+# BMIQ calibrate beta matrix onto a gold prefit (defaults follow legacy BMIQ).
+# Every sample mixture is fitted on the whole panel; legacy BMIQ subsampled it.
 bmiq_calibration <- function(
   datM,
-  goldstandard.beta,
-  nL = 3L,
+  gold,
   doH = NULL,
-  th1.v = NULL,
   niter = 5L,
   tol = 0.001,
   beta.maxit = 50L,
@@ -589,19 +637,10 @@ bmiq_calibration <- function(
   )
   storage.mode(datM) <- "double"
 
-  goldstandard.beta <- as.numeric(goldstandard.beta)
-  checkmate::assert_numeric(
-    goldstandard.beta,
-    any.missing = FALSE,
-    len = ncol(datM),
-    .var.name = "goldstandard.beta"
-  )
+  # the gold is a sync-minted prefit: consumed distributionally, so it carries
+  # no probe axis and never has to align with datM.
+  nL <- check_gold_prefit(gold)
 
-  nL <- as.integer(checkmate::assert_int(nL, lower = 2L, upper = 3L))
-
-  if (is.null(th1.v)) {
-    th1.v <- if (nL == 2L) 0.5 else c(0.2, 0.75)
-  }
   if (is.null(doH)) {
     doH <- nL == 3L
   } else {
@@ -630,19 +669,7 @@ bmiq_calibration <- function(
     )
   }
 
-  check_thresholds(
-    th1.v,
-    nL = nL,
-    name = "th1.v",
-    require.unit.interval = TRUE
-  )
-
   scan_finite_unit_interval_cpp(datM, name = "datM", require_open = FALSE)
-  scan_finite_unit_interval_cpp(
-    goldstandard.beta,
-    name = "goldstandard.beta",
-    require_open = FALSE
-  )
 
   number.of.samples <- nrow(datM)
   number.of.probes <- ncol(datM)
@@ -681,56 +708,14 @@ bmiq_calibration <- function(
     NULL
   }
 
-  beta1.v <- goldstandard.beta
-
-  if (verbose) {
-    message("Fitting EM beta mixture to gold-standard probes")
-  }
-
-  gold.fit <- fit_mixture(
-    beta = beta1.v,
-    thresholds = th1.v,
-    nL = nL,
-    niter = niter,
-    tol = tol,
-    beta.maxit = beta.maxit,
-    beta.score.tol = beta.score.tol,
-    context = "Gold-standard",
-    debug = debug
-  )
-
-  em1.o <- gold.fit[["em"]]
-  nth1.v <- gold.fit[["thresholds"]]
-
-  # Gold shapes/thresholds are constant across samples.
-  gold.a <- as.numeric(em1.o[["a"]][, 1L])
-  gold.b <- as.numeric(em1.o[["b"]][, 1L])
-  gold.thresholds <- as.numeric(nth1.v)
-
-  mod1U <- estimate_mode(
-    beta1.v[gold.fit[["full_class"]] == 1L],
-    "Gold-standard unmethylated class"
-  )
-  mod1M <- estimate_mode(
-    beta1.v[gold.fit[["full_class"]] == nL],
-    "Gold-standard methylated class"
-  )
-
-  gold.diagnostics <- if (debug) {
-    em_diagnostics(
-      gold.fit,
-      extra = list(
-        unmethylated_mode = mod1U,
-        methylated_mode = mod1M
-      )
-    )
-  } else {
-    NULL
-  }
-
-  if (verbose) {
-    message("Gold-standard mixture fit complete")
-  }
+  # Gold shapes/thresholds/modes are constant across samples, and were fitted
+  # once at sync time over the whole declared panel.
+  gold.a <- as.numeric(gold[["a"]])
+  gold.b <- as.numeric(gold[["b"]])
+  gold.thresholds <- as.numeric(gold[["thresholds"]])
+  mod1U <- as.numeric(gold[["unmethylated.mode"]])
+  mod1M <- as.numeric(gold[["methylated.mode"]])
+  gold.diagnostics <- if (debug) gold[["diagnostics"]] else NULL
 
   process_sample <- function(ii, beta2.v) {
     beta2.v <- as.numeric(beta2.v)
