@@ -44,27 +44,41 @@ it was never read by `R/`, contrary to what this file used to say.
 package's own code as of 2026-08-07: `R/normalize_bmiq.R` and `R/normalize_quantile.R`, vendored
 from `hhp94/betanorm` and kept **internal** so `calc_clocks()` stays the one public beta reader.
 `require_betanorm()` is gone, and so is every `skip_if_not_installed("betanorm")` -- the smoke tier
-now scores the quantile-normalizing clocks unconditionally. **The whole `src/` is plain Rcpp, and
+now scores the quantile-normalizing clocks unconditionally. **betanorm is a `data-raw/` dependency
+and nothing more**: `sync()` calls `betanorm::bmiq_gold_fit()` to mint the gold prefit and
+hard-stops when it is absent, pointing at `pak::pak("hhp94/betanorm")`. It is not in `DESCRIPTION`,
+no code in `R/` or `tests/` touches it, and it must stay that way. **The whole `src/` is plain Rcpp, and
 `LinkingTo:` is `Rcpp` alone**: `src/bmiq_norm.cpp` was Armadillo for one day, and upstream shipped
 an Armadillo-free backend the same day (`arma::vec` -> `std::vector<double>`, `arma::mat` ->
 `Rcpp::NumericMatrix` with explicit `i + n * k` indexing). Verified **bit-identical** across 18000
 calibrated cells before the swap, not merely within tolerance. Do not re-add `RcppArmadillo` to
 build a kernel here without measuring what it buys (DECISIONS 2026-08-07).
 
-**BMIQ draws no random numbers and fits every mixture on the whole panel.** It used to subsample
-`nfit` indices behind `set.seed(1)`, which inherits the caller's `RNGkind` and so scored Horvath1
-differently under `L'Ecuyer-CMRG` -- and it was never a subsample anyway, because `bmiq_fit()`
-passed `nfit = ncol(betas)`, making the draw a full permutation that only reordered summation. The
-draw and the `nfit` argument are both gone as of 2026-08-08, at no measurable cost. Do not restore
-a fit subsample without an explicit answer for how the result stays generator-independent
-(DECISIONS 2026-08-08).
+**BMIQ draws no random numbers and fits every mixture on the whole panel, and that binds the sync
+side too.** It used to subsample `nfit` indices behind `set.seed(1)`, which inherits the caller's
+`RNGkind` and so scored Horvath1 differently under `L'Ecuyer-CMRG` -- and it was never a subsample
+anyway, because `bmiq_fit()` passed `nfit = ncol(betas)`, making the draw a full permutation that
+only reordered summation. The draw and the `nfit` argument are both gone from `R/` as of
+2026-08-08, at no measurable cost. **Upstream betanorm still has both**, so the sync-side gold fit
+passes `nfit = length(gold)` explicitly: at the default 20000 against a 21368 gold the draw is
+real, and it moves `a` by 1.4e-1 and differs between Mersenne-Twister and L'Ecuyer, which would
+bake one machine's generator into shipped data. Do not restore a fit subsample on either side
+without an explicit answer for how the result stays generator-independent (DECISIONS 2026-08-08,
+2026-08-10).
 
-**A BMIQ gold standard is consumed distributionally, not probe by probe.** `goldstandard.beta` is
-positional and unnamed, but the vector only ever yields five summaries, so a mis-*ordered* gold is
-a no-op (6.9e-11 years) and a mis-*masked* one is the real hazard (up to 2.4 years). The mask is
-guaranteed upstream by `resolve_cpgs()`'s single `ok` mask plus `bmiq_fit()`'s by-name
-`target[obs[["cols"]]]`. Do not add an alignment assertion inside `bmiq_calibration()`, and do not
-read the bare vector as a latent bug -- it has been audited (DECISIONS 2026-08-08).
+**A BMIQ gold standard is consumed distributionally, so it ships as a fit, not as a vector.** The
+gold only ever yielded five summaries (`a`, `b`, `thresholds`, and the two class modes), so as of
+2026-08-10 `sync()` fits it once over the whole declared panel and ships that; the 21368-probe
+vector is dropped. `clock_norm_prefit()` reads it and `clock_norm_target()` now answers for the
+quantile scheme alone, which genuinely needs per-probe values because `score_Dunedin()` fills an
+absent background CpG from `target[absent]`. Two consequences are load-bearing. The fit is a
+constant over the **declared** panel rather than over what a run observed, where `bmiq_fit()` used
+to mask it with `target[obs[["cols"]]]`; measured, that is 0.0 years at `cohort_450K` (complete
+panel) and 0.023 years at `cohort_EPICv1` (1062 background probes absent), moving *toward* the
+oracle. And the panel survives only because the probe_set already carries it -- the dropped
+tensor's names were `identical()` to `probe_sets[["bmiq_gold_standard"]][["cpgs"]]`, and
+`attach_bmiq_gold_prefit()` asserts that before dropping anything (DECISIONS 2026-08-08,
+2026-08-10).
 
 ## Non-negotiable invariants
 
@@ -178,6 +192,22 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     front of `clock_id`. **There is no third coverage frame.** Why an `NA` score is `NA` is the
     `note` column of `samples_coverage()`, derived on the way out by the internal `gap_reasons()`
     and never stored. It was `score_gaps()`, an export, for one day (DECISIONS 2026-08-06).
+    - **The frame and its warning are two functions, and an internal consumer takes the frame.**
+      `sample_coverage_rows()` builds it; `samples_coverage()` is that plus `say_low_samples()`.
+      The split exists because `predict_sex()` joins these rows onto its own columns, and calling
+      the export there raised a second warning about a fact `calc_clocks()` had already warned
+      about, in different words. A consumer joining the rows is not a reader being told about
+      them. Do not "simplify" an internal call site back onto the export, and do not fix a
+      duplicate by suppressing the warning -- the frame is what is wanted, so take the frame
+      (DECISIONS 2026-08-10).
+    - **`predict_sex()` carries `_coverage` and `_note` per score, and stays a data.frame.**
+      Per clock, never summarized across the pair: the two Wang panels are 4047 and 284 CpGs, so
+      one `min()` would put the same number on two panels where it means different things, and it
+      would erase the chrX-kept-chrY-stripped case that Q4 in `dev/to-do.md` turns on. **`note` is
+      not redundant with `coverage`** and that is why the frame is four columns rather than two:
+      the Wang branch emits `fit_spread`, so a sample can read `1` coverage and still score `NA`.
+      `clocks_coverage()` is **not** joined and cannot be -- it has no sample axis, so every column
+      it contributed would be constant down the frame (DECISIONS 2026-08-10).
     - **`summary()` counts those notes, and counts nothing itself.** It is the QC digest
       (DECISIONS 2026-08-09), and it is not a third coverage frame: it takes `samples_coverage()`'s
       output and returns an `mc_summary` of `input` / `arguments` / `by_clock` / `by_sample`. Two
@@ -541,6 +571,19 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `resolve_cpgs()`, because declining a scheme empties the background panel and every downstream
     fact reads the resolved panel; that is what keeps it a flag flip instead of a branch
     (DECISIONS 2026-08-06).
+    - **A value a sample cannot be calibrated from fails that sample, never the run.** BMIQ fits
+      per sample, so a non-finite or out-of-range cell is a per-sample fact and is graded inside
+      `process_sample()`'s `tryCatch`, where it degrades to `NA` plus a `fit_bmiq` note like every
+      other BMIQ failure. Upstream betanorm scans the whole matrix up front and a re-vendor will
+      bring that back: it aborted the entire `calc_clocks()` call over one cell, taking clocks that
+      do not normalize down with it. **`norm_gate()` is the wrong home for this and was refused
+      twice over.** It cannot be made sound there, because the only value facts before
+      `resolve_cpgs()` are `input_scan()`'s single global `min_val` / `max_val` and the one column
+      each was found in, so a second, smaller out-of-range value in the background reads as clean.
+      And it grades a panel, which is cohort-wide, so it would answer a per-cell problem by
+      declining the scheme for everybody. The check stays closed `[0, 1]` because `fit_mixture()`
+      clips the endpoints inward, and it cannot simply be deleted: that turns a loud abort into a
+      silent clamp (DECISIONS 2026-08-10).
     - **The row gate never re-reports the column gate, and the ordering in `samples_coverage()` is
       what guarantees it.** `check_row_coverage()` reads the scoring `gate`, which `covered_ids()`
       bounds to clocks that cleared the column gate, so a clock refused for the whole batch never
@@ -617,6 +660,19 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `src/*.dll`, so a changed or newly added kernel silently does not exist. Run
   `pkgbuild::compile_dll(".", force = TRUE)` first; the symptom of skipping it is the same
   "not available for .Call()" error above.
+- **A kernel bounds-checks its own arguments, and a mutating parameter takes `SEXP`.** Two rules,
+  both from defects that were live and both undone by a careless re-vendor, so
+  `tests/testthat/test-value-gates.R` pins them and each vendored file names them in its header.
+  **Widen before you compare**: a block coordinate arithmetic'd in `int` wraps negative on a large
+  or `NA` argument and *passes* the bounds test, which is how `gather_sample_block_cpp()` and
+  `scatter_sample_block_cpp()` each segfaulted; do it in `R_xlen_t` and reject `NA_INTEGER` first,
+  because `NA_INTEGER` is `INT_MIN` and `x - 1` is already overflow. **And a parameter the kernel
+  writes through must be `SEXP`, validated before wrapping** -- declared as `NumericMatrix`, a
+  non-`REALSXP` argument is coerced into a temporary, mutated, and dropped with no error, so the
+  caller reads its own matrix back unchanged. A `TYPEOF()` check *after* Rcpp has coerced inspects
+  the copy and always passes. `MAYBE_SHARED()` is **not** the companion rule and must not be added:
+  the generated R wrapper binds the argument, so the count is above one at every legitimate call
+  (DECISIONS 2026-08-10).
 
 ## sync.R workflow (`data-raw/sync.R`)
 
@@ -646,10 +702,30 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
      build-skip cache).
-     - **One** small closed registry adapts the upstream contract package-side:
-       `attach_sex_routed_aliases()` (one alias clock per `_group.meta.json` `routing.sex` stem).
-       It runs inside the build so everything downstream sees ordinary catalog entries. Add to the
-       registry; do not add a code path.
+     - **A registry adapting the upstream contract is closed, hard-coded, and asserted.** There
+       are **three**, all running inside the build so everything downstream sees ordinary catalog
+       entries. `attach_sex_routed_aliases()` mints one alias clock per `_group.meta.json`
+       `routing.sex` stem. `attach_karyotype_euploid()` checks every declared
+       `routing.karyotype_call` against `KARYOTYPE_EXPECTED`, the four emitted labels with their
+       karyotype and euploid flag, then attaches the `euploid` map it validated.
+       `attach_bmiq_gold_prefit()` checks every bmiq clock against `BMIQ_GOLD_EXPECTED`, which
+       pins each gold's panel size, then fits and attaches the prefit and drops the vector; it
+       runs **after** `key_catalog_lists()`, because it hangs the fit off the role-keyed
+       probe_set. Add to a registry; do not add a code path. It was one registry until
+       2026-08-10, and the count is not the invariant: **hard-coded and asserted is**. Upstream
+       declares the karyotype binding and
+       deliberately does not declare `euploid`, because `Female` is the classifier's unconditional
+       default and cannot be positively asserted. Its suggested
+       `startsWith(karyotype, "46,")` was refused. A string parse standing in for a flag fails
+       soft and silently classifies what it does not recognise, where the assertion stops the build
+       naming the offending label. `R/` then reads a declared field and never a label's text
+       (DECISIONS 2026-08-10).
+       - **`BINARY_CALLS` (`R/predict_sex.R`) survives that, and is not a leftover.** `euploid`
+         says which labels are euploid; **nothing declares which emitted label a binary `Female`
+         column records as**, and deriving it would mean testing the karyotype string for `XX`.
+         It is narrowed to that one job, and `sex_mismatch` gates on the declared euploidy.
+         `sex_aneuploidy` is `NA` for an unscorable sample where `sex_mismatch` is `FALSE`, which
+         is deliberate: no call is not a disagreement, but it is also not a euploid verdict.
      - Verify a sync change by **dry-running the build in memory first** (build catalog + bundles,
        diff every panel against the committed `R/sysdata.rda`) before regenerating.
        `assert_declared_n_cpgs()` is the standing guard: every clock's derived scoring panel must
@@ -755,7 +831,9 @@ output**, not implementation detail (see "Test altitude").
   moved to the parity tier on 2026-08-04, so what remains here runs anywhere.
   - **"Always" means every `devtools::test()`, not every CRAN run.** Since the 2026-08-04 trim
     (1284 -> 799 expectations) the internal half of this tier carries `skip_on_cran()`, so CRAN
-    runs 391: the smoke tier, the front-door refusals, and the `mc_result` contract. **CRAN
+    runs a fraction of it: the smoke tier, the front-door refusals, and the `mc_result` contract.
+    **Re-measure before quoting a number.** The suite grows, and the pair moved from 799 / 391 to
+    **1030 / 477** by 2026-08-10 with no change to what is gated. **CRAN
     therefore applies no numeric gate at all** -- parity was already skipped there, so a green
     CRAN check proves the package loads, refuses correctly and returns a well-formed record, and
     proves nothing about the scores. Do not read it as more than that, and do not "restore
@@ -765,13 +843,14 @@ output**, not implementation detail (see "Test altitude").
     flag actually buys is CRAN's own machines not paying for it. Treat r-hub as the place the
     internal tier gets exercised across platforms, and do not reason about a gated test as though
     it only ever runs on the maintainer laptop. **`devtools::check()` is the opposite case** --
-    it sets `NOT_CRAN=true`, so it runs the *whole* 799 and a `skip_on_cran()` there is inert.
+    it sets `NOT_CRAN=true`, so it runs the *whole* suite and a `skip_on_cran()` there is inert.
     A local `devtools::check()` and a plain `R CMD check` on the tarball therefore run different
     suites; say which one a result came from.
   - **The gate is per `test_that`, first line, never at file level** -- testthat runs top-level
     code at collection, so a file-level skip reads as one skipped file instead of N skipped tests.
-    Under `NOT_CRAN=false` the suite reports 89 skipped blocks across 24 files; a file-level gate
-    would show 24. Anything calling a non-exported function is gated by default.
+    Under `NOT_CRAN=false` the suite reports 116 skipped blocks across 28 files (measured
+    2026-08-10, was 89 across 24); a file-level gate would show 28. The point is the ratio, not
+    either number. Anything calling a non-exported function is gated by default.
   - **Four goldens are kept against "parity owns it", because parity is structurally blind to
     them**: alias routing (fixtures exist on the 14 routed members, never on the 7 aliases, so
     *which sex's model scored which sample* is uncovered), DunedinPACE quantile normalization (the

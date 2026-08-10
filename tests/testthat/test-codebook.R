@@ -9,7 +9,10 @@ test_that("codebook describes clocks, a result, and refuses anything else", {
 
   sim <- sim_DNAm("Hannum", n = 3)
   res <- calc_clocks(sim[["DNAm"]], "Hannum")
-  expect_equal(codebook(res)[["column"]], c("meta_version", "clock_id", "Hannum"))
+  expect_equal(
+    codebook(res)[["column"]],
+    c("meta_version", "clock_id", "Hannum")
+  )
 
   # a clock the descriptor table does not cover keeps NA, never a donor's value
   alias <- codebook("DNAmFitAge")

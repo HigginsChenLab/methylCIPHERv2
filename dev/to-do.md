@@ -4,7 +4,8 @@ Queued work. **This is a staging area, not a record.** An item that becomes a de
 gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
 `CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
-There is no open code defect. Everything below is licensing, release plumbing, prose, or deferred.
+There is no open code defect. Everything below is licensing, release plumbing, prose, queued
+feature work, or deferred.
 
 ---
 
@@ -72,8 +73,8 @@ things nothing else can, starting with the unstated-dependency scan and the exam
 2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
 `expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
 where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 960 since, so a second trim may be worth it, but that is a judgement
-to make against the budget rule, not a queued task.
+there. The suite has grown to 996 since (2026-08-10), so a second trim may be worth it, but that is
+a judgement to make against the budget rule, not a queued task.
 
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
 `BugReports:` were settled 2026-08-04.
@@ -135,6 +136,54 @@ in some implementations. A batch label must be identical on Windows and Linux fo
 so `std::hash` is disqualified outright rather than merely inferior. Deferring costs nothing either
 way: labels are **derived, never assigned**, so no stored label anywhere would need migrating if the
 hash were ever swapped.
+
+---
+
+## Backlog
+
+### B2. Harmonize how `data.frame` is written across user-facing text
+
+One pass over roxygen, `README.Rmd` and `vignettes/*.Rmd`. Two axes, and they are separate
+decisions.
+
+**Spelling.** `data.frame` is the house form and is nearly uniform already: 25 roxygen mentions and
+every `README.Rmd` mention use it, and `DOC_TYPES` in `R/dev-utils.R` pins the `@param` fragment as
+`A data.frame.`, which `lint_roxygen()` enforces. There is exactly one outlier, the cli message at
+`R/score_cohort.R:188`, which says "Pass a data frame to `pheno`". Nothing else in `R/` or the prose
+files spells it with a space.
+
+**Markup, which is the larger half.** R6 says every R language object in prose carries markup, and
+`data.frame` is a class name, so most of these mentions are arguably unmarked today: `@returns A
+data.frame.` and the `README.Rmd` prose both write it bare. Decide once whether `data.frame` is an
+R language object that takes backticks and `{.cls}`, or a domain word that stays plain like "CpG"
+and "M-value". Then apply it everywhere, including the `DOC_TYPES` fragment, so the linter and the
+prose agree.
+
+Do not split the two axes across two passes. Fixing the one spelling outlier without settling the
+markup leaves the same inconsistency in a different place.
+
+### B3. Re-audit the cli surface against the current rule set, on Opus 4.8
+
+The last full cli audit predates R9, so every message has been graded against a rule set that has
+since grown. Re-read `dev/WRITING.md` first, as the invariant requires, and grade the whole
+user-facing surface: cli message text, roxygen prose, `README.Rmd`, `vignettes/*.Rmd`.
+
+**Run this one on Opus 4.8, not Opus 5**, on the maintainer's judgement that 4.8 writes better
+prose. That is a standing preference for prose passes, not a one-off.
+
+Two things that follow from that and are easy to get wrong. **It cannot be delegated to a
+subagent**: the model argument takes a family alias, so a spawned agent inherits the session's
+Opus, and pinning 4.8 means starting the session on 4.8. And it belongs on **its own branch off
+`main`**, after the current work has landed, because it grades text that work just wrote and a
+whole-surface copy-edit mixed into a code change is unreviewable.
+
+Two things this pass should not repeat. The audit section of `dev/WRITING.md` already lists the
+known-good exceptions an independent reader will otherwise re-report as defects, so read it before
+flagging anything. And a rule the shipped files violate is worse than no rule, so where a message
+and the file disagree, fix the file in the same pass rather than filing it.
+
+Newest messages, least audited: `say_no_recorded()` and `say_mismatch()` in `R/predict_sex.R`, the
+`sex_aneuploidy` roxygen, and the `summary()` / `print.mc_summary()` block from 2026-08-09.
 
 ---
 

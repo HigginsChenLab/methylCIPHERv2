@@ -1293,6 +1293,260 @@ attach_sex_routed_aliases <- function(catalog) {
   catalog
 }
 
+# every label a karyotype_call can emit, its karyotype and whether it is euploid.
+# hard-coded on purpose: the build stops on any upstream drift, so a new or
+# renamed call can never be classified by a silent string test downstream.
+KARYOTYPE_EXPECTED <- list(
+  "Female" = list(karyotype = "46,XX", euploid = TRUE),
+  "Male" = list(karyotype = "46,XY", euploid = TRUE),
+  "47,XXY" = list(karyotype = "47,XXY", euploid = FALSE),
+  "45,XO" = list(karyotype = "45,XO", euploid = FALSE)
+)
+
+# labels a karyotype_call can emit: its default plus every rule output
+karyotype_emitted <- function(kc) {
+  out_col <- as.character(kc[["output_column"]])
+  unique(c(
+    as.character(kc[["default"]]),
+    vapply(kc[["rules"]], function(r) as.character(r[[out_col]]), character(1L))
+  ))
+}
+
+# a label with no declared binding is already a karyotype and resolves to itself
+karyotype_declared <- function(kc, label) {
+  k <- kc[["karyotype"]][[label]]
+  if (is.null(k)) label else as.character(k)
+}
+
+# check one karyotype_call against KARYOTYPE_EXPECTED, then attach euploid
+check_karyotype_call <- function(kc, gid) {
+  emitted <- karyotype_emitted(kc)
+  expected <- names(KARYOTYPE_EXPECTED)
+
+  # exact coverage, both directions
+  unknown <- setdiff(emitted, expected)
+  if (length(unknown)) {
+    stop(
+      "group '",
+      gid,
+      "': karyotype_call emits label(s) KARYOTYPE_EXPECTED does not cover: ",
+      paste(unknown, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  unreachable <- setdiff(expected, emitted)
+  if (length(unreachable)) {
+    stop(
+      "group '",
+      gid,
+      "': KARYOTYPE_EXPECTED covers label(s) the rules cannot emit: ",
+      paste(unreachable, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # the karyotype each label resolves to must be the one we expect
+  for (label in emitted) {
+    got <- karyotype_declared(kc, label)
+    want <- KARYOTYPE_EXPECTED[[label]][["karyotype"]]
+    if (!identical(got, want)) {
+      stop(
+        "group '",
+        gid,
+        "': label '",
+        label,
+        "' resolves to karyotype '",
+        got,
+        "' but KARYOTYPE_EXPECTED declares '",
+        want,
+        "'",
+        call. = FALSE
+      )
+    }
+  }
+
+  kc[["euploid"]] <- vapply(
+    emitted,
+    function(label) KARYOTYPE_EXPECTED[[label]][["euploid"]],
+    logical(1L)
+  )
+  kc
+}
+
+# validate every declared karyotype_call and attach its euploid map
+attach_karyotype_euploid <- function(catalog) {
+  seen <- 0L
+  for (gid in names(catalog[["groups"]])) {
+    kc <- catalog[["groups"]][[gid]][["routing"]][["karyotype_call"]]
+    if (is.null(kc)) {
+      next
+    }
+    catalog[["groups"]][[gid]][["routing"]][["karyotype_call"]] <-
+      check_karyotype_call(kc, gid)
+    seen <- seen + 1L
+  }
+  if (seen == 0L) {
+    stop(
+      "no group declares routing.karyotype_call; KARYOTYPE_EXPECTED is dead",
+      call. = FALSE
+    )
+  }
+  catalog
+}
+
+# bmiq gold standards
+
+# every bmiq clock and the gold it must carry, by size and by content.
+# hard-coded on purpose: anything unexpected stops the build rather than
+# silently shipping a refitted constant.
+BMIQ_GOLD_ROLE <- "bmiq_gold_standard"
+BMIQ_GOLD_EXPECTED <- list(
+  "Horvath1" = list(
+    n_cpgs = 21368L,
+    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+  ),
+  "Knight" = list(
+    n_cpgs = 21368L,
+    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+  )
+)
+
+# legacy BMIQ fit settings. the panel is never subsampled, so no RNG is drawn.
+BMIQ_GOLD_SETTINGS <- list(
+  nL = 3L,
+  th1.v = c(0.2, 0.75),
+  niter = 5L,
+  tol = 0.001,
+  beta.maxit = 50L,
+  beta.score.tol = 1e-10
+)
+
+# reduce one gold vector to the summaries the per-sample loop consumes.
+fit_bmiq_gold <- function(gold, cid) {
+  if (!requireNamespace("betanorm", quietly = TRUE)) {
+    stop(
+      "sync needs betanorm to fit the BMIQ gold standard for '",
+      cid,
+      "'. Install it with pak::pak(\"hhp94/betanorm\").",
+      call. = FALSE
+    )
+  }
+  s <- BMIQ_GOLD_SETTINGS
+  fit <- betanorm::bmiq_gold_fit(
+    goldstandard.beta = as.numeric(gold),
+    nL = s[["nL"]],
+    # the whole panel. betanorm's default subsamples under set.seed(), which
+    # would bake this machine's RNGkind into shipped data.
+    nfit = length(gold),
+    th1.v = s[["th1.v"]],
+    niter = s[["niter"]],
+    tol = s[["tol"]],
+    beta.maxit = s[["beta.maxit"]],
+    beta.score.tol = s[["beta.score.tol"]],
+    verbose = FALSE
+  )
+  list(
+    a = as.numeric(fit[["a"]]),
+    b = as.numeric(fit[["b"]]),
+    thresholds = as.numeric(fit[["thresholds"]]),
+    unmethylated.mode = as.numeric(fit[["unmethylated.mode"]]),
+    methylated.mode = as.numeric(fit[["methylated.mode"]]),
+    nL = as.integer(fit[["nL"]]),
+    # the vector does not ship, so this is the only record that the gold or a
+    # setting moved. the settings come from the fitter, never a copy of ours.
+    source = list(
+      n_cpgs = length(gold),
+      gold_hash = payload_hash_of(unname(as.numeric(gold))),
+      settings = fit[["settings"]]
+    )
+  )
+}
+
+# fit every declared bmiq gold, attach the prefit, drop the vector it fitted.
+attach_bmiq_gold_prefit <- function(catalog, bundles) {
+  if (!(BMIQ_GOLD_ROLE %in% NORM_ROLES)) {
+    stop(
+      "BMIQ_GOLD_ROLE '",
+      BMIQ_GOLD_ROLE,
+      "' is not a declared normalization role",
+      call. = FALSE
+    )
+  }
+  seen <- character(0)
+  for (cid in names(catalog[["clocks"]])) {
+    entry <- catalog[["clocks"]][[cid]]
+    if (!identical(tolower(as.character(entry[["normalization"]])), "bmiq")) {
+      next
+    }
+    bad <- function(...) stop("clock '", cid, "': ", ..., call. = FALSE)
+
+    want <- BMIQ_GOLD_EXPECTED[[cid]]
+    if (is.null(want)) {
+      bad("normalizes with bmiq but BMIQ_GOLD_EXPECTED does not cover it")
+    }
+    ps <- entry[["probe_sets"]][[BMIQ_GOLD_ROLE]]
+    if (is.null(ps)) {
+      bad("no ", BMIQ_GOLD_ROLE, " probe_set to fit")
+    }
+    gid <- entry[["group_id"]]
+    gold <- bundles[[gid]][["tensors"]][[ps[["file"]]]]
+    if (is.null(gold)) {
+      bad("no bundled tensor at ", ps[["file"]])
+    }
+    if (length(gold) != want[["n_cpgs"]]) {
+      bad(
+        "gold standard carries ",
+        length(gold),
+        " CpGs but BMIQ_GOLD_EXPECTED declares ",
+        want[["n_cpgs"]]
+      )
+    }
+    # the length alone would pass a gold whose values moved
+    got_hash <- payload_hash_of(unname(as.numeric(gold)))
+    if (!identical(got_hash, want[["gold_hash"]])) {
+      bad(
+        "gold standard hashes to ",
+        got_hash,
+        " but BMIQ_GOLD_EXPECTED declares ",
+        want[["gold_hash"]],
+        ". If the revision is intended, update the registry."
+      )
+    }
+    # dropping the tensor is only safe because the probe_set already holds
+    # the panel. verify that rather than trusting it.
+    if (!identical(names(gold), as.character(ps[["cpgs"]]))) {
+      bad(
+        "gold tensor names differ from the ",
+        BMIQ_GOLD_ROLE,
+        " probe_set, so dropping the tensor would lose the panel"
+      )
+    }
+
+    ps[["prefit"]] <- fit_bmiq_gold(gold, cid)
+    entry[["probe_sets"]][[BMIQ_GOLD_ROLE]] <- ps
+    catalog[["clocks"]][[cid]] <- entry
+    bundles[[gid]][["tensors"]][[ps[["file"]]]] <- NULL
+    seen <- c(seen, cid)
+  }
+
+  unfitted <- setdiff(names(BMIQ_GOLD_EXPECTED), seen)
+  if (length(unfitted)) {
+    stop(
+      "BMIQ_GOLD_EXPECTED covers clock(s) that declare no bmiq gold: ",
+      paste(unfitted, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  message(
+    "sync: fitted ",
+    length(seen),
+    " bmiq gold standard(s) (",
+    paste(seen, collapse = ", "),
+    "); dropped the vectors"
+  )
+  list(catalog = catalog, bundles = bundles)
+}
+
 # materialize
 
 # group ids on one side of the bundled/external split (a group may be on both)
@@ -2258,6 +2512,7 @@ build_sysdata <- function(
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
+  catalog <- attach_karyotype_euploid(catalog)
   # before the trim: n_cpgs is a build-only field and the codebook reads it
   mc_codebook <- build_codebook_table(
     read_clock_meta(repo_path),
@@ -2266,6 +2521,11 @@ build_sysdata <- function(
   catalog[["clocks"]] <- trim_build_only_fields(catalog[["clocks"]])
   catalog[["clocks"]] <- key_catalog_lists(catalog[["clocks"]])
   catalog[["clocks"]] <- assert_catalog_shape(catalog[["clocks"]])
+
+  # after keying: the prefit hangs off the role-keyed gold probe_set
+  fitted <- attach_bmiq_gold_prefit(catalog, bundles)
+  catalog <- fitted[["catalog"]]
+  bundles <- fitted[["bundles"]]
 
   mc_catalog <- drop_external_probe_cpgs(catalog[["clocks"]])
   mc_groups <- catalog[["groups"]]
