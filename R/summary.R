@@ -348,10 +348,7 @@ print.mc_summary <- function(x, n = 6, ...) {
     )
   }
 
-  # one row per batch, so both count batches and not rows
-  print_table("input", shown_batch(x[["input"]]), n, "batch", "es")
-  print_table("arguments", shown_batch(x[["arguments"]]), n, "batch", "es")
-
+  # what went wrong leads, and what the run read follows it
   by_clock <- x[["by_clock"]]
   if (!nrow(by_clock)) {
     cat("\n", fmt_named_section("problems", "none"), "\n", sep = "")
@@ -364,6 +361,9 @@ print.mc_summary <- function(x, n = 6, ...) {
     print_table("notes", legend, nrow(legend), "note")
   }
 
+  # one row per batch, so all three count batches and not rows
+  print_table("input", shown_batch(x[["input"]]), n, "batch", "es")
+  print_table("arguments", shown_batch(x[["arguments"]]), n, "batch", "es")
   # the labels, not the component that stores them
   batches <- x[["batches"]]
   if (!is.null(batches)) {

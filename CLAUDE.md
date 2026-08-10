@@ -362,6 +362,31 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     `fmt_section()`, because what it lists is the labels and `$provenance` is internal. `$` in this
     grammar therefore means "this is a component you may reach for", which is exactly the
     distinction the header now respects (DECISIONS 2026-08-07).
+    - **Hierarchy is two spaces, never styling, and every body block is indented or none is.**
+      `MC_INDENT` under each header, applied in `print_indented()` / `print_more()` /
+      `print_vector()`, so `print_table()` and `print_block()` move together -- one indented and
+      not the other gives `print(res)` and `print(summary(res))` different shapes. Indent survives
+      `capture.output()`, a log file and a non-colour terminal, where ANSI bold degrades to
+      nothing or to literal escape codes. Two mechanics are not free and neither is optional.
+      `print()` writes to stdout, so the body is captured, and the capture runs at
+      `width - nchar(MC_INDENT)` or the added two push a wide line past the edge.
+      And `reindent()` strips the **common** leading gutter first: `print(row.names = FALSE)`
+      leads every line with a space of its own, so two spaces silently became three. It strips a
+      ragged right edge in the same pass, because `justify_cols()` pads. `print.mc_citation()` is
+      the one printer with a body that is **not** indented -- its body is bibtex, and an indent
+      breaks a copy-paste into a `.bib` -- and it stays out by not routing through these helpers.
+    - **A count is stated only where the axis is cut, and a plural is real.** `shown_count()`
+      gives `6 of 10 rows` cut and `10 rows` whole, and `plural_noun()` retired the `row(s)` /
+      `batch(es)` hedge everywhere at once. **Left-aligning text is not a flag**:
+      `print(df, right = FALSE)` left-aligns the numbers too, so `justify_cols()` pads the
+      character columns **and their names** -- padding values alone leaves the header
+      right-aligned over its own column.
+    - **The digest leads with what went wrong.** `print.mc_summary()` orders header, clocks,
+      failed, the two problem tables, `notes`, then `input` / `arguments` / `mc_batch_id` as a
+      per-batch footer. `input` and `arguments` used to sit between the clock list and the
+      problems, so a broken run made the reader scroll past two tables of boilerplate. Collapsing
+      those two to one line each was the alternative and was **not** built: it is a second
+      conditional schema for no gain once they are out of the way (DECISIONS 2026-08-09).
 - **Scores only, and the record remembers its inputs.** `$scores` is scores -- no auto-appended
   phenotype columns. Separately, `$pheno` carries the *aligned* pheno narrowed to the id column plus
   the covariates the run actually required. **It is never `NULL`**: with no `pheno =` supplied,

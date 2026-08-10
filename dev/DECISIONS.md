@@ -14,6 +14,49 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- Two spaces carry the hierarchy, and the digest leads with what went wrong
+
+The layout half of P1, landing on `R/print.R` and so on every `print.mc_*` method. Indentation
+rather than styling, decided earlier and written now: it survives `capture.output()`, a pasted
+issue, a log file and a non-colour terminal, where ANSI bold degrades to nothing or to literal
+escape codes, and it keeps the printers in plain `cat` with no cli boundary to move.
+
+Four things were expected to be free and were not. All four were found by rendering, not by
+reading, which is the note worth keeping.
+
+**The gutter.** `print(df, row.names = FALSE)` leads every line with a space of its own, so two
+spaces rendered as three. `reindent()` strips the **common** leading whitespace before adding
+`MC_INDENT`, which also leaves a matrix block's row-name header padding alone -- there the data
+lines start at column 1, so the common prefix is 0 and nothing is stripped.
+
+**The right edge.** `justify_cols()` pads, so every padded last column ended its line in
+whitespace. Stripped in the same pass as the gutter.
+
+**The header.** Padding the values alone is not enough: `print.data.frame` right-aligns the
+header over the column, so `note` sat at the right edge above left-aligned values. The name is
+padded with the values.
+
+**The double newline.** `cat(x, sep = "\n")` followed by `cat("\n")` terminates the block twice.
+Every body now emits `paste0(lines, "\n")` with `sep = ""`, one style in all three helpers.
+
+**Section order: reordered, not collapsed.** `input` and `arguments` sat between the clock list
+and the problems, so a broken run made the reader scroll past two tables of boilerplate before
+reaching the reason. They move to a footer with `mc_batch_id`, which also puts the three
+per-batch tables together -- the legend had just pushed `mc_batch_id` three blocks away from
+them. The alternative on file was collapsing those two to one line each when nothing is
+remarkable. It is **not** built: it is a second conditional schema, and once the tables are out
+of the reader's way it buys nothing.
+
+**`print.mc_citation()` is the one printer whose body is not indented.** Its body is bibtex, and
+an indent breaks a copy-paste into a `.bib` file. It stays out by not routing through the shared
+helpers, which is the existing structure and needed no exception.
+
+One thing not on the list went in: `print_vector()` wraps with `strwrap()`. A requested-clock
+list was the widest thing the digest printed, at 98 characters against a default width of 80,
+and it was the only block that never wrapped.
+
+---
+
 ## 2026-08-09 -- The digest prints the token and a legend, sorted, with a short batch label
 
 Reverses the same-day decision to print `explanation` alone and drop `note`. Same principle --

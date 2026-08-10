@@ -20,9 +20,28 @@ test_that("every mc_* printer runs and returns its input invisibly", {
   expect_output(print(res), "<mc_result>", fixed = TRUE)
   expect_output(
     print(assets),
-    "$FakeGroup [2 clock(s), 2 CpG(s)]",
+    "$FakeGroup [2 clocks, 2 CpGs]",
     fixed = TRUE
   )
+})
+
+test_that("a block is indented under its header, and pads no line", {
+  skip_on_cran()
+  sim <- sim_DNAm("Hannum", n = 3L)
+  txt <- utils::capture.output(print(sim))
+  body <- txt[grepl("[^[:space:]]", txt) & !grepl("^[<$]", txt)]
+
+  expect_true(all(startsWith(body, MC_INDENT)))
+  # a padded column must not reach the end of a line
+  expect_false(any(grepl("[[:space:]]$", txt)))
+  # a whole axis states its size, and drops the "of" that means it was cut
+  expect_true(any(grepl("3 rows", txt, fixed = TRUE)))
+
+  # print(row.names = FALSE) leads every line with a space of its own, which
+  # comes off so that two spaces do not become three. a row-name column is
+  # not a gutter, so a block that has one keeps its header padding.
+  expect_equal(reindent(c(" a  n", " xx 1")), c("  a  n", "  xx 1"))
+  expect_equal(reindent(c("   A B", "r1 1 2")), c("     A B", "  r1 1 2"))
 })
 
 test_that("a run with no pheno argument still carries the id column", {
