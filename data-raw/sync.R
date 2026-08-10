@@ -1394,6 +1394,164 @@ attach_karyotype_euploid <- function(catalog) {
   catalog
 }
 
+# bmiq gold standards
+
+# every bmiq clock and the panel its gold must carry. hard-coded on purpose:
+# a resized gold, a renamed role or a new bmiq clock stops the build rather
+# than silently shipping a constant nobody measured.
+BMIQ_GOLD_ROLE <- "bmiq_gold_standard"
+BMIQ_GOLD_EXPECTED <- list(
+  "Horvath1" = 21368L,
+  "Knight" = 21368L
+)
+
+# legacy BMIQ fit settings. the panel is never subsampled, so no RNG is drawn.
+BMIQ_GOLD_SETTINGS <- list(
+  nL = 3L,
+  th1.v = c(0.2, 0.75),
+  niter = 5L,
+  tol = 0.001,
+  beta.maxit = 50L,
+  beta.score.tol = 1e-10
+)
+
+# reduce one gold vector to the summaries the per-sample loop consumes.
+fit_bmiq_gold <- function(gold, cid) {
+  if (!requireNamespace("betanorm", quietly = TRUE)) {
+    stop(
+      "sync needs betanorm to fit the BMIQ gold standard for '",
+      cid,
+      "'. Install it with pak::pak(\"hhp94/betanorm\").",
+      call. = FALSE
+    )
+  }
+  s <- BMIQ_GOLD_SETTINGS
+  fit <- betanorm::bmiq_gold_fit(
+    goldstandard.beta = as.numeric(gold),
+    nL = s[["nL"]],
+    # the whole panel. betanorm's default subsamples under set.seed(), which
+    # would bake this machine's RNGkind into shipped data.
+    nfit = length(gold),
+    th1.v = s[["th1.v"]],
+    niter = s[["niter"]],
+    tol = s[["tol"]],
+    beta.maxit = s[["beta.maxit"]],
+    beta.score.tol = s[["beta.score.tol"]],
+    verbose = FALSE
+  )
+  list(
+    a = as.numeric(fit[["a"]]),
+    b = as.numeric(fit[["b"]]),
+    thresholds = as.numeric(fit[["thresholds"]]),
+    unmethylated.mode = as.numeric(fit[["unmethylated.mode"]]),
+    methylated.mode = as.numeric(fit[["methylated.mode"]]),
+    nL = as.integer(fit[["nL"]]),
+    # the vector does not ship, so this is the only thing that can later say
+    # the gold moved or a setting moved.
+    source = list(
+      n_cpgs = length(gold),
+      gold_hash = payload_hash_of(unname(as.numeric(gold))),
+      settings = s
+    )
+  )
+}
+
+# fit every declared bmiq gold, attach the prefit, drop the vector it fitted.
+attach_bmiq_gold_prefit <- function(catalog, bundles) {
+  if (!(BMIQ_GOLD_ROLE %in% NORM_ROLES)) {
+    stop(
+      "BMIQ_GOLD_ROLE '",
+      BMIQ_GOLD_ROLE,
+      "' is not a declared normalization role",
+      call. = FALSE
+    )
+  }
+  seen <- character(0)
+  for (cid in names(catalog[["clocks"]])) {
+    entry <- catalog[["clocks"]][[cid]]
+    if (!identical(tolower(as.character(entry[["normalization"]])), "bmiq")) {
+      next
+    }
+    want <- BMIQ_GOLD_EXPECTED[[cid]]
+    if (is.null(want)) {
+      stop(
+        "clock '",
+        cid,
+        "' normalizes with bmiq but BMIQ_GOLD_EXPECTED does not cover it",
+        call. = FALSE
+      )
+    }
+    ps <- entry[["probe_sets"]][[BMIQ_GOLD_ROLE]]
+    if (is.null(ps)) {
+      stop(
+        "clock '",
+        cid,
+        "': no ",
+        BMIQ_GOLD_ROLE,
+        " probe_set to fit",
+        call. = FALSE
+      )
+    }
+    gid <- entry[["group_id"]]
+    gold <- bundles[[gid]][["tensors"]][[ps[["file"]]]]
+    if (is.null(gold)) {
+      stop(
+        "clock '",
+        cid,
+        "': no bundled tensor at ",
+        ps[["file"]],
+        call. = FALSE
+      )
+    }
+    if (length(gold) != want) {
+      stop(
+        "clock '",
+        cid,
+        "': gold standard carries ",
+        length(gold),
+        " CpGs but BMIQ_GOLD_EXPECTED declares ",
+        want,
+        call. = FALSE
+      )
+    }
+    # dropping the tensor is only safe because the probe_set already holds
+    # the panel. verify that rather than trusting it.
+    if (!identical(names(gold), as.character(ps[["cpgs"]]))) {
+      stop(
+        "clock '",
+        cid,
+        "': gold tensor names differ from the ",
+        BMIQ_GOLD_ROLE,
+        " probe_set, so dropping the tensor would lose the panel",
+        call. = FALSE
+      )
+    }
+
+    ps[["prefit"]] <- fit_bmiq_gold(gold, cid)
+    entry[["probe_sets"]][[BMIQ_GOLD_ROLE]] <- ps
+    catalog[["clocks"]][[cid]] <- entry
+    bundles[[gid]][["tensors"]][[ps[["file"]]]] <- NULL
+    seen <- c(seen, cid)
+  }
+
+  unfitted <- setdiff(names(BMIQ_GOLD_EXPECTED), seen)
+  if (length(unfitted)) {
+    stop(
+      "BMIQ_GOLD_EXPECTED covers clock(s) that declare no bmiq gold: ",
+      paste(unfitted, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  message(
+    "sync: fitted ",
+    length(seen),
+    " bmiq gold standard(s) (",
+    paste(seen, collapse = ", "),
+    "); dropped the vectors"
+  )
+  list(catalog = catalog, bundles = bundles)
+}
+
 # materialize
 
 # group ids on one side of the bundled/external split (a group may be on both)
@@ -2368,6 +2526,11 @@ build_sysdata <- function(
   catalog[["clocks"]] <- trim_build_only_fields(catalog[["clocks"]])
   catalog[["clocks"]] <- key_catalog_lists(catalog[["clocks"]])
   catalog[["clocks"]] <- assert_catalog_shape(catalog[["clocks"]])
+
+  # after keying: the prefit hangs off the role-keyed gold probe_set
+  fitted <- attach_bmiq_gold_prefit(catalog, bundles)
+  catalog <- fitted[["catalog"]]
+  bundles <- fitted[["bundles"]]
 
   mc_catalog <- drop_external_probe_cpgs(catalog[["clocks"]])
   mc_groups <- catalog[["groups"]]

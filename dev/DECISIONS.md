@@ -12,6 +12,137 @@ second-guessed; do not restate rules already stated in `CLAUDE.md`.
 **Archive:** entries before 2026-07-30 live in `dev/DECISIONS.old.md` (unchanged full log).
 Older dated citations in `CLAUDE.md` resolve there. Do not restate that history here.
 
+## 2026-08-10 - The BMIQ gold ships as a fit, and betanorm stays in data-raw
+
+Upstream betanorm hoisted the gold fit out of the sample loop and exported
+`bmiq_gold_fit()`, on the correct observation that the gold is consumed purely
+distributionally: it yields five summaries and nothing indexes it per probe. We took the
+hoist and went one step further, because the summaries are knowable at sync time.
+
+**What ships now.** `sync()` fits each declared gold once over the whole panel and stores
+`a`, `b`, `thresholds` and the two class modes; the 21368-probe vector is dropped.
+`bmiq_calibration()` takes only a prefit, so `fit_gold_standard()` and `bmiq_gold_fit()`
+are gone from `R/` rather than sitting there as an unreachable second path.
+
+**Why the vector could go at all.** The panel names on the dropped tensor were
+`identical()` to `probe_sets[["bmiq_gold_standard"]][["cpgs"]]`, so the tensor was pure
+duplication. That is asserted in `attach_bmiq_gold_prefit()` before anything is dropped,
+because it is the one fact the deletion rests on.
+
+**The size win was smaller than the proxy said.** Measured with gzip on individual
+objects, the two golds looked like 478 KB of a 2.64 MB sysdata, about 18%. Actual, after
+rebuild: 2638480 -> 2469584 bytes, **169 KB, or 6.4%**. sysdata is xz, and the CpG names
+recur across many panels, so a whole-archive window dedupes what a per-object gzip
+cannot. Quote the rebuild number, not a per-object estimate.
+
+**The behaviour change, measured.** `bmiq_fit()` used to mask the gold to the observed
+columns (`target[obs[["cols"]]]`), so the reference distribution depended on the user's
+array coverage. It is now fixed at the declared panel. On the staged cohorts, same
+parameters as the parity block: `cohort_450K` (complete panel) moves **0.0 years
+exactly**, and `cohort_EPICv1` (1062 background probes absent) moves 0.023 years, from
+3.958512 to 3.948580 against the oracle, so *toward* it. `HORVATH_NORM_TOL` needed no
+change: the graded target re-measures at 0.11378773 against a 1.2e-1 bound.
+
+**betanorm at sync only, and the fork accepted knowingly.** `sync()` calls
+`betanorm::bmiq_gold_fit()` and hard-stops when it is absent; it is not in `DESCRIPTION`
+and nothing in `R/` or `tests/` reads it. That means the shipped constant is produced by
+betanorm while the sample loop is our vendored copy, and the two agree to 4.5e-9 rather
+than exactly. The alternative was to fit with our own kernel under `pkgload::load_all()`,
+which is self-consistent by construction; it was refused because parity is the gate that
+matters and its tolerance already covers drift of this size against ages measured in
+decades. Do not re-litigate this on a e-9 argument alone.
+
+**The one guard that is not optional.** betanorm still defaults `nfit = 20000L` behind
+`set.seed()`. Against a 21368 gold that draw is real: it moves `a` by 1.4e-1, and `a[1]`
+differs between Mersenne-Twister (2.312850975712) and L'Ecuyer (2.312616333423). Passing
+`nfit = length(gold)` is therefore not tidiness, it is what stops one machine's RNGkind
+being frozen into shipped data. The prefit carries a `source` stamp (panel size, an
+xxhash of the canonical gold, the fit settings) because once the vector is gone nothing
+else can say the gold or a default moved.
+
+**Knight has no parity coverage, and mostly does not need it.** Its oracle is
+`frozen_reference`, not `horvath_online`, so `is_normalized_horvath()` excludes it and its
+fixtures score it unnormalized; no parity target exercises its bmiq path. Its gold is
+byte-identical to Horvath1's, so the two prefits are `identical()` and Horvath1's parity
+covers the numbers. What it does not cover is the wiring, which is why
+`test-normalize.R` asserts the two prefits are equal and that neither clock still has a
+target vector.
+
+**The single-exp E-step came along.** Adopted from upstream in the same pass, a deliberate
+numerics change (responsibilities reuse the max-shifted exponentials). It moved nothing
+measurable here. Only the code was re-vendored, not the prose: upstream comments the
+kernel in rationale paragraphs and `CLAUDE.md` asks for one or two lines on what the code
+does, so the four code changes were applied surgically rather than by overwriting the file.
+`src/Makevars*` was deliberately not copied either, since upstream's carries
+`SHLIB_OPENMP_CXXFLAGS` and BLAS/LAPACK for an OpenMP port their own log records rejecting.
+
+**The test generator's mixing weights are measured, not chosen.** `test-normalize.R` used
+the gold vector as its bimodal source, so it was rebuilt on `rbeta()` drawing from the
+shipped component shapes. The prefit stores no component weights, and a plausible-looking
+guess of `c(0.55, 0.10, 0.35)` over-weighted M badly enough that BMIQ failed to fit on
+**5 of 12** thinned-panel runs, which is a flaky suite, not a broken package. The weights
+are now the gold's own class proportions under its fitted thresholds,
+`c(0.6602, 0.1505, 0.1893)`, recovered from the pre-drop `sysdata.rda` in git: 0 of 20,
+then three consecutive clean full runs. If those constants ever need re-deriving, the gold
+is still in history, not gone.
+
+---
+
+## 2026-08-10 - Euploidy is hard-coded at the sync level, not derived at runtime
+
+`predict_sex()` gained `sex_aneuploidy`. The question was never the column. It was where the fact
+"this call is not euploid" is allowed to come from.
+
+**What upstream shipped, and what it refused.** Upstream declared
+`routing.karyotype_call.karyotype` on 2026-08-10, binding only the two labels that are not already
+karyotypes (`Female` -> `46,XX`, `Male` -> `46,XY`), gated for exact coverage in both directions and
+against a self-referential entry. It **declined to declare `euploid`**, and the reason is good:
+`Female` is the author's unconditional default, assigned before three positive tests overwrite it,
+and the `X>0 & Y<0` quadrant that is genuine `46,XX` is never evaluated. So the classifier cannot
+positively assert euploidy, only the absence of a detected aneuploidy pattern.
+
+**We did not take upstream's suggested derivation.** It proposed
+`startsWith(karyotype_of(label), "46,")`. That is a string parse standing in for a flag, it fails
+soft, and it silently classifies whatever it does not recognise. `KARYOTYPE_EXPECTED` in
+`data-raw/sync.R` hard-codes all four labels with their karyotype and euploid flag instead, and
+`attach_karyotype_euploid()` asserts exact agreement in both directions against the labels reachable
+from `default` plus `rules[].predicted_sex`. Verified before regenerating anything: a new label, a
+renamed label, a changed binding and a dropped rule each stop the build naming the offender. The
+catalog then carries `euploid` as a declared field and `R/` reads that field, so no string test
+survives in the scoring path.
+
+**This is a second package-side registry, accepted knowingly.** `attach_sex_routed_aliases()` was
+the only one, and `CLAUDE.md` said so. The cost of a second is one more place a sync can stop; the
+thing bought is that it stops **loudly and by name** rather than a prefix test quietly widening the
+euploid set. The invariant is amended rather than broken: the rule is now that a registry adapting
+the upstream contract is closed, hard-coded, and asserted, not that there is exactly one.
+
+**`BINARY_CALLS` does not retire, and the plan said it would.** It was doing two jobs and the
+catalog replaced one. `euploid` says which labels are euploid. **Nothing declares which emitted
+label a binary `Female` column records as**, and deriving that would mean testing the karyotype
+string for `XX`, which is the thing this entry refuses. It stays, narrowed by comment to that one
+job. `sex_mismatch` now gates on the declared euploidy instead of on membership of that pair.
+
+**`NA`, not `FALSE`, for an unscorable sample, and the asymmetry with `sex_mismatch` is
+deliberate.** `sex_mismatch` folds an unscored sample to `FALSE`, defensibly, since no call is not a
+disagreement. `sex_aneuploidy` folds it to `NA`, because `FALSE` would read as a euploid call that
+was never made. The two neighbouring columns therefore disagree on the same row, by design.
+
+**Upstream's worked hazard is the oracle's, not ours, and this was measured.** The hand-off warns
+that a sample with no sex-chromosome probes scores exactly 0 and falls through to `Female`, citing
+all 80 `cohort_450K` samples. Ours returns `NA`: `clock_gate_verdict()` returns `dead` at
+`present == 0` at every floor. Measured by stripping all 4331 sex probes from a sim with the
+autosomal reference intact, every call was `NA` and no score was 0. This is the divergence
+`KNOWN_PARITY_GAPS` already records. What survives is the **partial** coverage case, where a weak
+signal still falls through to the default, and that is what the roxygen sentence about `FALSE` is
+for.
+
+**One observation worth keeping.** The sync printed `upstream unchanged but data-raw/sync.R differs
+from the lockfile` on a run where upstream had in fact changed. `bundle_hash` is computed from
+per-clock meta plus declared artifacts, so a `_group.meta.json` edit is invisible to it. Nothing
+signals that a re-sync is due for a group-meta change. The rebuild that happened was for an
+unrelated reason.
+
 ---
 
 ## 2026-08-09 -- The descriptor columns ship from `control/`, on an exemption that expires
