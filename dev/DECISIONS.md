@@ -14,6 +14,46 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- We lay the table out ourselves, and `kable` is why
+
+The digest's tables still read as a wall of columns, and the ask was to render them with
+`knitr::kable()` instead of `print.data.frame`. What was missing turned out to be two things --
+a rule under the header and a two-space gutter -- and `kable` was measured before being turned
+down.
+
+**The dependency.** `knitr` is in `Suggests` for the vignettes. Using it in a print method moves
+it to `Imports`, and evaluate / highr / xfun / yaml with it: four hard dependencies for the look
+of a table, in a package that dropped qs2 to save three. The `Suggests` + `requireNamespace()`
+fallback is worse, not a compromise -- it renders the same object two ways depending on what the
+reader happens to have installed, which is exactly what the one-grammar rule exists to prevent.
+
+**And it is not actually better.** Two measurements, both against the shipped printers:
+
+- **It does not wrap.** At `width = 60`, `kable` emitted an 80-character `$scores` block and let
+  the terminal fold it mid-number. `print.matrix` splits into continuation blocks, which is the
+  behaviour a 6-clock block needs and the one thing here that is genuinely hard to write.
+- **It re-rounds.** `0.01605426` printed as `0.0160543`. A digest may cut an axis and say so; it
+  may not quietly change a score's digits.
+
+So `fmt_grid()` is ~45 lines and does what `kable(format = "simple")` looks like, plus the
+chunking. Writing it out **removed** more than it added: `justify_cols()`, `reindent()` and
+`print_indented()` are gone, and with them the `capture.output()` + `options(width=)` dance,
+which existed only because we were re-indenting and un-padding output some other function had
+already laid out. Building the lines directly means the indent is a `paste0` and the ragged
+right edge never happens.
+
+Two bugs surfaced while writing it, both worth keeping named because they are the failure modes
+of this shape. `format()` on a **whole matrix** shares one decimal count across every column, so
+`DunedinPACE` dragged `Horvath1` from 6 decimals to 8 and pushed a block that used to fit past
+80 columns -- `print()` formats per column and so do we. And a `NULL` row-label column passed
+into `paste(sep = "  ")` is not absent, it is an empty field, which gave every data.frame body a
+four-space indent under a two-space header.
+
+**What this does not change:** the section grammar, the counts, the ordering, and which
+components print. `print.mc_citation()` still stays out, because its body is bibtex.
+
+---
+
 ## 2026-08-09 -- The last cli length items, and the two that were already right
 
 Closes the cli work. Three things were on the list and only one of them was a list problem.

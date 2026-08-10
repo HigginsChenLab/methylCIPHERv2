@@ -3,6 +3,9 @@
 # two spaces under every section header, so each block shares a left edge.
 MC_INDENT <- "  "
 
+# two spaces between columns, and a rule under the header.
+MC_GAP <- "  "
+
 # "row" or "rows", by count.
 plural_noun <- function(n, noun, suffix = "s") {
   paste0(noun, if (n == 1) "" else suffix)
@@ -47,45 +50,100 @@ fmt_section <- function(name, ...) {
   fmt_named_section(paste0("$", name), ...)
 }
 
-# left-align the text columns and leave the numbers alone. print.data.frame
-# has one `right` flag for the whole frame, so each column is padded here. the
-# name is padded with it, or the header sits off its own column's left edge.
-justify_cols <- function(x) {
-  if (!is.data.frame(x)) {
-    return(x)
+# every cell as text. a data.frame formats each column on its own, so each
+# keeps its own digits; a matrix formats as one grid, the way print() does.
+grid_cells <- function(x) {
+  if (is.data.frame(x)) {
+    return(lapply(x, format, trim = TRUE))
   }
-  nms <- names(x)
-  for (j in seq_along(x)) {
-    v <- x[[j]]
-    if (!is.character(v)) {
-      next
+  # column by column, so each clock keeps its own digits the way print() does
+  cells <- lapply(seq_len(ncol(x)), function(j) format(x[, j], trim = TRUE))
+  names(cells) <- colnames(x)
+  cells
+}
+
+# numbers right, text left, the way print() aligns them.
+grid_right <- function(x) {
+  if (is.data.frame(x)) {
+    return(!vapply(x, is.character, logical(1L)))
+  }
+  rep(!is.character(x), ncol(x))
+}
+
+# a matrix carries its sample ids in its row names, so they lead each row. a
+# data.frame's are a 1..n index that names nothing, so they are left out.
+grid_labels <- function(x) {
+  if (is.data.frame(x)) NULL else rownames(x)
+}
+
+pad_cells <- function(v, w, right) {
+  formatC(v, width = if (right) w else -w)
+}
+
+# the columns of each block, so a grid too wide for the terminal continues
+# below rather than being folded mid-cell by the terminal itself.
+grid_chunks <- function(w, avail) {
+  out <- integer(length(w))
+  chunk <- 1L
+  used <- 0L
+  for (j in seq_along(w)) {
+    need <- w[[j]] + if (used) nchar(MC_GAP) else 0L
+    if (used && used + need > avail) {
+      chunk <- chunk + 1L
+      used <- w[[j]]
+    } else {
+      used <- used + need
     }
-    w <- max(nchar(nms[[j]]), nchar(v))
-    x[[j]] <- format(v, width = w, justify = "left")
-    nms[[j]] <- format(nms[[j]], width = w, justify = "left")
+    out[[j]] <- chunk
   }
-  names(x) <- nms
-  x
+  out
 }
 
-# our own indent, over whatever gutter print() left. row.names = FALSE leads
-# every line with a space, so the common prefix comes off first and two spaces
-# do not become three. padding a column also leaves a ragged right edge.
-reindent <- function(lines) {
-  if (!length(lines)) {
-    return(lines)
+# a matrix or data.frame as text: a header row, a rule under it, then the
+# cells. returns the lines, so a cli printer and a cat printer agree.
+fmt_grid <- function(x, width = getOption("width")) {
+  cells <- grid_cells(x)
+  if (!length(cells)) {
+    return(character(0))
   }
-  gutter <- min(nchar(lines) - nchar(sub("^ +", "", lines)))
-  paste0(MC_INDENT, sub("[[:space:]]+$", "", substring(lines, gutter + 1L)))
+  nms <- names(cells)
+  if (is.null(nms)) {
+    nms <- rep("", length(cells))
+  }
+  right <- grid_right(x)
+  w <- vapply(
+    seq_along(cells),
+    function(j) max(nchar(nms[[j]]), nchar(cells[[j]]), 0L),
+    integer(1L)
+  )
+  col <- lapply(seq_along(cells), function(j) {
+    c(
+      pad_cells(nms[[j]], w[[j]], right[[j]]),
+      strrep("-", w[[j]]),
+      pad_cells(cells[[j]], w[[j]], right[[j]])
+    )
+  })
+  # the labels repeat in every chunk, or a continued row loses its name
+  lab <- grid_labels(x)
+  if (length(lab)) {
+    lw <- max(nchar(lab), 0L)
+    lab <- c(strrep(" ", lw), strrep("-", lw), pad_cells(lab, lw, FALSE))
+    width <- width - lw - nchar(MC_GAP)
+  }
+  chunks <- grid_chunks(w, max(width, 1L))
+  lines <- lapply(split(col, chunks), function(part) {
+    # dropped, not passed: a NULL column pastes as an empty leading field
+    part <- c(if (length(lab)) list(lab), part)
+    # padding a column leaves a ragged right edge
+    sub("[[:space:]]+$", "", do.call(paste, c(part, list(sep = MC_GAP))))
+  })
+  unlist(lines, use.names = FALSE)
 }
 
-# a block's body, indented. print() writes straight to stdout, so the lines
-# are captured, and the capture wraps at a width the indent comes out of
-# first. spaces rather than a tab, which renders at the terminal's tab stop.
-print_indented <- function(expr) {
-  old <- options(width = max(20L, getOption("width") - nchar(MC_INDENT)))
-  on.exit(options(old), add = TRUE)
-  cat(paste0(reindent(utils::capture.output(expr)), "\n"), sep = "")
+# a block's body, under the section header that names it.
+print_grid <- function(x) {
+  lines <- fmt_grid(x, getOption("width") - nchar(MC_INDENT))
+  cat(paste0(MC_INDENT, lines, "\n"), sep = "")
   invisible(NULL)
 }
 
@@ -124,8 +182,7 @@ print_table <- function(name, df, n, noun = "row", suffix = "s") {
   if (!ni) {
     return(invisible(NULL))
   }
-  shown <- justify_cols(df[seq_len(ni), , drop = FALSE])
-  print_indented(print(shown, row.names = FALSE))
+  print_grid(df[seq_len(ni), , drop = FALSE])
   print_more(more_count(ni, nr, noun, suffix))
 }
 
@@ -139,7 +196,7 @@ print_block <- function(name, x, ni, pi, col_noun, cut_cols = TRUE) {
     plural_count(nc, col_noun)
   }
   cat("\n", fmt_section(name, shown_count(ni, nr, "row"), cols), "\n", sep = "")
-  print_indented(print(justify_cols(x[seq_len(ni), seq_len(pi), drop = FALSE])))
+  print_grid(x[seq_len(ni), seq_len(pi), drop = FALSE])
 
   print_more(more_count(ni, nr, "row"), more_count(pi, nc, col_noun))
 }
