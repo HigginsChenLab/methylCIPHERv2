@@ -8,7 +8,16 @@ test_that("predict_sex returns both PCs, a call per sample, and no more", {
   # a pheno that cannot supply a recorded sex says so. pheno = NULL is silent.
   expect_message(out <- predict_sex(sim$DNAm, sim$pheno))
 
-  expect_equal(names(out), c("ID", ids, "predicted_sex"))
+  expect_equal(
+    names(out),
+    c(
+      "ID",
+      ids,
+      "predicted_sex",
+      "sex_aneuploidy",
+      paste0(rep(ids, each = 2L), c("_coverage", "_note"))
+    )
+  )
   expect_equal(nrow(out), 5L)
 
   kc <- karyotype_spec()
@@ -50,6 +59,49 @@ test_that("a sample without both scores is called NA, not the default", {
   out <- suppressMessages(suppressWarnings(predict_sex(DNAm, sim$pheno)))
   expect_true(is.na(out$predicted_sex[[2L]]))
   expect_false(any(is.na(out$predicted_sex[-2L])))
+})
+
+# a call from a thin panel must not read like a call from a full one.
+test_that("each score carries the coverage and note of its own panel", {
+  skip_on_cran()
+  sim <- sim_DNAm(ids, n = 6L, Female = TRUE)
+  DNAm <- sim$DNAm
+  # one arm of one sample, under the sample floor
+  hole <- clock_scoring_cpgs(ids[[1L]])
+  DNAm[2L, hole[seq_len(round(0.5 * length(hole)))]] <- NA
+
+  out <- suppressMessages(suppressWarnings(predict_sex(DNAm, sim$pheno)))
+  cov1 <- out[[paste0(ids[[1L]], "_coverage")]]
+  note1 <- out[[paste0(ids[[1L]], "_note")]]
+
+  # the holed sample, on that arm alone
+  expect_true(cov1[[2L]] < 1)
+  expect_equal(cov1[-2L], rep(1, 5L))
+  expect_equal(out[[paste0(ids[[2L]], "_coverage")]], rep(1, 6L))
+
+  # the note is what explains an NA call that the score column cannot
+  expect_true(is.na(out$predicted_sex[[2L]]))
+  expect_false(is.na(note1[[2L]]))
+  expect_true(all(is.na(note1[-2L])))
+
+  # the same numbers samples_coverage() gives, not a second count of its own
+  res <- suppressWarnings(calc_clocks(DNAm, ids, pheno = sim$pheno))
+  sc <- suppressWarnings(samples_coverage(res))
+  sc <- sc[sc$panel == "score" & sc$clock_id == ids[[1L]], ]
+  expect_equal(cov1, sc$coverage[match(out$ID, sc$id)])
+})
+
+test_that("predict_sex does not warn twice about one thin sample", {
+  skip_on_cran()
+  sim <- sim_DNAm(ids, n = 6L, Female = TRUE)
+  DNAm <- sim$DNAm
+  hole <- clock_scoring_cpgs(ids[[1L]])
+  DNAm[2L, hole[seq_len(round(0.5 * length(hole)))]] <- NA
+
+  expect_equal(
+    length(capture_warnings(suppressMessages(predict_sex(DNAm, sim$pheno)))),
+    1L
+  )
 })
 
 test_that("a recorded Female is joined by id and compared", {
@@ -108,6 +160,26 @@ test_that("the declared quadrants map, including the corner never tested", {
   swapped <- kc
   swapped[["inputs"]] <- rev(kc[["inputs"]])
   expect_error(karyotype_inputs(swapped))
+})
+
+test_that("aneuploidy is read off the declared map, and a gap is not a verdict", {
+  skip_on_cran()
+  kc <- karyotype_spec()
+
+  # every label the rules can emit has a declared verdict, so none falls through
+  expect_equal(
+    sort(names(karyotype_euploid(kc))),
+    sort(karyotype_calls(kc))
+  )
+
+  pred <- c("Male", "Female", "47,XXY", "45,XO", NA)
+  expect_equal(
+    aneuploidy_of(pred, kc),
+    c(FALSE, FALSE, TRUE, TRUE, NA)
+  )
+
+  # a call the map does not cover is a build failure, never a silent FALSE
+  expect_error(aneuploidy_of("47,XYY", kc))
 })
 
 test_that("only an unambiguous binary disagreement is flagged", {

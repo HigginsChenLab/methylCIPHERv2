@@ -1,21 +1,56 @@
 # normalize=: per-clock normalization decision, resolved before any DNAm read
 
-GOLD <- clock_norm_target("Horvath1")
+GOLD <- clock_norm_prefit("Horvath1")
+PANEL <- clock_norm_cpgs("Horvath1", TRUE)
 
-# bmiq needs multi-modal input -- jitter the gold standard, not U(0,1).
-# `background` thins the gold panel to scoring panel plus that many background probes.
-methylation_betas <- function(gold = GOLD, n = 4L, background = NULL) {
-  panel <- names(gold)
+# component weights are not part of the prefit, so these are the gold's own
+# class proportions under its fitted thresholds, measured once before the
+# vector was dropped. Guessed weights over-weighted M and BMIQ then failed to
+# fit roughly a third of thinned-panel runs.
+GOLD_MIX <- c(0.6602, 0.1505, 0.1893)
+
+# bmiq needs multi-modal input, and the gold vector no longer ships. Draw one
+# per-probe reference profile from the shipped gold mixture, not U(0, 1).
+REF <- local({
+  k <- sample.int(
+    length(GOLD_MIX),
+    length(PANEL),
+    replace = TRUE,
+    prob = GOLD_MIX
+  )
+  stats::setNames(
+    pmin(
+      pmax(stats::rbeta(length(PANEL), GOLD[["a"]][k], GOLD[["b"]][k]), 0.001),
+      0.999
+    ),
+    PANEL
+  )
+})
+
+# `background` thins the panel to scoring panel plus that many background probes.
+# `noise` is the per-sample jitter, and a test that pins which samples failed
+# must set it to 0: at 1000 background probes the jitter alone failed a sample
+# in 7 of 200 draws, against 0 of 200 with it off.
+methylation_betas <- function(
+  ref = REF,
+  n = 4L,
+  background = NULL,
+  noise = 0.05
+) {
+  panel <- names(ref)
   if (!is.null(background)) {
     score <- clock_scoring_cpgs("Horvath1")
     panel <- c(score, setdiff(panel, score)[seq_len(background)])
   }
   m <- matrix(
-    rep(as.numeric(gold[panel]), each = n),
+    rep(as.numeric(ref[panel]), each = n),
     nrow = n,
     dimnames = list(paste0("sample", seq_len(n)), panel)
   )
-  pmin(pmax(m + stats::rnorm(length(m), sd = 0.05), 0.001), 0.999)
+  if (noise > 0) {
+    m <- m + stats::rnorm(length(m), sd = noise)
+  }
+  pmin(pmax(m, 0.001), 0.999)
 }
 
 # the linear half of Horvath1, over whatever matrix it is handed
@@ -27,7 +62,10 @@ horvath1_score <- function(m) {
 
 # the record-half runs share one call: Horvath1 normalized over a thinned
 # background, with both gates off because that background is deliberately short.
-horvath1_normalized <- function(DNAm = methylation_betas(background = 1000L)) {
+# Short enough that the jitter has to come off; see methylation_betas().
+horvath1_normalized <- function(
+  DNAm = methylation_betas(background = 1000L, noise = 0)
+) {
   calc_clocks(
     DNAm,
     "Horvath1",
@@ -40,8 +78,7 @@ horvath1_normalized <- function(DNAm = methylation_betas(background = 1000L)) {
 bmiq_calibrated <- function(m) {
   bmiq_calibration(
     m,
-    goldstandard.beta = as.numeric(GOLD[colnames(m)]),
-    verbose = FALSE,
+    gold = GOLD,
     on.sample.error = "continue",
     failed.sample = "NA"
   )$calibrated
@@ -109,7 +146,7 @@ test_that("a declined clock asks for no normalization panel", {
   skip_on_cran()
   expect_equal(length(clock_norm_cpgs("Horvath1", FALSE)), 0L)
   # accepting asks for exactly the declared gold panel, whatever its size
-  expect_equal(length(clock_norm_cpgs("Horvath1", TRUE)), length(GOLD))
+  expect_equal(length(clock_norm_cpgs("Horvath1", TRUE)), length(PANEL))
 
   # the 21k gold panel never reaches the required CpG set
   DNAm <- random_betas(clock_scoring_cpgs("Knight"), n = 4L)
@@ -192,7 +229,7 @@ test_that("a declined scheme is on the record beside the request", {
 test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   skip_on_cran()
   # the failure is a property of the unfittable sample, not of the width
-  DNAm <- methylation_betas(background = 1000L)
+  DNAm <- methylation_betas(background = 1000L, noise = 0)
   DNAm[2, ] <- 0.5
 
   res <- suppressWarnings(horvath1_normalized(DNAm))
@@ -210,6 +247,39 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
   expect_equal(cov$score_used, cov$score_needed)
 })
 
+# one bad cell used to abort the whole calc_clocks() call. what this guards is
+# the blast radius, not the NA.
+test_that("an out-of-range background cell fails its sample, not the run", {
+  skip_on_cran()
+  # noise off: the bad cell must be the only thing separating sample 2
+  DNAm <- methylation_betas(background = 1000L, noise = 0)
+  # background only, so Horvath1's scoring panel stays clean
+  bg <- setdiff(colnames(DNAm), clock_scoring_cpgs("Horvath1"))
+  DNAm[2, bg[[1]]] <- 1.5
+  # a second clock in the same run that never normalizes
+  extra <- setdiff(clock_scoring_cpgs("Hannum"), colnames(DNAm))
+  DNAm <- cbind(DNAm, random_betas(extra, n = nrow(DNAm)))
+
+  res <- suppressWarnings(calc_clocks(
+    DNAm,
+    c("Horvath1", "Hannum"),
+    normalize = c(Horvath1 = TRUE),
+    min_clocks_coverage = 0,
+    min_samples_coverage = 0
+  ))
+
+  # one sample of one clock, degraded the way every other BMIQ failure is
+  expect_equal(
+    res$provenance$scoring_failures$Horvath1$fit_bmiq,
+    rownames(DNAm)[2]
+  )
+  expect_true(is.na(res$scores[2, "Horvath1"]))
+  expect_false(anyNA(res$scores[-2, "Horvath1"]))
+  # the cohort still normalized, and the clock that does not is untouched
+  expect_equal(res$provenance$normalized, "Horvath1")
+  expect_false(anyNA(res$scores[, "Hannum"]))
+})
+
 # a partly calibrated sample still scores, so its note belongs on the norm row
 # and must not touch the score. The collector is written from a thrown H step,
 # which no fixture can raise on demand, so it is set here instead: what this
@@ -217,7 +287,7 @@ test_that("a sample BMIQ cannot fit is on the record, not a bare NA", {
 # wrong way round.
 test_that("a partial calibration marks the norm panel and leaves the score", {
   skip_on_cran()
-  DNAm <- methylation_betas(background = 1000L)
+  DNAm <- methylation_betas(background = 1000L, noise = 0)
   res <- suppressWarnings(horvath1_normalized(DNAm))
   marked <- rownames(DNAm)[c(1, 3)]
   res$provenance$partial_calibration <- list(Horvath1 = list(partial = marked))
@@ -230,13 +300,40 @@ test_that("a partial calibration marks the norm panel and leaves the score", {
   expect_false(anyNA(res$scores[marked, "Horvath1"]))
 })
 
+# Knight's oracle is frozen_reference, so its fixtures score it unnormalized and
+# no parity target covers its bmiq path. Its gold is the same vector as
+# Horvath1's, so Horvath1's parity does cover the numbers; this covers the wiring.
+test_that("both bmiq clocks reach the same shipped gold prefit", {
+  skip_on_cran()
+  prefit <- clock_norm_prefit("Knight")
+  expect_equal(prefit, clock_norm_prefit("Horvath1"))
+  expect_equal(prefit$nL, 3L)
+  expect_equal(prefit$source$n_cpgs, length(PANEL))
+  # the vector itself is gone; only the summaries ship
+  expect_null(clock_norm_target("Knight"))
+  expect_null(clock_norm_target("Horvath1"))
+})
+
+# Nothing links the gold's sync-time EM settings to bmiq_calibration()'s
+# defaults any more, so a tuned default here would fit against the old gold.
+test_that("the sample fit settings still match the gold's", {
+  skip_on_cran()
+  shipped <- clock_norm_prefit("Horvath1")$source$settings
+  defaults <- formals(bmiq_calibration)
+  for (arg in c("niter", "tol", "beta.maxit", "beta.score.tol")) {
+    expect_equal(eval(defaults[[arg]]), shipped[[arg]], info = arg)
+  }
+  # the gold was fitted on its whole panel, never a subsample
+  expect_equal(shipped$nfit, clock_norm_prefit("Horvath1")$source$n_cpgs)
+})
+
 # Horvath1 and Knight declare one background, so it is calibrated once and the
 # fit is shared. parity scores a single clock per call and cannot see this.
 test_that("two clocks on one background score as if scored alone", {
   skip_on_cran()
   both <- c("Horvath1", "Knight")
   score <- unique(unlist(lapply(both, clock_scoring_cpgs)))
-  panel <- c(score, setdiff(names(GOLD), score)[seq_len(1000L)])
+  panel <- c(score, setdiff(PANEL, score)[seq_len(1000L)])
   DNAm <- methylation_betas()[, panel, drop = FALSE]
 
   pair <- calc_clocks(
@@ -269,23 +366,24 @@ test_that("BMIQ drops absent background CpGs rather than filling them", {
   skip_on_cran()
   full <- methylation_betas()
   # drop background-only probes: the scoring panel stays whole, so no gate fires
-  norm_only <- setdiff(names(GOLD), clock_scoring_cpgs("Horvath1"))
+  norm_only <- setdiff(PANEL, clock_scoring_cpgs("Horvath1"))
   dropped <- norm_only[seq_len(2000L)]
-  thin <- full[, setdiff(names(GOLD), dropped), drop = FALSE]
+  thin <- full[, setdiff(PANEL, dropped), drop = FALSE]
 
   res <- calc_clocks(thin, "Horvath1", normalize = c(Horvath1 = TRUE))
   cov <- res$coverage$per_clock[[1]]$Horvath1
-  expect_equal(cov$norm_present, length(GOLD) - 2000L)
+  expect_equal(cov$norm_present, length(PANEL) - 2000L)
   # the record says dropped, not filled
   expect_equal(cov$norm_dropped, 2000L)
   expect_equal(cov$norm_imputed_full, 0L)
   expect_false(anyNA(res$scores[, "Horvath1"]))
 
-  # and the fit really did ignore them: filling from the target moves the score
+  # and the fit really did ignore them: putting those probes back moves the
+  # score, because they rejoin the sample mixture the calibration is fitted on
   filled <- full
-  filled[, dropped] <- rep(as.numeric(GOLD[dropped]), each = nrow(full))
+  filled[, dropped] <- rep(as.numeric(REF[dropped]), each = nrow(full))
   expect_false(isTRUE(all.equal(
     as.numeric(res$scores[, "Horvath1"]),
-    horvath1_score(bmiq_calibrated(filled[, names(GOLD)]))
+    horvath1_score(bmiq_calibrated(filled[, PANEL]))
   )))
 })

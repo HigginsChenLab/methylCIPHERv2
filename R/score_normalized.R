@@ -7,7 +7,6 @@ score_normalized <- function(id, cpgs, block, results) {
   }
 
   scheme <- clock_norm_scheme(id)
-  target <- clock_norm_target(id)
   # scoring CpGs are a subset of the background panel
   obs <- observed_panel(
     cpgs[["norm_present"]],
@@ -18,7 +17,7 @@ score_normalized <- function(id, cpgs, block, results) {
   # unimplemented scheme already stopped in score_type()
   calibrated <- switch(
     scheme,
-    bmiq = bmiq_panel(obs, target, id, block, cpgs[["norm_panel_key"]]),
+    bmiq = bmiq_panel(obs[["values"]], id, block, cpgs[["norm_panel_key"]]),
     stop(
       sprintf(
         "No normalization branch for scheme %s (clock %s).",
@@ -39,9 +38,9 @@ score_normalized <- function(id, cpgs, block, results) {
   )
 }
 
-# bmiq onto vendored gold (absent probes dropped, unfit samples -> NA + notes)
-bmiq_panel <- function(obs, target, id, block, key) {
-  fit <- bmiq_fit(obs, target, id, block, key)
+# bmiq onto the vendored gold prefit (unfit samples -> NA + notes)
+bmiq_panel <- function(betas, id, block, key) {
+  fit <- bmiq_fit(betas, id, block, key)
 
   failed <- block[["sample_id"]][!fit[["success"]]]
   mc_note_scoring_failure(block, id, failed, "fit_bmiq")
@@ -78,11 +77,9 @@ norm_cached <- function(block, key, args, compute) {
 }
 
 # shared background cache; NA reporting stays per clock.
-bmiq_fit <- function(obs, target, id, block, key) {
-  betas <- obs[["values"]]
+bmiq_fit <- function(betas, id, block, key) {
   args <- list(
-    goldstandard.beta = target[obs[["cols"]]],
-    verbose = FALSE,
+    gold = clock_norm_prefit(id),
     on.sample.error = "continue",
     failed.sample = "NA"
   )

@@ -2,7 +2,7 @@
 % Please edit documentation in R/summary.R
 \name{summary.mc_result}
 \alias{summary.mc_result}
-\title{Summary Of A Scoring Run}
+\title{Summarizing Epigenetic Clocks Calculations}
 \usage{
 \method{summary}{mc_result}(object, ...)
 }
@@ -18,8 +18,7 @@ dependencies they needed, the clocks scored and failed, the \code{input} and
 when \code{object} holds more than one batch, the batches.
 }
 \description{
-Reports what \code{object} was scored from, what it was asked for, and what
-happened to every score that is missing.
+summary method for class \code{"mc_result"}.
 }
 \details{
 The requested clocks are the ones the \code{clocks} argument of \code{\link[=calc_clocks]{calc_clocks()}}
@@ -55,9 +54,6 @@ A note on a \code{score} row means the score is missing. A note on a \code{norm}
 row is about the background panel, and the score may still be present.
 Both tables carry the \code{explanation} of each note beside it, and
 \code{\link[=samples_coverage]{samples_coverage()}} gives the full set of notes.
-
-Both tables are ordered by batch and then by \code{note}. \code{by_clock} keeps the
-order of the score columns, and \code{by_sample} gives the widest spread first.
 
 Totals are never added across batches, because each batch was scored from
 a different matrix.
