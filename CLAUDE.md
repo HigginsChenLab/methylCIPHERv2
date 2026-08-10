@@ -627,8 +627,21 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
 
 - **Remote:** `https://github.com/hhp94/methylCIPHER-meta.git`.
 - **Inputs R may read:** `manifest.json`, `weights/**`,
-  `bibliography/{clock_citations.csv,clocks.bib}`. **Never** `control/`, `papers/`, `scripts/`, or
-  `bibliography/papers.csv`.
+  `bibliography/{clock_citations.csv,clocks.bib}`, and `control/clock_meta_v1.csv`. **Never** the
+  rest of `control/`, `papers/`, `scripts/`, or `bibliography/papers.csv`.
+  - **That one file is an exemption with an expiry, not a widening of the rule.** Upstream's own
+    invariant is "never send a consumer into `control/` -- the derived CSV exists so the
+    human-owned plane stays private", and `control/clock_papers.csv` ->
+    `bibliography/clock_citations.csv` is what that looks like done properly. It is read anyway
+    because the descriptor columns are wanted now and this is the only place they exist: upstream
+    calls it a **throwaway** table carrying **no per-field provenance**, to be deleted once the
+    `cohorts` branch lands. `studies/` is where those facts live afterwards -- it declares itself
+    the plane for per-paper training and validation cohort facts, and `origin/cohorts` already
+    carries `values_csv_fields_*_trained.csv` for the same fields with locators and a structural
+    gate. When it lands, repoint `read_clock_meta()` at the derived consumer artifact and delete
+    this exemption. Do not read anything else under `control/` in the meantime, and do not treat
+    the shape of `mc_codebook` as settled -- it is a left join of an unverified table
+    (DECISIONS 2026-08-09).
 - **Entry point:** `sync(source_git_sha = NULL, upload = FALSE, force = FALSE)`.
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no

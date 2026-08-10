@@ -14,6 +14,48 @@ Older dated citations in `CLAUDE.md` resolve there. Do not restate that history 
 
 ---
 
+## 2026-08-09 -- The descriptor columns ship from `control/`, on an exemption that expires
+
+`control/` was on the never-read list. It now has exactly one hole in it,
+`control/clock_meta_v1.csv`, and `sync.R` reads it to build `mc_codebook`.
+
+**What the file actually is.** Upstream's own commit (`c0e1bd9`) calls it a "throwaway per-clock
+descriptor table", "disposable", "to be removed once the cohorts branch lands", carrying "no
+provenance envelope and no per-field source, so nothing here is a verified extraction". It was
+derived once from the 40-column high-water mark of `master_source_of_truth.csv`, from abandoned
+work, then keyed forward onto today's clock list.
+
+**Why read it anyway.** The columns are wanted now and this is the only place they exist. That is
+the whole argument, and it is a scheduling argument, not a design one.
+
+**Why this is not a general widening.** Upstream states the rule we were mirroring: "never send a
+consumer into `control/` -- the derived CSV exists so the human-owned plane stays private". The
+sanctioned shape is `control/clock_papers.csv` -> `bibliography/clock_citations.csv`, which is the
+file `sync.R` already reads for citations. Deriving a consumer artifact was the alternative here
+and was **not** built, because it means an upstream `scripts/` step and a second commit on a repo
+whose owner is mid-flight on the real fix.
+
+**The expiry is real and named.** `studies/` declares itself the plane for per-paper training and
+validation cohort facts. `origin/cohorts` is 15 commits ahead and already carries
+`values_csv_fields_{age_min,age_max,age_unit,ancestry}_trained.csv` -- the same field names, with
+`check_locators.py` and a structural gate behind them. When it lands, `read_clock_meta()` repoints
+and this entry is what says the exemption goes with it. A missing file is a hard error out of
+`utils::read.csv()`, so the deletion fails the sync loudly rather than shipping a stale table.
+
+**What was left undone on purpose.** `mc_codebook` is a left join and nothing more. Rows the table
+misses read `NA`, which today is every sex-routed alias, and that is load-bearing rather than
+incidental: the `cite_clocks()` pattern of resolving an alias through `donor_clock_id` would report
+`DNAmFitAge` as trained `"all female"`, because the donor is always the `_Female` member and
+`sex_distribution_trained` is the one column the two members disagree on. Every other column is
+identical across each pair. `test-list-clocks.R` pins the `NA` by deriving the uncovered set from
+`mc_codebook` itself, so a later "improvement" to resolve donors fails rather than ships.
+
+`n_cpgs` is ours, not the paper's. It is read inside the build, before
+`trim_build_only_fields()` strips it, so it is the value `assert_declared_n_cpgs()` has already
+cross-checked against the derived panel -- and it covers the 29 external clocks whose panels are
+not in the shipped catalog at all. The csv's own `n_cpgs_paper` disagrees with the shipped panel
+for 7 of 94 comparable clocks and was dropped for it.
+
 ## 2026-08-09 -- We lay the table out ourselves, and `kable` is why
 
 The digest's tables still read as a wall of columns, and the ask was to render them with

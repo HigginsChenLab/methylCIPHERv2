@@ -294,6 +294,85 @@ build_citations_table <- function(citations, clock_ids) {
   df
 }
 
+# clock descriptor table. upstream calls control/clock_meta_v1.csv disposable and
+# carries no per-field provenance on it, so this is a left join and nothing more:
+# a clock the table misses reads NA rather than failing the build.
+CODEBOOK_CSV_FIELDS <- c(
+  "clock_id",
+  "standout_summary",
+  "cohort_trained",
+  "tissues_derived",
+  "array_type_trained",
+  "n_samples_trained",
+  "health_status_trained",
+  "age_min_trained",
+  "age_max_trained",
+  "age_unit_trained",
+  "training_algorithm",
+  "sex_distribution_trained",
+  "ancestry_trained"
+)
+
+# upstream writes an unreported cell as the literal "NR"
+CODEBOOK_BLANKS <- c("", "NA", "NR")
+
+# the table is versioned in its own filename, and codebook() reports which one
+# it was built from. a rename upstream moves the reported version with it.
+CODEBOOK_SOURCE <- "clock_meta_v1.csv"
+
+codebook_version <- function(file = CODEBOOK_SOURCE) {
+  v <- sub("^.*_(v[0-9]+)\\.csv$", "\\1", file)
+  if (identical(v, file)) {
+    stop("no version in codebook source name: ", file, call. = FALSE)
+  }
+  v
+}
+
+read_clock_meta <- function(repo_path) {
+  path <- file.path(repo_path, "control", CODEBOOK_SOURCE)
+  df <- utils::read.csv(
+    path,
+    stringsAsFactors = FALSE,
+    colClasses = "character"
+  )
+  for (col in CODEBOOK_CSV_FIELDS) {
+    if (!col %in% names(df)) {
+      stop(
+        "clock_meta_v1.csv is missing column '",
+        col,
+        "'",
+        call. = FALSE
+      )
+    }
+    df[[col]] <- trimws(df[[col]])
+    df[[col]][df[[col]] %in% CODEBOOK_BLANKS] <- NA_character_
+  }
+  df[, CODEBOOK_CSV_FIELDS, drop = FALSE]
+}
+
+# descriptor rows for released clocks. `n_cpgs` is ours, not the paper's: read
+# here because assert_declared_n_cpgs() has cross-checked it against the derived
+# panel and trim_build_only_fields() strips it from the catalog straight after.
+build_codebook_table <- function(meta, clocks) {
+  df <- meta[meta[["clock_id"]] %in% names(clocks), , drop = FALSE]
+  names(df)[names(df) == "standout_summary"] <- "description"
+  df[["n_cpgs"]] <- vapply(
+    df[["clock_id"]],
+    function(cid) {
+      n <- clocks[[cid]][["n_cpgs"]]
+      if (is.null(n)) NA_integer_ else as.integer(n[[1L]])
+    },
+    integer(1L),
+    USE.NAMES = FALSE
+  )
+  df <- df[order(df[["clock_id"]]), , drop = FALSE]
+  row.names(df) <- NULL
+  lead <- c("clock_id", "n_cpgs", "description")
+  df <- df[, c(lead, setdiff(names(df), lead)), drop = FALSE]
+  attr(df, "version") <- codebook_version()
+  df
+}
+
 # parse clocks.bib as upstream emits it (one field per line, fixed order).
 BIB_INDENT <- "  "
 BIB_ASSIGN <- " = {"
@@ -2179,6 +2258,11 @@ build_sysdata <- function(
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
+  # before the trim: n_cpgs is a build-only field and the codebook reads it
+  mc_codebook <- build_codebook_table(
+    read_clock_meta(repo_path),
+    catalog[["clocks"]]
+  )
   catalog[["clocks"]] <- trim_build_only_fields(catalog[["clocks"]])
   catalog[["clocks"]] <- key_catalog_lists(catalog[["clocks"]])
   catalog[["clocks"]] <- assert_catalog_shape(catalog[["clocks"]])
@@ -2208,6 +2292,7 @@ build_sysdata <- function(
     mc_bundles,
     mc_index,
     mc_citations,
+    mc_codebook,
     mc_provenance,
     internal = TRUE,
     overwrite = TRUE,
@@ -2231,6 +2316,7 @@ build_sysdata <- function(
       "mc_bundles",
       "mc_index",
       "mc_citations",
+      "mc_codebook",
       "mc_provenance"
     )
   ))

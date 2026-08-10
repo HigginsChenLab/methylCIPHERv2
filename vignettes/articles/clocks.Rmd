@@ -13,33 +13,75 @@ library(methylCIPHERv2)
 ```{r, echo = FALSE}
 catalog <- list_clocks(all_columns = TRUE)
 
+shown <- c(
+  "clock_id", "group_id", "n_cpgs", "covariates", "normalize",
+  "tissues_derived", "array_type_trained", "training_algorithm",
+  "cohort_trained", "n_samples_trained", "health_status_trained",
+  "age_min_trained", "age_max_trained", "age_unit_trained",
+  "sex_distribution_trained", "ancestry_trained"
+)
+
 reactable::reactable(
-  catalog[c("clock_id", "group_id", "covariates", "normalize")],
+  catalog[shown],
   searchable = TRUE,
   filterable = TRUE,
   striped = TRUE,
   highlight = TRUE,
   compact = TRUE,
+  wrap = FALSE,
+  resizable = TRUE,
   defaultPageSize = 25,
   showPageSizeOptions = TRUE,
   pageSizeOptions = c(25, 50, 100),
   defaultSorted = "group_id",
+  defaultColDef = reactable::colDef(minWidth = 140),
+  # the description is a paragraph, so it expands under the row instead of
+  # taking a column of its own
+  details = function(index) {
+    text <- catalog[["description"]][[index]]
+    if (is.na(text)) {
+      text <- "No description on record for this clock."
+    }
+    htmltools::div(style = "padding: 1rem; max-width: 60rem;", text)
+  },
   columns = list(
     clock_id = reactable::colDef(name = "Clock", minWidth = 200),
     group_id = reactable::colDef(name = "Group", minWidth = 160),
+    n_cpgs = reactable::colDef(name = "CpGs", minWidth = 90),
     covariates = reactable::colDef(name = "Covariates", minWidth = 110),
-    normalize = reactable::colDef(name = "Normalize", minWidth = 110)
+    normalize = reactable::colDef(name = "Normalize", minWidth = 110),
+    tissues_derived = reactable::colDef(name = "Tissue", minWidth = 150),
+    array_type_trained = reactable::colDef(name = "Array", minWidth = 130),
+    training_algorithm = reactable::colDef(name = "Algorithm", minWidth = 170),
+    cohort_trained = reactable::colDef(name = "Cohort", minWidth = 260),
+    n_samples_trained = reactable::colDef(name = "Samples", minWidth = 100),
+    health_status_trained = reactable::colDef(name = "Health", minWidth = 150),
+    age_min_trained = reactable::colDef(name = "Age min", minWidth = 100),
+    age_max_trained = reactable::colDef(name = "Age max", minWidth = 100),
+    age_unit_trained = reactable::colDef(name = "Age unit", minWidth = 120),
+    sex_distribution_trained = reactable::colDef(name = "Sex", minWidth = 130),
+    ancestry_trained = reactable::colDef(name = "Ancestry", minWidth = 200)
   )
 )
 ```
 
 ## What the columns mean
 
-**Clock** is the identifier for a single scored clock. **Group** is the family it belongs to.
+The table scrolls sideways to reach the columns that do not fit. Select the arrow at the start of a row to read a longer description of that clock.
+
+**Clock** is the identifier for a single scored clock. **Group** is the family it belongs to. **CpGs** counts the CpGs that the clock scores.
 
 **Covariates** lists the columns that `pheno` must carry for that clock. An empty cell means the clock reads methylation values alone.
 
 **Normalize** names the background normalization scheme a clock declares, and an empty cell means it declares none. A `quantile` cell is on by default and a `bmiq` cell is off. The `normalize` argument of `calc_clocks()` turns either one on or off. Normalization also needs a background panel that is much larger than the scoring panel, so `calc_clocks()` warns and declines a scheme whose background is too thin to use.
+
+The remaining columns describe the clock as it was published. **Tissue**, **Array**, **Cohort**, **Samples**, **Health**, **Age min**, **Age max**, **Age unit**, **Sex** and **Ancestry** report the data that the clock was trained on. **Algorithm** names the method that fit it. An empty cell means the value is not on record.
+
+`codebook()` returns the same descriptions as a data frame, for a set of clocks or for the clocks that a run scored.
+
+```{r}
+codebook(c("Horvath1", "Hannum"))[["column"]]
+```
 
 ## Scoring from the catalog
 

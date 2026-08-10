@@ -33,7 +33,7 @@ Valid values for \code{tag} are the names of \code{\link[=list_clock_tags]{list_
 \code{covariates} names the \code{\link[=calc_clocks]{calc_clocks()}} \code{pheno} columns a clock needs, and
 \code{external} is \code{TRUE} for a clock whose weights are a download.
 
-\code{all_columns = TRUE} adds three more columns.
+\code{all_columns = TRUE} adds three columns about how a clock computes.
 \itemize{
 \item \code{group_size} counts the clocks a group token expands to.
 \item \code{batch_dependent} is \code{TRUE} for a clock whose score depends on the other
@@ -43,6 +43,14 @@ and is empty for a clock that declares none. \code{"quantile"} is on by
 default and \code{"bmiq"} is off. The \code{normalize} argument of \code{\link[=calc_clocks]{calc_clocks()}}
 turns either one on or off.
 }
+
+\code{all_columns = TRUE} also adds \code{n_cpgs}, which counts the CpGs a clock
+scores, and twelve columns that describe the clock as published. These are
+\code{description}, \code{cohort_trained}, \code{tissues_derived}, \code{array_type_trained},
+\code{n_samples_trained}, \code{health_status_trained}, \code{age_min_trained},
+\code{age_max_trained}, \code{age_unit_trained}, \code{training_algorithm},
+\code{sex_distribution_trained} and \code{ancestry_trained}. A column is \code{NA} where
+the value is not on record.
 }
 \examples{
 list_clocks(pattern = "^Horvath")
