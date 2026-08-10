@@ -141,26 +141,6 @@ hash were ever swapped.
 
 ## Backlog
 
-### B1. Should `predict_sex()` surface probe coverage alongside the call
-
-The aneuploidy column shipped 2026-08-10 (DECISIONS 2026-08-10, and the rule is in `CLAUDE.md`).
-This is the half that did not.
-
-Upstream recommends surfacing probe coverage beside the call, because `"Female"` is the residual
-and a `FALSE` in `sex_aneuploidy` from a sample missing its sex-chromosome probes should not read
-the same as one from a full panel. `predict_sex()` cannot do that today: it discards the
-`mc_result` and returns a bare data.frame, so `clocks_coverage()` and `samples_coverage()` are
-unreachable from what it hands back.
-
-The extreme case is already handled and is not the argument for this. A sample with zero observed
-CpGs scores `NA` at every floor, so it never reaches a `"Female"` call at all, which was measured
-on 2026-08-10. The live case is **partial** coverage, where a weak signal still falls through to
-the default.
-
-This is a change to the return contract, not a column, which is why it was not folded into the
-aneuploidy work. Deciding it means deciding whether `predict_sex()` keeps returning a plain
-data.frame at all.
-
 ### B2. Harmonize how `data.frame` is written across user-facing text
 
 One pass over roxygen, `README.Rmd` and `vignettes/*.Rmd`. Two axes, and they are separate
@@ -191,6 +171,12 @@ user-facing surface: cli message text, roxygen prose, `README.Rmd`, `vignettes/*
 **Run this one on Opus 4.8, not Opus 5**, on the maintainer's judgement that 4.8 writes better
 prose. That is a standing preference for prose passes, not a one-off.
 
+Two things that follow from that and are easy to get wrong. **It cannot be delegated to a
+subagent**: the model argument takes a family alias, so a spawned agent inherits the session's
+Opus, and pinning 4.8 means starting the session on 4.8. And it belongs on **its own branch off
+`main`**, after the current work has landed, because it grades text that work just wrote and a
+whole-surface copy-edit mixed into a code change is unreviewable.
+
 Two things this pass should not repeat. The audit section of `dev/WRITING.md` already lists the
 known-good exceptions an independent reader will otherwise re-report as defects, so read it before
 flagging anything. And a rule the shipped files violate is worse than no rule, so where a message
@@ -198,26 +184,6 @@ and the file disagree, fix the file in the same pass rather than filing it.
 
 Newest messages, least audited: `say_no_recorded()` and `say_mismatch()` in `R/predict_sex.R`, the
 `sex_aneuploidy` roxygen, and the `summary()` / `print.mc_summary()` block from 2026-08-09.
-
-### B4. Simplify pass over the vendored BMIQ
-
-Three candidates, and one of them is already done, so measure before cutting.
-
-**The RNG path is gone.** There is nothing left to drop in `R/`: no `set.seed`, no `sample.int`, no
-`nfit`, no `.Random.seed` save and restore. The only RNG-adjacent thing left in the whole change is
-the `nfit = length(gold)` argument sync passes to betanorm, and that one is load-bearing, not
-residue. See the 2026-08-10 DECISIONS entry.
-
-**The debug machinery is genuinely dead.** 21 references in `R/normalize_bmiq.R`: the `debug`
-argument, `em_diagnostics()`, `sample.diagnostics`, and the per-sample `diagnostic` lists.
-`bmiq_fit()` never passes `debug`, no test sets it, and the prefit now arrives with its
-`diagnostics` already fixed at sync. This is the largest and safest cut.
-
-**The scan overlap needs care rather than deletion.** `scan_finite_unit_interval_cpp(datM)` re-reads
-columns that `col_stats()` already swept once at the front door (`R/missingness.R:218`). But the two
-are not interchangeable: the front-door value gates **warn** where BMIQ needs a hard precondition,
-and the kernel itself now stops on a boundary value. Work out which layer owns the invariant before
-removing either, and do not leave it owned by nobody.
 
 ---
 

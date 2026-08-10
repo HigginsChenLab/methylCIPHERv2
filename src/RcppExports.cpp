@@ -36,11 +36,11 @@ BEGIN_RCPP
 END_RCPP
 }
 // scatter_sample_block_cpp
-void scatter_sample_block_cpp(Rcpp::NumericMatrix destination, const Rcpp::NumericMatrix& block, int first_sample);
+void scatter_sample_block_cpp(SEXP destination, const Rcpp::NumericMatrix& block, int first_sample);
 RcppExport SEXP _methylCIPHERv2_scatter_sample_block_cpp(SEXP destinationSEXP, SEXP blockSEXP, SEXP first_sampleSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< Rcpp::NumericMatrix >::type destination(destinationSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type destination(destinationSEXP);
     Rcpp::traits::input_parameter< const Rcpp::NumericMatrix& >::type block(blockSEXP);
     Rcpp::traits::input_parameter< int >::type first_sample(first_sampleSEXP);
     scatter_sample_block_cpp(destination, block, first_sample);
@@ -82,11 +82,11 @@ BEGIN_RCPP
 END_RCPP
 }
 // fill_imp_col
-void fill_imp_col(NumericMatrix obj, NumericVector mean_vec);
+void fill_imp_col(SEXP obj, NumericVector mean_vec);
 RcppExport SEXP _methylCIPHERv2_fill_imp_col(SEXP objSEXP, SEXP mean_vecSEXP) {
 BEGIN_RCPP
     Rcpp::RNGScope rcpp_rngScope_gen;
-    Rcpp::traits::input_parameter< NumericMatrix >::type obj(objSEXP);
+    Rcpp::traits::input_parameter< SEXP >::type obj(objSEXP);
     Rcpp::traits::input_parameter< NumericVector >::type mean_vec(mean_vecSEXP);
     fill_imp_col(obj, mean_vec);
     return R_NilValue;

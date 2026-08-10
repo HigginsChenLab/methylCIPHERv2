@@ -174,10 +174,14 @@ norm_background_probe_set <- function(id) {
 
 # vendored per-probe background, or NULL when the scheme ships no vector
 clock_norm_target <- function(id) {
-  if (!(clock_norm_scheme(id) %in% NORM_SCHEMES_VECTOR_TARGET)) {
+  if (!(clock_norm_scheme(id) %in% NORM_SCHEMES)) {
     return(NULL)
   }
   ps <- norm_background_probe_set(id)
+  # read what sync declared: a gold reduced to a prefit has no vector left
+  if (!is.null(ps[["prefit"]])) {
+    return(NULL)
+  }
   bundle_tensor(clock_group_id(id), ps[["file"]])
 }
 

@@ -476,3 +476,36 @@ test_that("calc_accel reaches the gate through its own pheno merge", {
   bad <- data.frame(ID = rownames(b$DNAm), Age = c(45, 52, 600, 38))
   expect_warning(calc_accel(res, type = "diff", data = bad))
 })
+
+# These guards are ours, so a re-vendor of src/ will drop them. Each one stood
+# between a malformed argument and a segfault or a silent wrong answer
+# (DECISIONS 2026-08-10).
+test_that("the kernels refuse the arguments they cannot bounds-check", {
+  skip_on_cran()
+  x <- matrix(seq_len(12) / 100, 4L, 3L)
+  block <- matrix(1, 3L, 2L)
+
+  # first_sample - 1 + sample_count used to wrap int and pass the bounds test
+  expect_error(gather_sample_block_cpp(x, .Machine$integer.max, 2L))
+  expect_error(gather_sample_block_cpp(x, NA_integer_, 1L))
+  expect_error(scatter_sample_block_cpp(x, block, .Machine$integer.max))
+  expect_error(scatter_sample_block_cpp(x, block, NA_integer_))
+  # in-range coordinates still round-trip
+  expect_equal(gather_sample_block_cpp(x, 2L, 2L), t(x[2:3, , drop = FALSE]))
+
+  # a mutating parameter must refuse a matrix it would have to coerce
+  expect_error(fill_imp_col(matrix(1L, 2L, 2L), c(1, 1)))
+  expect_error(scatter_sample_block_cpp(matrix(0L, 4L, 3L), block, 1L))
+
+  y <- c(0.2, 0.5, 0.8)
+  w <- diag(3L)
+  expect_error(beta_mixture_em_cpp(y, w, nL = 3L, min_shape = -1))
+  expect_error(beta_mixture_em_cpp(y, w, nL = 3L, maxiter = NA_integer_))
+  expect_error(
+    beta_mixture_em_cpp(y, w, nL = 3L, beta_max_halving = .Machine$integer.max)
+  )
+
+  # a NaN sorts last, so it maps to the largest target rather than permuting
+  nan_in <- matrix(c(NaN, 0.9, 0.5, 0.3), 2L, 2L)
+  expect_equal(qnorm_target_rows_cpp(nan_in, c(0.2, 0.8))[1L, 1L], 0.8)
+})

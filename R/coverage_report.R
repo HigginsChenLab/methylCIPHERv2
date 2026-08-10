@@ -373,6 +373,14 @@ say_low_samples <- function(out, threshold) {
 #'
 #' @export
 samples_coverage <- function(x) {
+  out <- sample_coverage_rows(x)
+  # the floors survive finalization, so the gate reads the caller's own x
+  say_low_samples(out, finalize_samples_gate(x))
+  out
+}
+
+# the frame alone. predict_sex() joins these rows and must not warn again.
+sample_coverage_rows <- function(x) {
   check_mc_result(x)
   # finalizer: note reads NA scores (cross-sample cols need reduction first).
   x <- finalized(x)
@@ -420,7 +428,6 @@ samples_coverage <- function(x) {
     gap_reasons(x),
     partial_cells(x)
   )
-  say_low_samples(out, finalize_samples_gate(x))
   out
 }
 

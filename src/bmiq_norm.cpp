@@ -1,3 +1,14 @@
+// Beta-mixture EM kernel, vendored from hhp94/betanorm.
+//
+// Deliberate divergences from upstream, kept across re-vendors:
+//   comments are ours, terse per CLAUDE.md, not upstream's rationale prose
+//   src/Makevars is not vendored: upstream carries OpenMP + BLAS flags for a
+//   port its own log records rejecting, and LinkingTo here is Rcpp alone
+//   the block coordinates and the EM scalars are bounds-checked against
+//   overflow and NA rather than trusted (DECISIONS 2026-08-10)
+// The `debug` argument and its trace vectors are upstream's; nothing in this
+// package sets them.
+
 #include <Rcpp.h>
 
 #include <algorithm>
@@ -323,11 +334,22 @@ Rcpp::NumericMatrix gather_sample_block_cpp(
 {
     const int n_samples = x.nrow();
     const int n_probes = x.ncol();
-    const int first0 = first_sample - 1;
+
+    // NA_INTEGER is INT_MIN, so first_sample - 1 would overflow before any
+    // bounds test could see it.
+    if (first_sample == NA_INTEGER || sample_count == NA_INTEGER)
+    {
+        Rcpp::stop("Invalid sample block");
+    }
+
+    // Widen before the arithmetic: in int the sum wraps negative on a large
+    // first_sample and passes the test below.
+    const R_xlen_t first0 = static_cast<R_xlen_t>(first_sample) - 1;
+    const R_xlen_t count = static_cast<R_xlen_t>(sample_count);
 
     if (first0 < 0 ||
-        sample_count < 1 ||
-        first0 + sample_count > n_samples)
+        count < 1 ||
+        first0 + count > static_cast<R_xlen_t>(n_samples))
     {
         Rcpp::stop("Invalid sample block");
     }
@@ -337,13 +359,13 @@ Rcpp::NumericMatrix gather_sample_block_cpp(
     const double *x_ptr = REAL(x);
     double *block_ptr = REAL(block);
 
-    for (int probe = 0; probe < n_probes; ++probe)
+    for (R_xlen_t probe = 0; probe < n_probes; ++probe)
     {
         const R_xlen_t x_offset =
             static_cast<R_xlen_t>(n_samples) * probe;
 
-        for (int local_sample = 0;
-             local_sample < sample_count;
+        for (R_xlen_t local_sample = 0;
+             local_sample < count;
              ++local_sample)
         {
             block_ptr[
@@ -356,21 +378,39 @@ Rcpp::NumericMatrix gather_sample_block_cpp(
     return block;
 }
 
-// Scatter block into destination in place (must be a private matrix).
+// Scatter block into destination in place. The caller must own destination
+// outright, and nothing here can check that (DECISIONS 2026-08-10).
 // [[Rcpp::export]]
 void scatter_sample_block_cpp(
-    Rcpp::NumericMatrix destination,
+    SEXP destination,
     const Rcpp::NumericMatrix &block,
     int first_sample)
 {
-    const int n_samples = destination.nrow();
-    const int n_probes = destination.ncol();
+    // SEXP, not NumericMatrix: a coerced copy would be scattered into and
+    // dropped, leaving the caller's own matrix untouched.
+    if (TYPEOF(destination) != REALSXP || !Rf_isMatrix(destination))
+    {
+        Rcpp::stop("destination must be a double matrix");
+    }
+
+    const Rcpp::NumericMatrix dest(destination);
+    const int n_samples = dest.nrow();
+    const int n_probes = dest.ncol();
     const int sample_count = block.ncol();
-    const int first0 = first_sample - 1;
+
+    if (first_sample == NA_INTEGER)
+    {
+        Rcpp::stop("Invalid destination or sample block");
+    }
+
+    // Widen before the arithmetic; see gather_sample_block_cpp().
+    const R_xlen_t first0 = static_cast<R_xlen_t>(first_sample) - 1;
+    const R_xlen_t count = static_cast<R_xlen_t>(sample_count);
 
     if (block.nrow() != n_probes ||
         first0 < 0 ||
-        first0 + sample_count > n_samples)
+        count < 0 ||
+        first0 + count > static_cast<R_xlen_t>(n_samples))
     {
         Rcpp::stop("Invalid destination or sample block");
     }
@@ -378,13 +418,13 @@ void scatter_sample_block_cpp(
     double *destination_ptr = REAL(destination);
     const double *block_ptr = REAL(block);
 
-    for (int probe = 0; probe < n_probes; ++probe)
+    for (R_xlen_t probe = 0; probe < n_probes; ++probe)
     {
         const R_xlen_t destination_offset =
             static_cast<R_xlen_t>(n_samples) * probe;
 
-        for (int local_sample = 0;
-             local_sample < sample_count;
+        for (R_xlen_t local_sample = 0;
+             local_sample < count;
              ++local_sample)
         {
             destination_ptr[
@@ -413,6 +453,24 @@ Rcpp::List beta_mixture_em_cpp(
     if (nL < 2 || nL > 3)
     {
         Rcpp::stop("nL must be 2 or 3");
+    }
+
+    // min_shape keeps the Newton step off the digamma and lgamma poles. The
+    // halving loop tests h <= max_halving, which overflows at INT_MAX.
+    if (maxiter == NA_INTEGER || maxiter < 0 ||
+        beta_maxit == NA_INTEGER || beta_maxit < 1 ||
+        beta_max_halving == NA_INTEGER ||
+        beta_max_halving < 0 ||
+        beta_max_halving == std::numeric_limits<int>::max())
+    {
+        Rcpp::stop("Invalid iteration limit");
+    }
+
+    if (!(min_shape > 0.0) || !std::isfinite(min_shape) ||
+        !std::isfinite(tol) || !std::isfinite(beta_score_tol) ||
+        !std::isfinite(armijo))
+    {
+        Rcpp::stop("Invalid mixture fitting tolerance");
     }
 
     const R_xlen_t K = static_cast<R_xlen_t>(nL);

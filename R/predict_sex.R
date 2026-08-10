@@ -173,6 +173,22 @@ attach_recorded <- function(out, pheno, pheno_id, pred, kc) {
   out
 }
 
+# coverage of each scored panel, widened onto the call. one row per
+# (sample, clock) survives the score filter, so each clock gives two columns.
+attach_coverage <- function(out, res, ids, pheno_id) {
+  cov <- sample_coverage_rows(res)
+  cov <- cov[cov[["panel"]] == "score", , drop = FALSE]
+
+  for (id in ids) {
+    rows <- cov[cov[["clock_id"]] == id, , drop = FALSE]
+    # a sample with no counted row has no coverage of its own, hence NA
+    idx <- id_index(out[[pheno_id]], rows[["id"]], "attach_coverage", "na")
+    out[[paste0(id, "_coverage")]] <- rows[["coverage"]][idx]
+    out[[paste0(id, "_note")]] <- rows[["note"]][idx]
+  }
+  out
+}
+
 # a supplied pheno with no sex column. pheno = NULL is silent.
 say_no_recorded <- function() {
   cli::cli_inform(c(
@@ -240,10 +256,24 @@ say_mismatch <- function(out) {
 #' `covariates = c(Female = "sex_f")`. `pheno` with no `Female` column builds
 #' no comparison, and says so.
 #'
+#' Each score carries the coverage of its own panel and the note for the same
+#' sample. `DNAmSex_Wang_ChrX_coverage` and `DNAmSex_Wang_ChrY_coverage` give
+#' the part of each panel that `DNAm` holds for that sample.
+#' `DNAmSex_Wang_ChrX_note` and `DNAmSex_Wang_ChrY_note` give the note that
+#' [samples_coverage()] gives for the same sample and clock. The two panels
+#' are of very different sizes, so they are counted apart.
+#'
+#' These columns qualify a call. A sample that covers little of a panel can
+#' still reach a call, and `sex_aneuploidy` reads `FALSE` for that sample and
+#' for a sample on a full panel alike. A note is present where the score is
+#' `NA`, and the coverage can still be `1`. A sample with no spread across the
+#' reference domain is the case where that happens.
+#'
 #' @returns A data.frame. One row for each sample, with the
 #'   `DNAmSex_Wang_ChrX` and `DNAmSex_Wang_ChrY` scores, `predicted_sex`,
 #'   `sex_aneuploidy`, and, when `pheno` has a `Female` column,
-#'   `recorded_sex` and `sex_mismatch`.
+#'   `recorded_sex` and `sex_mismatch`. Each score also has a `_coverage`
+#'   column and a `_note` column, named after the score.
 #'
 #' @seealso
 #' - [calc_accel()] for the age acceleration of each sample.
@@ -275,16 +305,12 @@ predict_sex <- function(DNAm, pheno = NULL, covariates = NULL, ...) {
   out[[as.character(kc[["output_column"]])]] <- pred
   out[[SEX_ANEUPLOIDY]] <- aneuploidy_of(pred, kc)
 
+  pheno_id <- res[["provenance"]][["pheno_id"]]
   # Female is not a required covariate. comparison reads the caller's pheno.
-  out <- attach_recorded(
-    out,
-    pheno,
-    res[["provenance"]][["pheno_id"]],
-    pred,
-    kc
-  )
+  out <- attach_recorded(out, pheno, pheno_id, pred, kc)
   if (SEX_MISMATCH %in% names(out)) {
     say_mismatch(out)
   }
-  out
+  # last: diagnostics sit after the answer they qualify
+  attach_coverage(out, res, unname(map), pheno_id)
 }

@@ -23,7 +23,8 @@ is \code{NULL}.}
 A data.frame. One row for each sample, with the
 \code{DNAmSex_Wang_ChrX} and \code{DNAmSex_Wang_ChrY} scores, \code{predicted_sex},
 \code{sex_aneuploidy}, and, when \code{pheno} has a \code{Female} column,
-\code{recorded_sex} and \code{sex_mismatch}.
+\code{recorded_sex} and \code{sex_mismatch}. Each score also has a \verb{_coverage}
+column and a \verb{_note} column, named after the score.
 }
 \description{
 Predicts sex and identifies sex chromosome aneuploidy.
@@ -52,6 +53,19 @@ column cannot record it.
 covariate. Pass a column of another name to \code{covariates}, as
 \code{covariates = c(Female = "sex_f")}. \code{pheno} with no \code{Female} column builds
 no comparison, and says so.
+
+Each score carries the coverage of its own panel and the note for the same
+sample. \code{DNAmSex_Wang_ChrX_coverage} and \code{DNAmSex_Wang_ChrY_coverage} give
+the part of each panel that \code{DNAm} holds for that sample.
+\code{DNAmSex_Wang_ChrX_note} and \code{DNAmSex_Wang_ChrY_note} give the note that
+\code{\link[=samples_coverage]{samples_coverage()}} gives for the same sample and clock. The two panels
+are of very different sizes, so they are counted apart.
+
+These columns qualify a call. A sample that covers little of a panel can
+still reach a call, and \code{sex_aneuploidy} reads \code{FALSE} for that sample and
+for a sample on a full panel alike. A note is present where the score is
+\code{NA}, and the coverage can still be \code{1}. A sample with no spread across the
+reference domain is the case where that happens.
 }
 \section{Covariate columns}{
 

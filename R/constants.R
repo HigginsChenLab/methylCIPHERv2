@@ -15,10 +15,6 @@ NORM_DEFAULT_ON <- "quantile"
 # schemes that fill an absent background cpg with the target value
 NORM_SCHEMES_FILL <- "quantile"
 
-# schemes whose vendored target is a per-probe vector. bmiq reduces its gold
-# to a prefit at sync, so it ships no vector at all.
-NORM_SCHEMES_VECTOR_TARGET <- "quantile"
-
 # note tokens a score branch may record against a sample. the other five are
 # derived in gap_reasons() and pass through no collector.
 MC_NOTE_CAUSES <- c("fit_bmiq", "fit_spread", "fit_reduce", "partial")
