@@ -26,6 +26,7 @@ reference:
   - list_clocks
   - list_clock_tags
   - clock_cpgs
+  - codebook
 
 - title: Coverage
   desc: >

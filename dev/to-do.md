@@ -78,16 +78,35 @@ to make against the budget rule, not a queued task.
 `DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
 `BugReports:` were settled 2026-08-04.
 
-### A4. `codebook()`. BLOCKED UPSTREAM
+### A4. Retire the `control/` exemption when `cohorts` lands
 
-`data.frame(clock_id, description)`, dispatching like `cite_clocks()`. `description` is a sentence
-per clock saying what the score means: the one column `list_clocks()` does not carry and that
-nothing in the package can derive. Reinstated 2026-08-04, reversing the 2026-07-31 decision that
-kept it out.
+`codebook()` and the `list_clocks(all_columns = TRUE)` descriptor columns shipped 2026-08-09
+against `control/clock_meta_v1.csv`, which CLAUDE.md now names as the one readable file under
+`control/`. That exemption has an expiry and this is the reminder to collect it
+(DECISIONS 2026-08-09).
 
-The method is small. The work is upstream: `description` is not verified across the 137 clocks in
-`methylCIPHER-meta`. **Do not build it against a partially populated field** -- a `codebook()`
-returning `NA` for most of the catalog reads as a package defect.
+Upstream calls the file a throwaway table with no per-field provenance, to be deleted once the
+`cohorts` branch lands. `origin/cohorts` already carries `values_csv_fields_*_trained.csv` for the
+same fields, with `check_locators.py` and a structural gate behind them, so the sourced
+replacement is real work in progress rather than a hope.
+
+When it merges:
+
+- repoint `read_clock_meta()` (`data-raw/sync.R`) at the derived consumer artifact,
+- delete the `control/` exemption from CLAUDE.md and restore the plain never-read line,
+- re-check `CODEBOOK_CSV_FIELDS` against whatever the studies plane actually publishes, and
+  `codebook_version()`, which derives `v1` from the source filename.
+
+**Two things not to lose in the move.** `n_cpgs` is ours, read before `trim_build_only_fields()`
+strips it, and must not revert to a paper-reported count -- the csv's own disagreed with the
+shipped panel for 7 of 94 comparable clocks. And `mc_codebook` is a **left join**: rows it misses
+read `NA`, which today is every sex-routed alias. Resolving an alias through `donor_clock_id` the
+way `cite_clocks()` does would report `DNAmFitAge` as trained `"all female"`, because the donor is
+always the `_Female` member. `test-list-clocks.R` and `test-codebook.R` both pin that.
+
+The remaining question is whether the descriptor columns stay on `list_clocks(all_columns = TRUE)`
+once they carry provenance, or move to `codebook()` alone. They are on both today because the
+senior-facing MVP wanted them in the surface a reader runs first.
 
 ### A5. README, at submission
 

@@ -28,7 +28,7 @@ LIST_CLOCKS_DEFAULT_COLS <- c(
 #' `covariates` names the [calc_clocks()] `pheno` columns a clock needs, and
 #' `external` is `TRUE` for a clock whose weights are a download.
 #'
-#' `all_columns = TRUE` adds three more columns.
+#' `all_columns = TRUE` adds three columns about how a clock computes.
 #'
 #' - `group_size` counts the clocks a group token expands to.
 #' - `batch_dependent` is `TRUE` for a clock whose score depends on the other
@@ -37,6 +37,14 @@ LIST_CLOCKS_DEFAULT_COLS <- c(
 #'   and is empty for a clock that declares none. `"quantile"` is on by
 #'   default and `"bmiq"` is off. The `normalize` argument of [calc_clocks()]
 #'   turns either one on or off.
+#'
+#' `all_columns = TRUE` also adds `n_cpgs`, which counts the CpGs a clock
+#' scores, and twelve columns that describe the clock as published. These are
+#' `description`, `cohort_trained`, `tissues_derived`, `array_type_trained`,
+#' `n_samples_trained`, `health_status_trained`, `age_min_trained`,
+#' `age_max_trained`, `age_unit_trained`, `training_algorithm`,
+#' `sex_distribution_trained` and `ancestry_trained`. A column is `NA` where
+#' the value is not on record.
 #'
 #' @returns A data.frame. One row for each clock that the `clocks` argument of
 #'   [calc_clocks()] accepts.
@@ -177,7 +185,16 @@ list_clocks <- function(
   out <- out[order(out[["group_id"]], out[["clock_id"]]), , drop = FALSE]
   row.names(out) <- NULL
   if (all_columns) {
-    return(out)
+    return(join_codebook(out))
   }
   out[, LIST_CLOCKS_DEFAULT_COLS, drop = FALSE]
+}
+
+# descriptor columns, left joined by clock id. a clock the table does not cover
+# reads NA, which today is every sex-routed alias.
+join_codebook <- function(out) {
+  hit <- match(out[["clock_id"]], mc_codebook[["clock_id"]])
+  cols <- setdiff(names(mc_codebook), "clock_id")
+  out[cols] <- lapply(cols, function(col) mc_codebook[[col]][hit])
+  out
 }

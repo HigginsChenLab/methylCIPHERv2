@@ -3,10 +3,15 @@ test_that("list_clocks filters, rejects an unknown group, and widens on demand",
   wide <- list_clocks(all_columns = TRUE)
 
   expect_equal(nrow(narrow), nrow(wide))
-  expect_setequal(
-    setdiff(names(wide), names(narrow)),
-    c("group_size", "batch_dependent", "normalize")
-  )
+  added <- setdiff(names(wide), names(narrow))
+  expect_true(all(c("group_size", "batch_dependent", "normalize") %in% added))
+  expect_true(all(c("n_cpgs", "description", "tissues_derived") %in% added))
+
+  # a clock the descriptor table does not cover keeps NA, never a donor's value
+  uncovered <- setdiff(wide[["clock_id"]], mc_codebook[["clock_id"]])
+  expect_true(all(is.na(
+    wide[["description"]][wide[["clock_id"]] %in% uncovered]
+  )))
 
   # a filter narrows rows, never columns
   expect_true(all(list_clocks(group = "GrimAge")[["group_id"]] == "GrimAge"))
