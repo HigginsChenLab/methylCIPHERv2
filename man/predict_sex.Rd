@@ -22,8 +22,8 @@ is \code{NULL}.}
 \value{
 A data.frame. One row for each sample, with the
 \code{DNAmSex_Wang_ChrX} and \code{DNAmSex_Wang_ChrY} scores, \code{predicted_sex},
-and, when \code{pheno} has a \code{Female} column, \code{recorded_sex} and
-\code{sex_mismatch}.
+\code{sex_aneuploidy}, and, when \code{pheno} has a \code{Female} column,
+\code{recorded_sex} and \code{sex_mismatch}.
 }
 \description{
 Predicts sex and identifies sex chromosome aneuploidy.
@@ -35,6 +35,13 @@ wateRmelon package.
 \code{predicted_sex} is one of \code{"Male"}, \code{"Female"}, \code{"47,XXY"}, or \code{"45,XO"}.
 A sample missing either score gets \code{NA}, not a default call.
 
+\code{sex_aneuploidy} is \code{TRUE} where the call is a sex chromosome aneuploidy,
+and \code{FALSE} where it is not. It is \code{NA} where there is no call. The
+classifier tests for \code{"Male"}, \code{"47,XXY"} and \code{"45,XO"}, and gives
+\code{"Female"} to a sample that matches none of the three. A \code{FALSE} therefore
+means that no aneuploidy was found. It does not confirm a euploid
+karyotype.
+
 When \code{pheno} has a \code{Female} column, coded \code{0} or \code{1}, the result also
 carries \code{recorded_sex} and \code{sex_mismatch}. \code{sex_mismatch} is \code{TRUE} only
 where \code{predicted_sex} disagrees with a binary \code{recorded_sex}. A
@@ -42,9 +49,9 @@ where \code{predicted_sex} disagrees with a binary \code{recorded_sex}. A
 column cannot record it.
 
 \code{predict_sex()} reads \code{Female} itself, and the two clocks it scores read no
-covariate. Write \code{covariates = c(Female = "sex_f")} to point \code{Female} at a
-column of another name. \code{pheno} with no \code{Female} column builds no
-comparison, and says so.
+covariate. Pass a column of another name to \code{covariates}, as
+\code{covariates = c(Female = "sex_f")}. \code{pheno} with no \code{Female} column builds
+no comparison, and says so.
 }
 \section{Covariate columns}{
 

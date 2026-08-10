@@ -4,7 +4,8 @@ Queued work. **This is a staging area, not a record.** An item that becomes a de
 gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
 `CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
-There is no open code defect. Everything below is licensing, release plumbing, prose, or deferred.
+There is no open code defect. Everything below is licensing, release plumbing, prose, queued
+feature work, or deferred.
 
 ---
 
@@ -135,6 +136,114 @@ in some implementations. A batch label must be identical on Windows and Linux fo
 so `std::hash` is disqualified outright rather than merely inferior. Deferring costs nothing either
 way: labels are **derived, never assigned**, so no stored label anywhere would need migrating if the
 hash were ever swapped.
+
+---
+
+## Backlog
+
+### B1. An aneuploidy column on `predict_sex()`
+
+Add `sex_aneuploidy` to the `predict_sex()` frame, beside `recorded_sex` and `sex_mismatch`:
+`TRUE` for a non-euploid call, `FALSE` for a euploid one, `NA` where `predicted_sex` is `NA`.
+
+The point is not convenience. The label set is catalog-declared and open, so a user filtering on
+`predicted_sex %in% c("47,XXY", "45,XO")` hardcodes a vocabulary a sync can grow, and their filter
+then silently misses the new call.
+
+**Upstream landed its half on 2026-08-10, and the sync is done.** Synced at `b6c157d`: 137 clocks,
+same set, zero panels moved, one new field. `routing.karyotype_call` in
+`weights/DNAmSex_Wang/_group.meta.json` now declares
+
+```json
+"karyotype": { "Female": "46,XX", "Male": "46,XY" }
+```
+
+Only the two labels that are not already karyotypes get a binding. `47,XXY` and `45,XO` resolve to
+themselves, and upstream's gate rejects a self-referential entry. Upstream **declined to declare
+`euploid`**, deliberately, for the fall-through reason below. The hand-off is
+`dev/DOWNSTREAM_SYNC_2026-08-10.md`.
+
+**Hard-code the mapping at the sync level. Do not derive it at runtime.** Upstream suggests
+`startsWith(karyotype_of(label), "46,")`. We are not doing that: a string parse standing in for a
+flag is exactly the silent-drift shape the package refuses elsewhere, and it fails soft, quietly
+classifying whatever it does not recognise. Instead `data-raw/sync.R` carries one closed
+hard-coded table covering every emitted label:
+
+```r
+# label -> (karyotype, euploid). the build stops if upstream's karyotype_call
+# does not match this exactly, in both directions.
+KARYOTYPE_EXPECTED <- list(
+  "Female" = list(karyotype = "46,XX",  euploid = TRUE),
+  "Male"   = list(karyotype = "46,XY",  euploid = TRUE),
+  "47,XXY" = list(karyotype = "47,XXY", euploid = FALSE),
+  "45,XO"  = list(karyotype = "45,XO",  euploid = FALSE)
+)
+```
+
+The build asserts exact agreement both ways against the labels reachable from `default` plus
+`rules[].predicted_sex`, and `stop()`s naming the offending label otherwise, alongside
+`assert_declared_n_cpgs()`. So a new, renamed or dropped label fails the sync loudly instead of
+being classified by a prefix test. The catalog then carries `euploid` as a **declared field**, and
+`R/` reads that field. No `grep`, no `startsWith`, no string parsing in the scoring path, and
+`BINARY_CALLS` retires.
+
+**This is a second package-side registry, and CLAUDE.md currently says there is one.** The stated
+invariant names `attach_sex_routed_aliases()` as the single closed registry adapting the upstream
+contract. This adds a second. It needs a DECISIONS entry on landing and a CLAUDE.md amendment, or
+the invariant is quietly false.
+
+**Why upstream refused `euploid`, and what it costs the column.** `Female` is the author's
+unconditional default, overwritten by three positive tests; the `X>0 & Y<0` quadrant that is
+genuine `46,XX` is never evaluated. So `Male`, `47,XXY` and `45,XO` are positively tested and
+`Female` is the residual. `sex_aneuploidy = FALSE` on a `Female` row therefore means "no aneuploidy
+pattern was detected", not "euploidy was confirmed", and the roxygen must say so rather than
+implying a symmetric call.
+
+**Upstream's worked example does not apply to us, and that is verified.** The hand-off warns that a
+sample with no sex-chromosome probes scores exactly 0 and falls through to `Female`, citing all 80
+`cohort_450K` samples. That is the oracle's behaviour. Ours returns `NA`: `clock_gate_verdict()`
+returns `dead` at `present == 0` at every floor. Measured 2026-08-10 by stripping all 4331 sex
+probes from a sim with the autosomal reference intact, `predicted_sex` was `NA` for every sample
+and no score was 0. This is the same divergence `KNOWN_PARITY_GAPS` already records. What remains
+of upstream's concern is the **partial** coverage case, where a weak signal still falls through.
+
+**The `NA` decision, worth its own DECISIONS line:** `NA` rather than `FALSE` for an unscorable
+sample. `sex_mismatch` folds unscored to `FALSE`, defensibly, since no call is not a disagreement.
+Here `FALSE` would read as a euploid call we never made. The inconsistency between the two
+neighbouring columns is deliberate.
+
+**Two shapes considered and rejected.** A character column carrying the label and `NA_character_`
+otherwise is a verbatim copy of a value already on the row, two columns that can disagree for no
+new fact. Canonicalizing `predicted_sex` to uniform karyotype notation re-spells upstream's literal
+output and breaks the comparison against a binary `Female` column. We mirror the author's strings.
+
+**Open, and not part of this item unless you say so.** Upstream recommends surfacing probe coverage
+alongside the call. `predict_sex()` cannot today: it discards the `mc_result` and returns a bare
+data.frame, so the coverage that would qualify a residual `Female` call is unreachable from what it
+hands back. Fixing that is a change to the return contract, not a column.
+
+Docs to touch when it lands: `@details` and `@returns` on `predict_sex()`.
+
+### B2. Harmonize how `data.frame` is written across user-facing text
+
+One pass over roxygen, `README.Rmd` and `vignettes/*.Rmd`. Two axes, and they are separate
+decisions.
+
+**Spelling.** `data.frame` is the house form and is nearly uniform already: 25 roxygen mentions and
+every `README.Rmd` mention use it, and `DOC_TYPES` in `R/dev-utils.R` pins the `@param` fragment as
+`A data.frame.`, which `lint_roxygen()` enforces. There is exactly one outlier, the cli message at
+`R/score_cohort.R:188`, which says "Pass a data frame to `pheno`". Nothing else in `R/` or the prose
+files spells it with a space.
+
+**Markup, which is the larger half.** R6 says every R language object in prose carries markup, and
+`data.frame` is a class name, so most of these mentions are arguably unmarked today: `@returns A
+data.frame.` and the `README.Rmd` prose both write it bare. Decide once whether `data.frame` is an
+R language object that takes backticks and `{.cls}`, or a domain word that stays plain like "CpG"
+and "M-value". Then apply it everywhere, including the `DOC_TYPES` fragment, so the linter and the
+prose agree.
+
+Do not split the two axes across two passes. Fixing the one spelling outlier without settling the
+markup leaves the same inconsistency in a different place.
 
 ---
 
