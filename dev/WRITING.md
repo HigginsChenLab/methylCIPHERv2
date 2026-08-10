@@ -5,7 +5,7 @@ self-contained on purpose: an agent picking up one batch of topics should need t
 nothing else.
 
 **`CLAUDE.md` points here rather than restating.** It keeps the cli-versus-`stop()` audience line,
-because that is a design invariant. Everything about how the text itself is written -- R1 to R8,
+because that is a design invariant. Everything about how the text itself is written -- R1 to R9,
 the cli mechanics, the roxygen template -- lives here and only here (2026-08-03).
 
 This file is tracked.
@@ -55,7 +55,7 @@ markup, their plural handling, and any cover from the `--` / `;` lint, which sca
 
 ---
 
-## 2. The English: R1 to R8
+## 2. The English: R1 to R9
 
 These bind **every word a user can see**: cli message text, roxygen prose, **`vignettes/*.Rmd`
 and `README`**. They do **not** bind code comments, `stop()` text aimed at developers,
@@ -122,10 +122,20 @@ no first person, no contractions, no `--`, no `;`. See section 10 for what else 
   and the count columns are `score_*` and `norm_*` against it. A word the reader sees in their own
   output is theirs, not ours.
 
+- **R9. State the fix. Do not editorialise about the reader.** The message describes a state, and
+  the reader is not at fault for it. Cut the words that assign effort or blame: **"yourself",
+  "simply", "just", "manually", "you forgot", "of course"**. `mc_consent()` shipped "Or put the
+  files in `<dir>` yourself, then point `ext_data` at it", which every other rule passes. It is
+  second person where the user really is the actor (R2) and it is an actionable next step (R4),
+  and it reads as "do it yourself then". The test is mechanical: **delete the word and see
+  whether the instruction changed.** If it did not, the word was not part of the instruction.
+  This is about register only. An imperative is still the right mood, and second person is still
+  allowed (2026-08-09).
+
 ### Settled word choices
 
-Neither is rule-shaped, and no linter catches either. Both were decided once and apply to every
-word a user can see (DECISIONS 2026-08-05).
+None is rule-shaped, and no linter catches any of them. Each was decided once and applies to every
+word a user can see (DECISIONS 2026-08-05, 2026-08-09).
 
 - **"confirmation" and "confirm", never "consent".** The `ask` argument asks the user to confirm
   an action. `consent` reads as a legal term and overstates what a yes-or-no prompt is. The
@@ -158,6 +168,17 @@ word a user can see (DECISIONS 2026-08-05).
   repair. Use the one verb ("gives") everywhere, so the same suggestion does not appear in three
   shapes across the gates. `clock_cpgs()` follows the same form (`{.fn clock_cpgs} gives the CpGs a
   clock needs`) even though it is not a coverage frame (DECISIONS 2026-08-07).
+- **"pass X to `arg`", never "point `arg` at X", in an instruction.** An idiom is not the simple
+  word R1 asks for, and "point `ext_data` at it" leaves "it" pointing at either the directory or
+  the assets. Write "pass that path to `ext_data`". This binds an **instruction** only. The
+  `covariates` prose keeps the descriptive form (`covariates` points a covariate at a column),
+  because it names a mechanism rather than telling the reader to do something, and `mc-params.R`
+  backs it with a concrete example one paragraph later (2026-08-09).
+- **The external weights are "assets", never "files" or "packs".** `list_mc_assets()`,
+  `download_mc_assets()`, `clear_mc_assets()` and "the assets directory" make it the reader's own
+  word, so a second noun for the same thing breaks R1's one word for one meaning. `mc_consent()`
+  shipped a message that said "assets" in its lead and "files" three lines down. "Pack" is ours
+  and stays in `R/` and `dev/` (2026-08-09).
 
 ### What no rule covers
 
@@ -558,14 +579,14 @@ not ask for either.** An exported topic missing either tag **is** a real finding
 Run both linters first (section 7); they cover the mechanical rules. Then read for the things no
 linter sees: a `@param` sentence that does not match the formal it names, a `@details` paragraph
 that describes behaviour the code no longer has, a title that is not a noun phrase, an example
-that would need the network or an asset, and any breach of R1 to R8 in text a user can see. **R8
+that would need the network or an asset, and any breach of R1 to R9 in text a user can see. **R8
 is the one with the most live breaches**, and no linter catches it, so give it the closest read.
 
 ---
 
 ## 10. The prose files: vignettes and README
 
-`vignettes/*.Rmd` and `README.Rmd` are public-facing text. R1 to R8 bind them in full. Everything
+`vignettes/*.Rmd` and `README.Rmd` are public-facing text. R1 to R9 bind them in full. Everything
 below is in addition.
 
 ### The two files are not built the same way, and that sets most of the rules

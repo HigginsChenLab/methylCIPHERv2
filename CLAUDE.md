@@ -963,7 +963,7 @@ fully constant string -- `check_moment_sets()`'s failing index is real debugging
 **`dev/WRITING.md` is the single source, and this file does not restate it.** Read it before you
 write or edit any text a user can see. It is tracked, so it resolves in a fresh clone. It holds:
 
-- **R1 to R8**, the English rules. They bind **every message a user can see** -- cli message text
+- **R1 to R9**, the English rules. They bind **every message a user can see** -- cli message text
   and roxygen prose alike. They do **not** bind code comments, dev-facing `stop()` text,
   `data-raw/`, or `dev/` docs, so the ASCII section above is untouched and `--` stays required there
   (DECISIONS 2026-08-03).

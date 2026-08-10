@@ -295,7 +295,7 @@ mc_fetch <- function(row, dir) {
            {conditionMessage(e)}.",
           "i" = "URL: {.url {url}}",
           "i" = "Run {.fn download_mc_assets} again to retry, or fetch that
-                 URL by hand and point {.arg ext_data} at the directory."
+                 URL and pass its directory to {.arg ext_data}."
         ),
         call = NULL
       )
@@ -308,7 +308,7 @@ mc_fetch <- function(row, dir) {
          (status {status}).",
         "i" = "URL: {.url {url}}",
         "i" = "Run {.fn download_mc_assets} again to retry, or fetch that URL
-               by hand and point {.arg ext_data} at the directory."
+               and pass its directory to {.arg ext_data}."
       ),
       call = NULL
     )
@@ -333,8 +333,8 @@ mc_consent <- function(rows, dir, ask) {
          non-interactive session.",
         mc_manifest_bullets(ids, sizes),
         "i" = "Pass {.code ask = FALSE} to allow the download.",
-        "i" = "Or put the file{cli::qty(length(rows))}{?s} in {.path {dir}}
-               yourself, then point {.arg ext_data} at it."
+        "i" = "Or put the asset{cli::qty(length(rows))}{?s} in {.path {dir}},
+               then pass that path to {.arg ext_data}."
       ),
       call = NULL
     )
