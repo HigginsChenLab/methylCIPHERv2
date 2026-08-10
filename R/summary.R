@@ -177,10 +177,9 @@ batch_rows <- function(batch, labels) {
   out[c(MC_BATCH, "n_samples")]
 }
 
-#' Summary Of A Scoring Run
+#' Summarizing Epigenetic Clocks Calculations
 #'
-#' Reports what `object` was scored from, what it was asked for, and what
-#' happened to every score that is missing.
+#' summary method for class `"mc_result"`.
 #'
 #' @param object An `mc_result` object.
 #' @param ... Not used.
@@ -219,9 +218,6 @@ batch_rows <- function(batch, labels) {
 #' row is about the background panel, and the score may still be present.
 #' Both tables carry the `explanation` of each note beside it, and
 #' [samples_coverage()] gives the full set of notes.
-#'
-#' Both tables are ordered by batch and then by `note`. `by_clock` keeps the
-#' order of the score columns, and `by_sample` gives the widest spread first.
 #'
 #' Totals are never added across batches, because each batch was scored from
 #' a different matrix.
