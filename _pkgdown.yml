@@ -28,12 +28,15 @@ reference:
   - clock_cpgs
   - codebook
 
-- title: Coverage
+- title: Quality control
   desc: >
-    Report the panel coverage for each clock and for each sample.
+    Report the panel coverage for each clock and for each sample, and digest
+    a whole run.
   contents:
   - clocks_coverage
   - samples_coverage
+  - summary.mc_result
+  - print.mc_summary
 
 - title: Working with an mc_result
   desc: >
