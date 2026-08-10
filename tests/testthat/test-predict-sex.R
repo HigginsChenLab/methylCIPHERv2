@@ -8,7 +8,7 @@ test_that("predict_sex returns both PCs, a call per sample, and no more", {
   # a pheno that cannot supply a recorded sex says so. pheno = NULL is silent.
   expect_message(out <- predict_sex(sim$DNAm, sim$pheno))
 
-  expect_equal(names(out), c("ID", ids, "predicted_sex"))
+  expect_equal(names(out), c("ID", ids, "predicted_sex", "sex_aneuploidy"))
   expect_equal(nrow(out), 5L)
 
   kc <- karyotype_spec()
@@ -108,6 +108,26 @@ test_that("the declared quadrants map, including the corner never tested", {
   swapped <- kc
   swapped[["inputs"]] <- rev(kc[["inputs"]])
   expect_error(karyotype_inputs(swapped))
+})
+
+test_that("aneuploidy is read off the declared map, and a gap is not a verdict", {
+  skip_on_cran()
+  kc <- karyotype_spec()
+
+  # every label the rules can emit has a declared verdict, so none falls through
+  expect_equal(
+    sort(names(karyotype_euploid(kc))),
+    sort(karyotype_calls(kc))
+  )
+
+  pred <- c("Male", "Female", "47,XXY", "45,XO", NA)
+  expect_equal(
+    aneuploidy_of(pred, kc),
+    c(FALSE, FALSE, TRUE, TRUE, NA)
+  )
+
+  # a call the map does not cover is a build failure, never a silent FALSE
+  expect_error(aneuploidy_of("47,XYY", kc))
 })
 
 test_that("only an unambiguous binary disagreement is flagged", {

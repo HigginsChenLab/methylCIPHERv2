@@ -1293,6 +1293,107 @@ attach_sex_routed_aliases <- function(catalog) {
   catalog
 }
 
+# every label a karyotype_call can emit, its karyotype and whether it is euploid.
+# hard-coded on purpose: the build stops on any upstream drift, so a new or
+# renamed call can never be classified by a silent string test downstream.
+KARYOTYPE_EXPECTED <- list(
+  "Female" = list(karyotype = "46,XX", euploid = TRUE),
+  "Male" = list(karyotype = "46,XY", euploid = TRUE),
+  "47,XXY" = list(karyotype = "47,XXY", euploid = FALSE),
+  "45,XO" = list(karyotype = "45,XO", euploid = FALSE)
+)
+
+# labels a karyotype_call can emit: its default plus every rule output
+karyotype_emitted <- function(kc) {
+  out_col <- as.character(kc[["output_column"]])
+  unique(c(
+    as.character(kc[["default"]]),
+    vapply(kc[["rules"]], function(r) as.character(r[[out_col]]), character(1L))
+  ))
+}
+
+# a label with no declared binding is already a karyotype and resolves to itself
+karyotype_declared <- function(kc, label) {
+  k <- kc[["karyotype"]][[label]]
+  if (is.null(k)) label else as.character(k)
+}
+
+# check one karyotype_call against KARYOTYPE_EXPECTED, then attach euploid
+check_karyotype_call <- function(kc, gid) {
+  emitted <- karyotype_emitted(kc)
+  expected <- names(KARYOTYPE_EXPECTED)
+
+  # exact coverage, both directions
+  unknown <- setdiff(emitted, expected)
+  if (length(unknown)) {
+    stop(
+      "group '",
+      gid,
+      "': karyotype_call emits label(s) KARYOTYPE_EXPECTED does not cover: ",
+      paste(unknown, collapse = ", "),
+      call. = FALSE
+    )
+  }
+  unreachable <- setdiff(expected, emitted)
+  if (length(unreachable)) {
+    stop(
+      "group '",
+      gid,
+      "': KARYOTYPE_EXPECTED covers label(s) the rules cannot emit: ",
+      paste(unreachable, collapse = ", "),
+      call. = FALSE
+    )
+  }
+
+  # the karyotype each label resolves to must be the one we expect
+  for (label in emitted) {
+    got <- karyotype_declared(kc, label)
+    want <- KARYOTYPE_EXPECTED[[label]][["karyotype"]]
+    if (!identical(got, want)) {
+      stop(
+        "group '",
+        gid,
+        "': label '",
+        label,
+        "' resolves to karyotype '",
+        got,
+        "' but KARYOTYPE_EXPECTED declares '",
+        want,
+        "'",
+        call. = FALSE
+      )
+    }
+  }
+
+  kc[["euploid"]] <- vapply(
+    emitted,
+    function(label) KARYOTYPE_EXPECTED[[label]][["euploid"]],
+    logical(1L)
+  )
+  kc
+}
+
+# validate every declared karyotype_call and attach its euploid map
+attach_karyotype_euploid <- function(catalog) {
+  seen <- 0L
+  for (gid in names(catalog[["groups"]])) {
+    kc <- catalog[["groups"]][[gid]][["routing"]][["karyotype_call"]]
+    if (is.null(kc)) {
+      next
+    }
+    catalog[["groups"]][[gid]][["routing"]][["karyotype_call"]] <-
+      check_karyotype_call(kc, gid)
+    seen <- seen + 1L
+  }
+  if (seen == 0L) {
+    stop(
+      "no group declares routing.karyotype_call; KARYOTYPE_EXPECTED is dead",
+      call. = FALSE
+    )
+  }
+  catalog
+}
+
 # materialize
 
 # group ids on one side of the bundled/external split (a group may be on both)
@@ -2258,6 +2359,7 @@ build_sysdata <- function(
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
+  catalog <- attach_karyotype_euploid(catalog)
   # before the trim: n_cpgs is a build-only field and the codebook reads it
   mc_codebook <- build_codebook_table(
     read_clock_meta(repo_path),
