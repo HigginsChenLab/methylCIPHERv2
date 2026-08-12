@@ -1,12 +1,12 @@
 # To-do
 
-Queued work. **This is a staging area, not a record.** An item that becomes a design commitment
-gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
-`CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
+Queued work. **This is a staging area, not a record.** An item that becomes a design commitment is
+argued in the commit message and the PR body that land it, and an item that becomes a rule moves to
+`.claude/CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
 **An item number is a stable identifier, so the sequence has gaps and that is not an error.** A
-gap means that item shipped and was deleted. Do not renumber to close one: `dev/DECISIONS.md`
-cites these numbers from outside this file, and a renumber silently repoints every citation. A2,
+gap means that item shipped and was deleted. Do not renumber to close one: commit messages cite
+these numbers from outside this file, and a renumber silently repoints every citation. A2,
 A3 and B1 are the gaps today, and B1 cost a session real confusion before this line existed.
 
 There is no open code defect. Everything below is licensing, release plumbing, prose, queued

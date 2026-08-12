@@ -2,9 +2,10 @@
 
 Guidance for Claude Code in this repo. This file holds **invariants** that rarely change.
 Volatile detail (per-clock status, exact designs, dated reversals) lives in `dev/` -- see
-"Source-of-truth docs" and prefer it for specifics. A `(DECISIONS <date>)` tag points at the entry
-holding the measurements and the full argument: this file states the rule and the shortest reason,
-and does not restate the evidence.
+"Source-of-truth docs" and prefer it for specifics. A `(DECISIONS <date>)` tag is **not a pointer
+to a file you are expected to open**: it marks a rule as deliberately decided on that date, so
+argue before reversing it. This file states the rule and the shortest reason, and does not restate
+the evidence.
 
 ## What this package is
 
@@ -1113,16 +1114,23 @@ someone opens `dev/to-do.md` -- which this file tells them to do. The name stays
 because most of its citations here sit in decision logs that are append-only, where a rename cannot
 follow (DECISIONS 2026-08-12).
 
-**The decision logs are not tracked, and a `(DECISIONS <date>)` tag is therefore a maintainer-side
-pointer.** `dev/DECISIONS.md` is local-only as of 2026-08-12 and `dev/DECISIONS.old.md` was deleted
-the same day. 58 tags in this file resolve in the maintainer's own working tree, and 17 more, dated
-before the 2026-07-30 cut, read out of git history (`git show e5c4ccb:dev/DECISIONS.old.md`). The
-log was kept whole and taken out of the repo rather than compacted inside it, because this file is
-short **only** because the log holds the measurements, and a summarised entry turns every tag
-pointing at it into a pointer to nothing. **A contributor will not have either file**, so do not
-send one to a `DECISIONS` entry in a message, a doc, or a review comment. Still add the entry
-yourself when a decision reverses a prior approach or is likely to be second-guessed, and do not
-restate rules already stated here (DECISIONS 2026-08-12).
+**There is no shared decision log, and you are not expected to write one.** `dev/DECISIONS.md` is
+untracked as of 2026-08-12 and `dev/DECISIONS.old.md` was deleted the same day; the pre-2026-07-30
+archive reads out of git history (`git show e5c4ccb:dev/DECISIONS.old.md`) if it is ever wanted. The
+log was kept whole and taken out of the repo rather than compacted inside it, because a summarised
+entry is worse than none: it reads as the argument while holding none of the measurements.
+
+**The rationale for a change goes in the commit message and the PR body.** That is where this repo
+already puts it, and it is the tracked, shared, conflict-free form of the same thing: `git log -S`
+searches it, it survives a transfer, and two authors writing at once do not collide. An append-only
+newest-first file is the opposite on every count, since every author inserts at byte zero and every
+concurrent branch conflicts on a merge whose resolution carries no information.
+
+**So do not create `dev/DECISIONS.md`, and do not send anyone to an entry** in a message, a doc, or
+a review comment. A maintainer may keep a personal one; it is a notebook, not a source of truth, and
+nobody else's copy is expected to exist or to agree with it. Writing one per contributor would give
+the project N files with one name, one format and disjoint contents, each looking like the log
+(DECISIONS 2026-08-12).
 
 The `dev/` folder is local-only **except** these two, which are tracked:
 
@@ -1154,7 +1162,8 @@ Local-only (gitignored): `dev/legacy/` (frozen pre-rewrite sources), `dev/scratc
 - Branch off `main` and open a PR; do not push to `main`.
 - Run `devtools::test()` before pushing. Run `devtools::document()` when you add or change a roxygen
   tag, and commit the regenerated `NAMESPACE` / `man/` alongside it.
-- Reversing or second-guessing a design? Add a dated, newest-first `dev/DECISIONS.md` entry.
+- Reversing or second-guessing a design? Say why in the commit message and the PR body, at the
+  length the argument needs. Do not start a `dev/DECISIONS.md`.
 - Keep new or edited content ASCII.
 
 ## Environment and personal overrides
