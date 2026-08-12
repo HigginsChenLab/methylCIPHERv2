@@ -22,13 +22,13 @@
 \code{FALSE}. Default is \code{TRUE}.}
 }
 \value{
-A data.frame. In long form, one row for each sample and clock,
+A data frame. In long form, one row for each sample and clock,
 with the score and, when \code{x} holds more than one batch, an
 \code{mc_batch_id} column. In wide form, one row for each sample, with one
 column for each clock.
 }
 \description{
-Converts the \code{\link[=calc_clocks]{calc_clocks()}} output to a data.frame containing just the
+Converts the \code{\link[=calc_clocks]{calc_clocks()}} output to a data frame containing just the
 clocks, in long or wide format.
 }
 \section{Clocks that use all the samples}{

@@ -46,7 +46,7 @@ shape_scores <- function(m, id_col, value_col, batch, long, label = NULL) {
 
 #' Data Frame Method For An mc_result Object
 #'
-#' Converts the [calc_clocks()] output to a data.frame containing just the
+#' Converts the [calc_clocks()] output to a data frame containing just the
 #' clocks, in long or wide format.
 #'
 #' @inheritParams mc-params
@@ -58,7 +58,7 @@ shape_scores <- function(m, id_col, value_col, batch, long, label = NULL) {
 #'
 #' @inheritSection mc-params Clocks that use all the samples
 #'
-#' @returns A data.frame. In long form, one row for each sample and clock,
+#' @returns A data frame. In long form, one row for each sample and clock,
 #'   with the score and, when `x` holds more than one batch, an
 #'   `mc_batch_id` column. In wide form, one row for each sample, with one
 #'   column for each clock.
@@ -325,7 +325,7 @@ say_fill_batch <- function(x, rhs_vars) {
 #'   score. Default is `NULL`, which uses `~ Age`.
 #' @param type One of "accel" or "diff". The quantity to compute for each
 #'   clock. Default is `"accel"`.
-#' @param data A data.frame. Extra sample metadata, joined to the `pheno` in `x`
+#' @param data A data frame. Extra sample metadata, joined to the `pheno` in `x`
 #'   by sample id. Default is `NULL`.
 #'
 #' @inheritSection mc-params Covariate columns
@@ -340,13 +340,13 @@ say_fill_batch <- function(x, rhs_vars) {
 #' `formula` replaces the default model completely. It does not add to it, so
 #' `~ Plate` regresses each clock on the plate alone, and not on age.
 #'
-#' `data` carries the covariates the calculation needs. Pass a data.frame of
+#' `data` carries the covariates the calculation needs. Pass a data frame of
 #' `ID` and `Plate` to `data`, with `formula = ~ Age + Plate`.
 #' It may add a column, and it may repeat a column that scoring already used.
 #' `calc_accel()` stops when a repeated column disagrees with the value
 #' scoring used.
 #'
-#' @returns A data.frame. In long form, one row for each sample and clock,
+#' @returns A data frame. In long form, one row for each sample and clock,
 #'   with the fitted value, an `accel_id` column that names the model, and,
 #'   when `x` holds more than one batch, `mc_batch_id`. In wide form, one row
 #'   for each sample, with one column for each clock.

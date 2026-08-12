@@ -15,7 +15,7 @@ main function, `calc_clocks()`, has 3 important inputs (see
   in the columns
 - `clocks`: A list of clocks (e.g., Horvath1), clock "group" (e.g.,
   GrimAge), or tags ("mitotic").
-- `pheno`: An *optional* data.frame that contains Age (Years) and Female
+- `pheno`: An *optional* data frame that contains Age (Years) and Female
   (1/0) for only certain clocks, and an ID column that links to the
   sample names of the DNAm beta matrix.
 
@@ -35,7 +35,7 @@ library(methylCIPHERv2)
 
 ### Browse the clocks
 
-`list_clocks()` returns a data.frame showing all the supported clocks.
+`list_clocks()` returns a data frame showing all the supported clocks.
 The [clock
 catalog](https://hhp94.github.io/methylCIPHERv2/articles/clocks.html)
 article provides a searchable table.
@@ -97,9 +97,9 @@ settings.
 
 ### Calculate Epigenetic Clocks
 
-We simulate some data that carries the two kinds of missing data: CpGs
-that are absent altogether, and CpGs that are present but missing in
-some samples.
+This example simulates data that carries the two kinds of missing data:
+CpGs that are absent altogether, and CpGs that are present but missing
+in some samples.
 
 ``` r
 set.seed(1)
@@ -212,10 +212,10 @@ missing.
 
 ``` r
 head(samples_coverage(res), n = 3)
-#>        id clock_id panel n_observed n_needed  coverage note
-#> 1 sample1 Horvath1 score        343      353 0.9716714 <NA>
-#> 2 sample2 Horvath1 score        341      353 0.9660057 <NA>
-#> 3 sample3 Horvath1 score        342      353 0.9688385 <NA>
+#>        id clock_id panel n_observed n_needed  coverage note explanation
+#> 1 sample1 Horvath1 score        343      353 0.9716714 <NA>        <NA>
+#> 2 sample2 Horvath1 score        341      353 0.9660057 <NA>        <NA>
+#> 3 sample3 Horvath1 score        342      353 0.9688385 <NA>        <NA>
 ```
 
 ### Age acceleration
@@ -267,8 +267,8 @@ Or pass the desired `clock_id` directly.
 
 ``` r
 cite_clocks("Horvath1")
-#> <mc_citation> 1 clock(s) x 1 paper(s)
-#> $bibtex [1 paper(s)]
+#> <mc_citation> 1 clock x 1 paper
+#> $bibtex [1 paper]
 #> @article{Horvath_2013_24138928,
 #>   title = {{DNA} methylation age of human tissues and cell types},
 #>   author = {Horvath, Steve},

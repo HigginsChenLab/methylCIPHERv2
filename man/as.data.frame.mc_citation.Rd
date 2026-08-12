@@ -17,12 +17,12 @@
 \item{...}{Not used.}
 }
 \value{
-A data.frame. One row for each clock, with the bib key of the
+A data frame. One row for each clock, with the bib key of the
 paper it cites and publication details such as the title, the authors,
 and the DOI.
 }
 \description{
-Converts the \code{\link[=cite_clocks]{cite_clocks()}} output to a data.frame.
+Converts the \code{\link[=cite_clocks]{cite_clocks()}} output to a data frame.
 }
 \examples{
 cites <- cite_clocks(c("Horvath1", "Hannum"))

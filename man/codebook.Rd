@@ -22,7 +22,7 @@ or an \code{mc_result} object from \code{\link[=calc_clocks]{calc_clocks()}}.}
 \item{...}{Not used.}
 }
 \value{
-A data.frame. One row for each described clock, with the \code{column}
+A data frame. One row for each described clock, with the \code{column}
 it appears as and a one sentence \code{description} of it.
 }
 \description{

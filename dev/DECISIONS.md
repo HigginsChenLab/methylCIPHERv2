@@ -12,6 +12,66 @@ second-guessed; do not restate rules already stated in `CLAUDE.md`.
 **Archive:** entries before 2026-07-30 live in `dev/DECISIONS.old.md` (unchanged full log).
 Older dated citations in `CLAUDE.md` resolve there. Do not restate that history here.
 
+## 2026-08-11 - R CMD check does not hang, and the invariant that said so was a week stale
+
+The ban was measured false. `devtools::check(document = FALSE, remote = TRUE, manual = TRUE)`,
+on the first check this package has ever had: **1m 8.5s, 0 errors, 0 warnings, 1 note**, the note
+being the `New submission` boilerplate every first-time submission draws. The invariant said it
+"does not finish in usable time".
+
+**The old rule was right when it was written, and nothing told us when it stopped being true.**
+The tarball used to carry `test-fixtures-parity.R` and `test-source-hygiene.R`, so check really
+did re-run the slow tiers in a fresh install. The 2026-08-04 pass `.Rbuildignore`d both -- for the
+unstated-dependency WARNING, not for speed -- and removed the cost as a side effect nobody
+measured. The suite inside check now runs in **10s**. This is the failure mode to take from the
+entry: a rule justified by a measurement outlived its measurement by a week, and only running the
+banned thing could surface that. The rule even had a self-fulfilling shape, since the ban was on
+the one action that would have caught it.
+
+**What the run cleared.** Every finding to-do A3 predicted came back OK, including the two that
+motivated it: the unstated-dependency scan over `tests` (so the 2026-08-04 `.Rbuildignore`
+strategy is now confirmed rather than believed) and the examples. Also OK on their first ever
+build: the PDF manual, Rd line widths, the vignette rebuild, non-ASCII in code files, and S3
+generic/method consistency. A3 is therefore deleted rather than deferred again.
+
+**The gate that stays is workflow, not cost.** An agent still does not start one unprompted, and
+still verifies with `devtools::test()` and says check was not run. That is now a statement about
+whose workflow it is, which is defensible, rather than about wall-clock, which was not.
+
+**Two environment requirements, and neither failure names itself.** The first attempt died inside
+`R CMD build`, before any check ran, because the subprocess had no pandoc and `assets.Rmd` could
+not be re-built; the error blames the vignette. `RSTUDIO_PANDOC` was not sufficient on its own and
+the directory had to be on `PATH` as well. `manual = TRUE` needs a LaTeX toolchain. Both cost a
+full round trip to find, so they are recorded in `CLAUDE.md` beside the rule.
+
+## 2026-08-11 - "data frame" is the concept, `data.frame` is the function or the class
+
+to-do B2 framed this as one decision with two options: leave `data.frame` bare everywhere as a
+domain word, or mark it up everywhere as an R language object. Both were wrong, and the evidence
+that settled it is R's own manual rather than an argument from R6.
+
+`merge.Rd`'s Value section reads **"A data frame."** `data.frame.Rd` carries both forms in one
+sentence: "The function `data.frame()` creates data frames". `subset.Rd` and `as.data.frame.Rd`
+agree. So R core keeps three things apart, and this package now follows it: the **concept** is
+`data frame`, two words and unmarked, because it is an English noun and no R object is named by
+it; the **function** is `` `data.frame()` ``; the **class** is `` `data.frame` `` or
+`{.cls data.frame}`, which is what `class(x)` returns.
+
+**This is R6 applied to the right token, not an exception to it.** The near-miss is worth
+recording because it was one edit from shipping: `DOC_TYPES` backticks all five `mc_*` class
+fragments and left `A data.frame.` bare, which reads exactly like the one fragment nobody
+revisited, and the proposed fix was to backtick it for consistency. That had the rule right and
+the token wrong. The `@returns` fragment describes a kind of object, not a class.
+
+**B2's premise inverted, which is the practical consequence.** It recorded "exactly one outlier",
+the cli message in `score_cohort.R` spelling it with a space, and 25 correct roxygen mentions. The
+outlier was the only site already right, along with three more in `vignettes/articles/clocks.Rmd`
+that postdated the item. 23 edits went the other way. `{.cls data.frame}` in `check_DNAm()` stays,
+and both non-obvious keeps are named in `dev/WRITING.md` so the next sweep does not "fix" them.
+
+`DOC_TYPES` and the twelve `@param` / `@returns` fragments have to move in one commit: the linter
+checks the fragments against the constant, so either half alone is 12 failures.
+
 ## 2026-08-10 - predict_sex() carries coverage per score, and stays a data.frame
 
 Upstream's ask was to surface probe coverage beside the call, because `Female` is the

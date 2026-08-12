@@ -9,7 +9,7 @@ random_betas <- function(cpgs, n = 10L) {
 
 #' Simulated Methylation Data
 #'
-#' Builds a random beta matrix and a matching `pheno` data.frame for a set of
+#' Builds a random beta matrix and a matching `pheno` data frame for a set of
 #' clocks.
 #'
 #' @inheritParams mc-params
@@ -29,7 +29,7 @@ random_betas <- function(cpgs, n = 10L) {
 #' @inheritSection mc-params Normalization
 #'
 #' @returns An `mc_sim` object. It holds the simulated `DNAm` matrix, the
-#'   matching `pheno` data.frame, the `clocks` argument as given, and the
+#'   matching `pheno` data frame, the `clocks` argument as given, and the
 #'   `suffix`, which is `NULL` when no suffix was set.
 #'
 #' @examples
