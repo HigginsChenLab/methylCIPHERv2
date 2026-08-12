@@ -11,9 +11,9 @@ Calculates scores for CpG-based epigenetic clocks to support hypothesis-driven e
 \seealso{
 Useful links:
 \itemize{
-  \item \url{https://github.com/hhp94/methylCIPHERv2}
-  \item \url{https://hhp94.github.io/methylCIPHERv2/}
-  \item Report bugs at \url{https://github.com/hhp94/methylCIPHERv2/issues}
+  \item \url{https://github.com/HigginsChenLab/methylCIPHERv2}
+  \item \url{https://HigginsChenLab.github.io/methylCIPHERv2/}
+  \item Report bugs at \url{https://github.com/HigginsChenLab/methylCIPHERv2/issues}
 }
 
 }
