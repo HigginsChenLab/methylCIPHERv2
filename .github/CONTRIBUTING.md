@@ -10,6 +10,8 @@ You can fix a typo, a spelling mistake, or a grammatical error in the documentat
 
 For a bigger change, open an issue first and confirm that the change is wanted. For a bug, open an issue with a minimal [reprex](https://www.tidyverse.org/help/#reprex).
 
+A new clock is declared in the `methylCIPHER-meta` repository rather than here, and most clocks need no change to this repository at all. [Adding a clock](https://github.com/HigginsChenLab/methylCIPHERv2/blob/main/.github/ADDING_A_CLOCK.md) describes what that repository declares, what the sync does with it, and when the change also needs R code.
+
 The tidyverse team publishes a set of [code review principles](https://code-review.tidyverse.org/). The chapters written for authors are worth reading before a first pull request. This package treats them as recommended reading rather than as its own process.
 
 ### Pull request process
@@ -44,7 +46,7 @@ A test asserts what `calc_clocks()` returns, not how it is wired. A test that fa
 
 ## Design decisions
 
-The package keeps a decision log that records why it works the way it does. That log is maintainer-side and is not part of the repository, so there is no file for you to edit. If a change reverses an earlier approach, describe it in the pull request instead: what the earlier approach was, and what makes the new one better. The maintainer records it from there.
+The reason for a change belongs in the commit message and in the pull request body, at the length the argument needs. There is no decision log to edit, and no file to add one to. A change that reverses an earlier approach states two things: what the earlier approach was, and what makes the new one better. That text is tracked, and `git log -S` searches it later.
 
 ## Code of Conduct
 
