@@ -14,7 +14,7 @@ the samples in \code{x}. Default is \code{NULL}, which uses the \code{Age} colum
 \code{pheno} in \code{x}.}
 }
 \value{
-A data.frame. One row for each clock with a reference entry and
+A data frame. One row for each clock with a reference entry and
 enough samples. Columns are the clock id, the sample count, the
 observed and reference age correlations, the reference range, and the
 two flags described above.

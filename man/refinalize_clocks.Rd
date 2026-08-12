@@ -45,7 +45,7 @@ refinalize_clocks(combined)
 \seealso{
 \itemize{
 \item \code{\link[=rbind.mc_result]{rbind.mc_result()}} for two runs combined into one object.
-\item \code{\link[=as.data.frame.mc_result]{as.data.frame.mc_result()}} for the scores as a data.frame.
+\item \code{\link[=as.data.frame.mc_result]{as.data.frame.mc_result()}} for the scores as a data frame.
 \item \code{\link[=as.matrix.mc_result]{as.matrix.mc_result()}} for the scores as a numeric matrix.
 }
 }

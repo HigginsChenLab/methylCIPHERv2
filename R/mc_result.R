@@ -238,7 +238,7 @@ print.mc_result <- function(x, n = 6, p = 6, ...) {
 #'   clocks in the columns.
 #'
 #' @seealso
-#' - [as.data.frame.mc_result()] for the scores as a data.frame.
+#' - [as.data.frame.mc_result()] for the scores as a data frame.
 #' - [rbind.mc_result()] for two runs combined into one object.
 #' - [refinalize_clocks()] for a cross-sample score recomputed after a bind.
 #'

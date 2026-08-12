@@ -137,9 +137,9 @@ gate_same_normalized <- function(recs) {
     "normalized clocks",
     if (forced) {
       "At least one batch had too few normalization CpGs, so it was scored
-       without normalization. Call {.fn clocks_coverage} to compare the
-       normalization panels, then supply the missing background CpGs or lower
-       {.arg min_clocks_coverage}."
+       without normalization. Supply the missing background CpGs, or lower
+       {.arg min_clocks_coverage}. {.fn clocks_coverage} gives the
+       normalization panels of each batch."
     } else {
       "Use one {.arg normalize} setting for every batch. A clock that is
        normalized in one batch, and not in another, gives two different
@@ -232,7 +232,7 @@ say_pending <- function(x) {
 #'
 #' @seealso
 #' - [refinalize_clocks()] for a cross-sample score recomputed after a bind.
-#' - [as.data.frame.mc_result()] for the scores as a data.frame.
+#' - [as.data.frame.mc_result()] for the scores as a data frame.
 #' - [as.matrix.mc_result()] for the scores as a numeric matrix.
 #'
 #' @examples
@@ -374,7 +374,7 @@ reduce_pending <- function(x) {
 #'
 #' @seealso
 #' - [rbind.mc_result()] for two runs combined into one object.
-#' - [as.data.frame.mc_result()] for the scores as a data.frame.
+#' - [as.data.frame.mc_result()] for the scores as a data frame.
 #' - [as.matrix.mc_result()] for the scores as a numeric matrix.
 #'
 #' @examples

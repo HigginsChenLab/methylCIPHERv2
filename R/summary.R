@@ -177,9 +177,9 @@ batch_rows <- function(batch, labels) {
   out[c(MC_BATCH, "n_samples")]
 }
 
-#' Summarizing Epigenetic Clocks Calculations
+#' Summary Method For An mc_result Object
 #'
-#' summary method for class `"mc_result"`.
+#' Summarizes the scores and coverage of an `mc_result` object.
 #'
 #' @param object An `mc_result` object.
 #' @param ... Not used.

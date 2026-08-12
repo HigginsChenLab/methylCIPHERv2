@@ -127,7 +127,7 @@ assoc_empty <- function() {
 #' Rows are ordered by the gap between the observed and the reference
 #' correlation, most negative first.
 #'
-#' @returns A data.frame. One row for each clock with a reference entry and
+#' @returns A data frame. One row for each clock with a reference entry and
 #'   enough samples. Columns are the clock id, the sample count, the
 #'   observed and reference age correlations, the reference range, and the
 #'   two flags described above.

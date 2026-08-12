@@ -10,7 +10,7 @@ predict_sex(DNAm, pheno = NULL, covariates = NULL, ...)
 \item{DNAm}{A numeric matrix. The methylation beta values, with samples in
 the rows and CpGs in the columns.}
 
-\item{pheno}{A data.frame. The sample metadata, with one row for each
+\item{pheno}{A data frame. The sample metadata, with one row for each
 sample. Default is \code{NULL}.}
 
 \item{covariates}{A named character vector. Points a covariate at the column
@@ -20,7 +20,7 @@ is \code{NULL}.}
 \item{...}{Passed to \code{\link[=calc_clocks]{calc_clocks()}}.}
 }
 \value{
-A data.frame. One row for each sample, with the
+A data frame. One row for each sample, with the
 \code{DNAmSex_Wang_ChrX} and \code{DNAmSex_Wang_ChrY} scores, \code{predicted_sex},
 \code{sex_aneuploidy}, and, when \code{pheno} has a \code{Female} column,
 \code{recorded_sex} and \code{sex_mismatch}. Each score also has a \verb{_coverage}

@@ -84,12 +84,17 @@ tensor's names were `identical()` to `probe_sets[["bmiq_gold_standard"]][["cpgs"
 
 Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
 
-- **Never run `R CMD check` / `devtools::check()`. It is on-demand, maintainer-only.** It hangs
-  here: check re-runs the full suite in a fresh install and does not finish in usable time, so an
-  agent that starts one blocks the session on something it cannot resolve. **Verify a change with
-  `devtools::test()`** and say plainly that check was not run. Same rule and reason as the parity
-  tier: minutes-to-hours of maintainer wall-clock is the maintainer's call. The prohibition is on
-  the work, not one entry point -- not via `Rscript`, `pkgbuild`, or a background shell either.
+- **`R CMD check` / `devtools::check()` is maintainer-on-demand. Do not start one unprompted.**
+  **It does not hang, and the reason the ban used to give is void.** Measured 2026-08-11 on the
+  first run this package has ever had: **1m 8.5s**, 0 errors, 0 warnings, 1 note, and that note is
+  the `New submission` boilerplate. What made it unusable was the tarball carrying the parity and
+  hygiene tiers; the 2026-08-04 `.Rbuildignore` pass removed both, and the suite inside check now
+  runs in 10s. Nobody re-measured, so a rule written against a real cost outlived it by a week.
+  What remains is workflow, not cost: **verify a change with `devtools::test()`** and say plainly
+  that check was not run, unless the maintainer asks for one. Two environment requirements, each of
+  which fails in a way that does not name itself: the vignette rebuild needs pandoc on
+  `RSTUDIO_PANDOC` **and** `PATH`, or `R CMD build` dies before a single check runs, and
+  `manual = TRUE` needs a LaTeX toolchain (DECISIONS 2026-08-11).
 - **One beta entry point, and therefore no pre-flight check.** `calc_clocks()` is the only public
   surface that reads a beta matrix; everything else reads the **catalog** (`list_clocks`,
   `clock_cpgs`, `list_clock_tags`) or a **finished record** (`clocks_coverage`, `samples_coverage`,

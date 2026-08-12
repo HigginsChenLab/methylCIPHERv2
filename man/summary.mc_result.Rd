@@ -2,7 +2,7 @@
 % Please edit documentation in R/summary.R
 \name{summary.mc_result}
 \alias{summary.mc_result}
-\title{Summarizing Epigenetic Clocks Calculations}
+\title{Summary Method For An mc_result Object}
 \usage{
 \method{summary}{mc_result}(object, ...)
 }
@@ -18,7 +18,7 @@ dependencies they needed, the clocks scored and failed, the \code{input} and
 when \code{object} holds more than one batch, the batches.
 }
 \description{
-summary method for class \code{"mc_result"}.
+Summarizes the scores and coverage of an \code{mc_result} object.
 }
 \details{
 The requested clocks are the ones the \code{clocks} argument of \code{\link[=calc_clocks]{calc_clocks()}}
