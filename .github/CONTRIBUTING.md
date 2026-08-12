@@ -14,7 +14,7 @@ The tidyverse team publishes a set of [code review principles](https://code-revi
 
 ### Pull request process
 
-*   Fork the repository and clone your fork. `usethis::create_from_github("hhp94/methylCIPHERv2", fork = TRUE)` does both.
+*   Fork the repository and clone your fork. `usethis::create_from_github("HigginsChenLab/methylCIPHERv2", fork = TRUE)` does both.
 
 *   Install the dependencies with `pak::local_install_deps(dependencies = TRUE)`. Every dependency is on CRAN.
 
