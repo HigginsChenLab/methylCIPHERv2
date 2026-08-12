@@ -13,7 +13,7 @@ clocks_coverage(x, all_columns = FALSE)
 frame leaves out by default. Default is \code{FALSE}.}
 }
 \value{
-A data.frame. One row for each clock and batch, with the CpG
+A data frame. One row for each clock and batch, with the CpG
 counts of its scoring panel, and the columns above that apply to \code{x}.
 }
 \description{

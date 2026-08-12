@@ -20,7 +20,7 @@ and the group id. Default is \code{NULL}, which applies no pattern filter.}
 frame leaves out by default. Default is \code{FALSE}.}
 }
 \value{
-A data.frame. One row for each clock that the \code{clocks} argument of
+A data frame. One row for each clock that the \code{clocks} argument of
 \code{\link[=calc_clocks]{calc_clocks()}} accepts.
 }
 \description{

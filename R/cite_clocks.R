@@ -99,7 +99,7 @@ print.mc_citation <- function(x, ...) {
 
 #' Data Frame Method For An mc_citation Object
 #'
-#' Converts the [cite_clocks()] output to a data.frame.
+#' Converts the [cite_clocks()] output to a data frame.
 #'
 #' @param x An `mc_citation` object. The value returned by [cite_clocks()].
 #' @param row.names A character vector. Not used by this method. Default is
@@ -107,7 +107,7 @@ print.mc_citation <- function(x, ...) {
 #' @param optional A boolean. Not used by this method. Default is `FALSE`.
 #' @param ... Not used.
 #'
-#' @returns A data.frame. One row for each clock, with the bib key of the
+#' @returns A data frame. One row for each clock, with the bib key of the
 #'   paper it cites and publication details such as the title, the authors,
 #'   and the DOI.
 #'

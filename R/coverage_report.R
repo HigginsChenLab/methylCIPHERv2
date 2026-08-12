@@ -143,7 +143,7 @@ batch_coverage <- function(per_clock, batch, returned) {
 #' one of those columns by name. `mc_batch_id` is the one exception, and
 #' still appears only when `x` holds more than one batch.
 #'
-#' @returns A data.frame. One row for each clock and batch, with the CpG
+#' @returns A data frame. One row for each clock and batch, with the CpG
 #'   counts of its scoring panel, and the columns above that apply to `x`.
 #'
 #' @seealso
@@ -355,7 +355,7 @@ say_low_samples <- function(out, threshold) {
 #' the whole run and not for one sample. The `mc_batch_id` column appears
 #' only when `x` holds more than one batch.
 #'
-#' @returns A data.frame. One row for each sample, clock, and panel, with
+#' @returns A data frame. One row for each sample, clock, and panel, with
 #'   `n_observed`, `n_needed`, `coverage`, `note`, `explanation`, and, when
 #'   `x` holds more than one batch, `mc_batch_id`.
 #'

@@ -11,7 +11,7 @@ vignette: >
 knitr::opts_chunk$set(collapse = TRUE, comment = "#>")
 ```
 
-Most clocks are included with the package and need no setup. Some clock groups are too large, so their weights live in downloadable files (i.e., assets).
+Most clocks are included with the package and need no setup. Some clock groups are too large, so their weights live in downloadable assets.
 
 This vignette shows how `{methylCIPHERv2}` resolves the assets directory, and how to change it.
 
@@ -112,7 +112,7 @@ Use this form on a machine with no network access, or in a pipeline that must no
 
 ## Deleting the assets
 
-`clear_mc_assets()` empties the directory. It lists the files and asks for confirmation, and it takes `ask` like the two verbs above.
+`clear_mc_assets()` empties the directory. It lists the assets and asks for confirmation, and it takes `ask` like the two verbs above.
 
 ```{r, eval = FALSE}
 clear_mc_assets()
