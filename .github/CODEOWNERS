@@ -1,0 +1,23 @@
+# Review ownership. GitHub requests a review from the owner automatically on
+# every pull request touching a matching path.
+#
+# Ownership is stated per area rather than with one blanket rule, so that
+# handing over an area later is a one-line edit naming the successor. The areas
+# are the ones where a change can be silently wrong: the scoring engine, the
+# compiled kernels, the tests that are the only proof the scores are right, the
+# sync-time contract, and the invariants themselves.
+#
+# NOTE: a CODEOWNERS entry only requests a review. It does not require one until
+# branch protection on main turns on "Require review from Code Owners", which
+# needs a repository admin to enable once.
+
+*                   @hhp94
+
+/R/                 @hhp94
+/src/               @hhp94
+/tests/             @hhp94
+/data-raw/          @hhp94
+/.claude/           @hhp94
+/.github/           @hhp94
+/DESCRIPTION        @hhp94
+/NAMESPACE          @hhp94
