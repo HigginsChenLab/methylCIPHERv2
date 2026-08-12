@@ -52,21 +52,32 @@ clock. Nothing can be settled package-side until it is. `LICENSE`, `LICENSE.md` 
 `^LICENSE\.md$` line in `.Rbuildignore` are already in the shape CRAN expects, whichever license
 lands.
 
-### A2. `CLAUDE.md` is published on the pkgdown site
+### A2. Delete the published `CLAUDE.html` from `gh-pages`
 
-`pkgdown:::package_mds()` globs the package root plus `.github/` and drops only README, LICENSE,
-NEWS and the two GitHub templates. The drop list is hard-coded and `.Rbuildignore` does not apply.
-On pkgdown 2.2.1 it returns `CLAUDE.md`, so the site carries `CLAUDE.html` and indexes it in
-`search.json` and `sitemap.xml`.
+**The generating half shipped 2026-08-12** (DECISIONS). The guidance moved to `.claude/CLAUDE.md`,
+a documented project-instruction location that `pkgdown` does not glob, so there is no root
+`CLAUDE.md` at all and `pkgdown:::package_mds()` now returns the two `.github/` community files and
+nothing else. No pkgdown patch was needed, so r-lib/pkgdown#2959 is no longer on this item's path.
+What is left is the copies already published.
 
-The site was published 2026-08-04 for internal collaboration, accepting this. **Resolve before the
-site is public.** `CLAUDE.md` names the private `methylCIPHER-meta` remote, the maintainer upload
-path, and the known parity gaps.
+`.github/workflows/pkgdown.yaml` deploys with `clean: false`, so a file that leaves the build stays
+on the branch. `CLAUDE.html` and its markdown companion both still return 200 from the live site,
+with the `methylCIPHER-meta` remote in the served HTML. `search.json`, `sitemap.xml` and `llms.txt`
+are rewritten on the next deploy, so the **index heals itself and the two orphans go quiet while
+staying fetchable by URL**. That is the bad outcome, not the good one: a quiet orphan is one nobody
+checks again.
 
-Options: r-lib/pkgdown#2959 (open since 2025-11-24, adds file exclusions), a CI step that deletes
-the rendered file before deploy, or accepting it. A CI guard was written and reverted 2026-08-04 as
-maintenance debt that breaks when either pkgdown or the file set moves. `CLAUDE.local.md` is
-gitignored and never reaches the runner, so the tracked `CLAUDE.md` is the whole exposure.
+Delete both from `gh-pages` by hand. Branch history keeps them unless it is rewritten, and GitHub's
+raw cache and any search index lag behind the delete.
+
+**Do this before the transfer.** Branches move with the repo, so the orphans transfer too, and
+afterwards the cleanup is someone else's to run on an artifact you left. Pages does not redirect,
+so the old URL dies at transfer, which retires the address and not the content.
+
+This was never the largest exposure and the item used to imply it was. The repo is public, so
+`.claude/CLAUDE.md` stays readable at `blob/main/`, and A1's license audit in this file is the
+sharper disclosure. What the 2026-08-12 change bought is that the site stops presenting internal notes as
+package documentation, and stops indexing them for crawlers.
 
 ### A4. Retire the `control/` exemption when `cohorts` lands
 
@@ -136,8 +147,16 @@ changes nothing about the code except the places that name `hhp94` in a string.
 **Do not make these edits until the organization's exact slug is known.** A GitHub org name is
 guessed wrong easily and every one of these fails silently or late.
 
-Four sites, and they are not equivalent:
+Six sites, and they are not equivalent:
 
+- `.github/CODE_OF_CONDUCT.md` carries the stub contact `hhp94@example.com`. **This one has a
+  different and earlier deadline: resolve it before the next pkgdown deploy, not before the
+  transfer.** The file renders on the public site, so until it is real the project publishes a dead
+  address to the people the document exists to protect. It also wants an **institutional** address
+  that survives the handover rather than a personal one, because whoever is named becomes the
+  enforcement body. The stub was chosen so this sweep catches it (DECISIONS 2026-08-12).
+- `.github/CONTRIBUTING.md` carries `usethis::create_from_github("hhp94/methylCIPHERv2", ...)`.
+  Cosmetic and survives on GitHub's redirect, so it fails late rather than loudly.
 - `_pkgdown.yml` `url:` and the matching `DESCRIPTION` `URL:` / `BugReports:`. **GitHub Pages does
   not redirect**, so the old site URL dies at transfer rather than forwarding. Everything else on
   this list keeps working on a redirect for a while.

@@ -58,13 +58,29 @@ markup, their plural handling, and any cover from the `--` / `;` lint, which sca
 
 ## 2. The English: R1 to R9
 
-These bind **every word a user can see**: cli message text, roxygen prose, **`vignettes/*.Rmd`
-and `README`**. They do **not** bind code comments, `stop()` text aimed at developers,
-`data-raw/`, or `dev/` docs. In those, ASCII `--` is still required and these rules do not apply.
+These bind **every word a user can see**: cli message text, roxygen prose, **`vignettes/*.Rmd`,
+`README`, and `.github/*.md`**. They do **not** bind code comments, `stop()` text aimed at
+developers, `data-raw/`, or `dev/` docs. In those, ASCII `--` is still required and these rules do
+not apply.
 
 The prose files are the newest members of that set and the easiest to write carelessly, because
 markdown invites a chattier register than a `@details` block. R2 and R3 are the two that slip:
 no first person, no contractions, no `--`, no `;`. See section 10 for what else they must satisfy.
+
+**`.github/*.md` joined the set on 2026-08-12, with one narrowing of R2 and one whole-file
+exemption.** These files never ship -- `^\.github$` is in `.Rbuildignore` -- but pkgdown globs that
+directory alongside the package root, so `CONTRIBUTING.md` renders on the public site beside the
+reference manual. A reader lands on it, so it is text a user can see.
+
+- **R2 allows the first person plural here, and nowhere else.** `CONTRIBUTING.md` is the project
+  addressing a contributor, and "we" names the maintainers as a body. There is no equivalent in a
+  cli message, where "we" could only mean the package. The rest of R2 still binds: no "please" and
+  no contractions. The shipped file happens to avoid "we" throughout, so nothing rests on this yet.
+- **`CODE_OF_CONDUCT.md` is exempt in full.** It is Contributor Covenant 2.1, verbatim from the
+  `usethis` template, with the contact address substituted and nothing else touched. Its value is
+  that it is a recognised standard a reader can diff against the upstream text, and applying R1 to
+  R9 would destroy exactly that. Do not edit it to satisfy a rule in this file, and do not report
+  it as a defect. It is already ASCII, and every other rule here is waived for it.
 
 - **R1. ASD-STE100 Simplified Technical English.** One instruction per sentence. About 20 words
   for an instruction, 25 for a description. The simple word over the elaborate one. One word for
@@ -670,8 +686,8 @@ edit rewrites five lines and the real change disappears into the noise.
 **Inside a code block, wrap at 80 columns**, because that text is read as code and is not
 reflowed by anything.
 
-This is scoped to `README.Rmd` and `vignettes/*.Rmd`. **`dev/` docs, including this file, stay
-hard-wrapped** and are unaffected.
+This is scoped to `README.Rmd`, `vignettes/*.Rmd` and `.github/*.md`. **`dev/` docs, including this
+file, stay hard-wrapped** and are unaffected.
 
 ### ASCII
 
@@ -701,3 +717,14 @@ The rule binds what an author types, not what a run prints.
   machine with RStudio installed, `<RStudio>/resources/app/bin/quarto/bin/tools` holds it.
 
 Current files: `vignettes/assets.Rmd` and `README.Rmd`.
+
+### `.github/*.md` is a third kind, and nothing builds it
+
+`CONTRIBUTING.md` and `CODE_OF_CONDUCT.md` are plain markdown. No `R CMD check`, no knitr, no
+maintainer render step, so the whole build-difference table above is silent about them and the
+chunk rules do not reach them. What does reach them is R1 to R9 (section 2, which carries the two
+exemptions), the no-hard-wrap rule, and ASCII. Read the rendered page before calling one done, the
+same as any other file here: `CONTRIBUTING.md` is served both by GitHub and by pkgdown, and the two
+resolve a relative link differently.
+
+Current files: `.github/CONTRIBUTING.md` and `.github/CODE_OF_CONDUCT.md`.
