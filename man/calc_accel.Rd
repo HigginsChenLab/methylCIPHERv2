@@ -22,7 +22,7 @@ score. Default is \code{NULL}, which uses \code{~ Age}.}
 \item{type}{One of "accel" or "diff". The quantity to compute for each
 clock. Default is \code{"accel"}.}
 
-\item{data}{A data.frame. Extra sample metadata, joined to the \code{pheno} in \code{x}
+\item{data}{A data frame. Extra sample metadata, joined to the \code{pheno} in \code{x}
 by sample id. Default is \code{NULL}.}
 
 \item{covariates}{A named character vector. Points a covariate at the column
@@ -34,7 +34,7 @@ is \code{NULL}.}
 \code{FALSE}. Default is \code{TRUE}.}
 }
 \value{
-A data.frame. In long form, one row for each sample and clock,
+A data frame. In long form, one row for each sample and clock,
 with the fitted value, an \code{accel_id} column that names the model, and,
 when \code{x} holds more than one batch, \code{mc_batch_id}. In wide form, one row
 for each sample, with one column for each clock.
@@ -51,7 +51,7 @@ It regresses each clock in \code{x} on \code{Age} and returns the residuals.
 \code{formula} replaces the default model completely. It does not add to it, so
 \code{~ Plate} regresses each clock on the plate alone, and not on age.
 
-\code{data} carries the covariates the calculation needs. Pass a data.frame of
+\code{data} carries the covariates the calculation needs. Pass a data frame of
 \code{ID} and \code{Plate} to \code{data}, with \code{formula = ~ Age + Plate}.
 It may add a column, and it may repeat a column that scoring already used.
 \code{calc_accel()} stops when a repeated column disagrees with the value

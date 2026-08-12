@@ -115,7 +115,7 @@ DOC_TYPES <- c(
   "A number between 0 and 1.",
   "A boolean.",
   "A single whole number.",
-  "A data.frame.",
+  "A data frame.",
   "A list.",
   "A named list.",
   "An `mc_result` object.",

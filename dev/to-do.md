@@ -4,6 +4,11 @@ Queued work. **This is a staging area, not a record.** An item that becomes a de
 gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a rule moves to
 `CLAUDE.md`. Delete an item when it ships; do not leave a done list behind.
 
+**An item number is a stable identifier, so the sequence has gaps and that is not an error.** A
+gap means that item shipped and was deleted. Do not renumber to close one: `dev/DECISIONS.md`
+cites these numbers from outside this file, and a renumber silently repoints every citation. B1
+and A3 are the two gaps today, and B1 cost a session real confusion before this line existed.
+
 There is no open code defect. Everything below is licensing, release plumbing, prose, queued
 feature work, or deferred.
 
@@ -63,22 +68,6 @@ the rendered file before deploy, or accepting it. A CI guard was written and rev
 maintenance debt that breaks when either pkgdown or the file set moves. `CLAUDE.local.md` is
 gitignored and never reaches the runner, so the tracked `CLAUDE.md` is the whole exposure.
 
-### A3. The first `R CMD check`
-
-Deferred to immediately pre-alpha (DECISIONS 2026-08-03). Check has never been run here: it is
-maintainer-on-demand by invariant, so the first run is its own piece of work and will surface
-things nothing else can, starting with the unstated-dependency scan and the examples.
-
-**The trim already happened and is not part of this item.** 1284 expectations were cut to 801 on
-2026-08-04, and the direction that guided it -- assert what `calc_clocks()` produces, no
-`expect_identical`, no dispatch-tag tables, errors asserted as *that*, in-test re-derivation only
-where parity does not own the golden -- is now the "Test altitude" section of `CLAUDE.md`. Read it
-there. The suite has grown to 996 since (2026-08-10), so a second trim may be worth it, but that is
-a judgement to make against the budget rule, not a queued task.
-
-`DESCRIPTION` is no longer part of this item either. `Title:`, `Description:`, `URL:` and
-`BugReports:` were settled 2026-08-04.
-
 ### A4. Retire the `control/` exemption when `cohorts` lands
 
 `codebook()` and the `list_clocks(all_columns = TRUE)` descriptor columns shipped 2026-08-09
@@ -137,30 +126,41 @@ so `std::hash` is disqualified outright rather than merely inferior. Deferring c
 way: labels are **derived, never assigned**, so no stored label anywhere would need migrating if the
 hash were ever swapped.
 
+### A7. Repoint every hard-coded owner reference, when the repo transfers
+
+The repo transfers to the lab's GitHub organization, whose exact slug is **not recorded here on
+purpose** -- see the warning below. Copyright is already Yale's (`LICENSE`,
+and `DESCRIPTION` lists Yale as `cph`), so the transfer moves control and not ownership, and it
+changes nothing about the code except the places that name `hhp94` in a string.
+
+**Do not make these edits until the organization's exact slug is known.** A GitHub org name is
+guessed wrong easily and every one of these fails silently or late.
+
+Four sites, and they are not equivalent:
+
+- `_pkgdown.yml` `url:` and the matching `DESCRIPTION` `URL:` / `BugReports:`. **GitHub Pages does
+  not redirect**, so the old site URL dies at transfer rather than forwarding. Everything else on
+  this list keeps working on a redirect for a while.
+- `mc.release_repo` in `R/mc_data.R`, whose default is the literal `"hhp94/methylCIPHERv2"`. Asset
+  downloads survive on GitHub's redirect, so this fails late rather than loudly. A CRAN package
+  should not reach its weights through a redirect.
+- `META_REMOTE` in `data-raw/sync.R`. Maintainer-side only, and it points at
+  `methylCIPHER-meta`, which is a **separate private repo that does not move with this one**.
+  Whether it transfers is its own decision, not a consequence of this one.
+- `README.Rmd` carries the pkgdown article link and the `pak::pkg_install("hhp94/methylCIPHERv2")`
+  line. `README.md` is generated, so edit the `.Rmd` and re-render.
+
+**A5 and this item touch the same README block**, so do them in one pass or the second one
+re-renders over the first.
+
+Two things the transfer does **not** change, worth writing down because both get assumed: the
+`Authors@R` roles, and the CRAN maintainer. CRAN needs one human `cre` and cannot take an
+organization, so `cre` stays a person and a later change of maintainer has to come from whoever
+holds it at the time.
+
 ---
 
 ## Backlog
-
-### B2. Harmonize how `data.frame` is written across user-facing text
-
-One pass over roxygen, `README.Rmd` and `vignettes/*.Rmd`. Two axes, and they are separate
-decisions.
-
-**Spelling.** `data.frame` is the house form and is nearly uniform already: 25 roxygen mentions and
-every `README.Rmd` mention use it, and `DOC_TYPES` in `R/dev-utils.R` pins the `@param` fragment as
-`A data.frame.`, which `lint_roxygen()` enforces. There is exactly one outlier, the cli message at
-`R/score_cohort.R:188`, which says "Pass a data frame to `pheno`". Nothing else in `R/` or the prose
-files spells it with a space.
-
-**Markup, which is the larger half.** R6 says every R language object in prose carries markup, and
-`data.frame` is a class name, so most of these mentions are arguably unmarked today: `@returns A
-data.frame.` and the `README.Rmd` prose both write it bare. Decide once whether `data.frame` is an
-R language object that takes backticks and `{.cls}`, or a domain word that stays plain like "CpG"
-and "M-value". Then apply it everywhere, including the `DOC_TYPES` fragment, so the linter and the
-prose agree.
-
-Do not split the two axes across two passes. Fixing the one spelling outlier without settling the
-markup leaves the same inconsistency in a different place.
 
 ### B3. Re-audit the cli surface against the current rule set, on Opus 4.8
 

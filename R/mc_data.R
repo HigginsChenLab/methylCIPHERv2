@@ -67,8 +67,9 @@ mc_resolve_assets_dir <- function(ext_data = NULL) {
     if (!is_path_string(ext_data)) {
       cli::cli_abort(
         c(
-          "{.arg ext_data} should be {.code NULL} or a single assets-dir path
-           (got {.cls {class(ext_data)[[1L]]}} of length {length(ext_data)}).",
+          "{.arg ext_data} should be {.code NULL} or a single assets directory
+           path (got {.cls {class(ext_data)[[1L]]}} of length
+           {length(ext_data)}).",
           "i" = "A loaded asset does not name a directory.",
           "i" = "Pass a loaded asset to {.fn load_mc_assets} instead."
         ),
@@ -352,8 +353,8 @@ mc_consent <- function(rows, dir, ask) {
     cli::cli_abort(
       c(
         "You cancelled the download of {.val {ids}}.",
-        "i" = "Point {.arg ext_data} at a directory that holds the
-               asset{cli::qty(ids)}{?s}."
+        "i" = "Pass the path of a directory that holds the
+               asset{cli::qty(ids)}{?s} to {.arg ext_data}."
       ),
       call = NULL
     )
@@ -472,7 +473,7 @@ mc_stale_labels <- function(stale) {
 #'
 #' @inheritParams mc-params
 #'
-#' @returns A data.frame. One row for each requested group, with its clock
+#' @returns A data frame. One row for each requested group, with its clock
 #'   count, CpG count, asset size, download status, and the count and total
 #'   size of its superseded assets.
 #'
@@ -562,8 +563,8 @@ mc_canonicalize_ext_data <- function(ext_data) {
     ))
   }
   cli::cli_abort(
-    "{.arg ext_data} should be {.code NULL}, an assets-dir path, a loaded
-     asset, or a list of loaded assets.",
+    "{.arg ext_data} should be {.code NULL}, an assets directory path, a
+     loaded asset, or a list of loaded assets.",
     call = NULL
   )
 }

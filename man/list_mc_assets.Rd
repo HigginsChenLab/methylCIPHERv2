@@ -13,7 +13,7 @@ of \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and \code{"Zhang2
 selects nothing. Default is \code{"all"}.}
 }
 \value{
-A data.frame. One row for each requested group, with its clock
+A data frame. One row for each requested group, with its clock
 count, CpG count, asset size, download status, and the count and total
 size of its superseded assets.
 }

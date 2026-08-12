@@ -16,8 +16,9 @@ This file is tracked.
 
 Binding on every agent, no exceptions, no "just once to check":
 
-- **Never run `R CMD check` or `devtools::check()`**, by any entry point, including `Rscript`,
-  `pkgbuild`, or a background shell. It hangs in this environment.
+- **Do not start `R CMD check` or `devtools::check()` unprompted.** It is maintainer-on-demand.
+  It does **not** hang -- that claim was measured false on 2026-08-11, at 1m 8.5s -- so if the
+  maintainer asks for one, run it. See `CLAUDE.md` for the two environment requirements.
 - **Never run the parity tier.** No `test_parity()`, no `MC_PARITY=1`. It is minutes long and is
   the maintainer's call.
 - **Never hand-edit `NAMESPACE` or `man/*.Rd`.** They are generated. Own the tags.
@@ -136,6 +137,26 @@ no first person, no contractions, no `--`, no `;`. See section 10 for what else 
 
 None is rule-shaped, and no linter catches any of them. Each was decided once and applies to every
 word a user can see (DECISIONS 2026-08-05, 2026-08-09).
+
+- **"data frame" is the concept and takes no markup. `data.frame` is the function or the class and
+  takes markup.** Three forms, and R core keeps them apart in its own manual, which is the standard
+  this package follows. Write **`data frame`**, two words and plain, for the kind of object: `A data
+  frame.` is the `@param` and `@returns` fragment, and `merge.Rd` uses that exact sentence in its
+  Value section. Write **`data.frame()`** marked, with the parentheses, for the function. Write
+  **`{.cls data.frame}`** in cli and `` `data.frame` `` in roxygen for the class, which is what
+  `class(x)` returns. `data.frame.Rd` carries two of the three in one sentence: "The function
+  `data.frame()` creates data frames".
+
+  This is not an exception to R6, it is R6 applied to the right token. The concept is an English
+  noun and no R object is named by it, so there is nothing to mark. The class and the function are
+  R objects and carry markup like any other. An earlier reading treated `A data.frame.` as the one
+  unmarked class fragment beside the five `mc_*` ones and proposed backticking it, which had the
+  rule right and the token wrong (2026-08-11).
+
+  Two consequences worth stating, because both look like defects to a reader sweeping for the
+  string. `{.cls data.frame}` in `check_DNAm()` is **correct** and is not a missed conversion. And
+  "Pass a data frame to `pheno`" in `score_cohort.R` is **correct**, although `dev/to-do.md` called
+  it the one spelling outlier for a week.
 
 - **"confirmation" and "confirm", never "consent".** The `ask` argument asks the user to confirm
   an action. `consent` reads as a legal term and overstates what a yes-or-no prompt is. The
@@ -335,7 +356,7 @@ One sentence. What it does.
 | flag | `A boolean.` |
 | count | `A single whole number.` |
 | numeric vector | `A numeric vector.` |
-| data frame | `A data.frame.` |
+| data frame | `A data frame.` |
 | list | `A list.` or `A named list.` |
 | catch-all S3 argument | `Any object.` |
 | a method that only throws | `Nothing.` (`@returns` only) |

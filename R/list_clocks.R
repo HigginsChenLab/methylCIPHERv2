@@ -46,7 +46,7 @@ LIST_CLOCKS_DEFAULT_COLS <- c(
 #' `sex_distribution_trained` and `ancestry_trained`. A column is `NA` where
 #' the value is not on record.
 #'
-#' @returns A data.frame. One row for each clock that the `clocks` argument of
+#' @returns A data frame. One row for each clock that the `clocks` argument of
 #'   [calc_clocks()] accepts.
 #'
 #' @seealso
@@ -161,7 +161,7 @@ list_clocks <- function(
             # one adist pass per token, so the search is capped, not the text
             n = MC_SUGGEST_CAP
           ),
-          "i" = "Call {.fn list_clocks} with no arguments to see every group."
+          "i" = "{.fn list_clocks} with no arguments gives every group."
         ),
         call = NULL
       )

@@ -269,7 +269,7 @@ say_mismatch <- function(out) {
 #' `NA`, and the coverage can still be `1`. A sample with no spread across the
 #' reference domain is the case where that happens.
 #'
-#' @returns A data.frame. One row for each sample, with the
+#' @returns A data frame. One row for each sample, with the
 #'   `DNAmSex_Wang_ChrX` and `DNAmSex_Wang_ChrY` scores, `predicted_sex`,
 #'   `sex_aneuploidy`, and, when `pheno` has a `Female` column,
 #'   `recorded_sex` and `sex_mismatch`. Each score also has a `_coverage`

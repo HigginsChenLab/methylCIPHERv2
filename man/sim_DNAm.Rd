@@ -48,11 +48,11 @@ given.}
 }
 \value{
 An \code{mc_sim} object. It holds the simulated \code{DNAm} matrix, the
-matching \code{pheno} data.frame, the \code{clocks} argument as given, and the
+matching \code{pheno} data frame, the \code{clocks} argument as given, and the
 \code{suffix}, which is \code{NULL} when no suffix was set.
 }
 \description{
-Builds a random beta matrix and a matching \code{pheno} data.frame for a set of
+Builds a random beta matrix and a matching \code{pheno} data frame for a set of
 clocks.
 }
 \section{The assets directory}{

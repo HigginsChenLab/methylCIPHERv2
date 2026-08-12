@@ -20,7 +20,7 @@
 #'
 #' A clock with no description on record reads `NA`.
 #'
-#' @returns A data.frame. One row for each described clock, with the `column`
+#' @returns A data frame. One row for each described clock, with the `column`
 #'   it appears as and a one sentence `description` of it.
 #'
 #' @examples

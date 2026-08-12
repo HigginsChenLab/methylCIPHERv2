@@ -10,7 +10,7 @@ samples_coverage(x)
 \item{x}{An \code{mc_result} object. The value returned by \code{\link[=calc_clocks]{calc_clocks()}}.}
 }
 \value{
-A data.frame. One row for each sample, clock, and panel, with
+A data frame. One row for each sample, clock, and panel, with
 \code{n_observed}, \code{n_needed}, \code{coverage}, \code{note}, \code{explanation}, and, when
 \code{x} holds more than one batch, \code{mc_batch_id}.
 }

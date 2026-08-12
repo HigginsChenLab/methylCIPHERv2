@@ -52,7 +52,7 @@ combined
 \seealso{
 \itemize{
 \item \code{\link[=refinalize_clocks]{refinalize_clocks()}} for a cross-sample score recomputed after a bind.
-\item \code{\link[=as.data.frame.mc_result]{as.data.frame.mc_result()}} for the scores as a data.frame.
+\item \code{\link[=as.data.frame.mc_result]{as.data.frame.mc_result()}} for the scores as a data frame.
 \item \code{\link[=as.matrix.mc_result]{as.matrix.mc_result()}} for the scores as a numeric matrix.
 }
 }
