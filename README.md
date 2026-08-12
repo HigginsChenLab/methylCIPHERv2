@@ -24,7 +24,7 @@ main function, `calc_clocks()`, has 3 important inputs (see
 You can install the development version of `{methylCIPHERv2}` with:
 
 ``` r
-pak::pkg_install("hhp94/methylCIPHERv2")
+pak::pkg_install("HigginsChenLab/methylCIPHERv2")
 ```
 
 ## Workflow
@@ -37,7 +37,7 @@ library(methylCIPHERv2)
 
 `list_clocks()` returns a data frame showing all the supported clocks.
 The [clock
-catalog](https://hhp94.github.io/methylCIPHERv2/articles/clocks.html)
+catalog](https://HigginsChenLab.github.io/methylCIPHERv2/articles/clocks.html)
 article provides a searchable table.
 
 ``` r

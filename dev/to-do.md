@@ -6,8 +6,8 @@ gets a dated `dev/DECISIONS.md` entry when it lands, and an item that becomes a 
 
 **An item number is a stable identifier, so the sequence has gaps and that is not an error.** A
 gap means that item shipped and was deleted. Do not renumber to close one: `dev/DECISIONS.md`
-cites these numbers from outside this file, and a renumber silently repoints every citation. B1
-and A3 are the two gaps today, and B1 cost a session real confusion before this line existed.
+cites these numbers from outside this file, and a renumber silently repoints every citation. A2,
+A3 and B1 are the gaps today, and B1 cost a session real confusion before this line existed.
 
 There is no open code defect. Everything below is licensing, release plumbing, prose, queued
 feature work, or deferred.
@@ -51,33 +51,6 @@ without a license grants no redistribution right.
 clock. Nothing can be settled package-side until it is. `LICENSE`, `LICENSE.md` and the
 `^LICENSE\.md$` line in `.Rbuildignore` are already in the shape CRAN expects, whichever license
 lands.
-
-### A2. Delete the published `CLAUDE.html` from `gh-pages`
-
-**The generating half shipped 2026-08-12** (DECISIONS). The guidance moved to `.claude/CLAUDE.md`,
-a documented project-instruction location that `pkgdown` does not glob, so there is no root
-`CLAUDE.md` at all and `pkgdown:::package_mds()` now returns the two `.github/` community files and
-nothing else. No pkgdown patch was needed, so r-lib/pkgdown#2959 is no longer on this item's path.
-What is left is the copies already published.
-
-`.github/workflows/pkgdown.yaml` deploys with `clean: false`, so a file that leaves the build stays
-on the branch. `CLAUDE.html` and its markdown companion both still return 200 from the live site,
-with the `methylCIPHER-meta` remote in the served HTML. `search.json`, `sitemap.xml` and `llms.txt`
-are rewritten on the next deploy, so the **index heals itself and the two orphans go quiet while
-staying fetchable by URL**. That is the bad outcome, not the good one: a quiet orphan is one nobody
-checks again.
-
-Delete both from `gh-pages` by hand. Branch history keeps them unless it is rewritten, and GitHub's
-raw cache and any search index lag behind the delete.
-
-**Do this before the transfer.** Branches move with the repo, so the orphans transfer too, and
-afterwards the cleanup is someone else's to run on an artifact you left. Pages does not redirect,
-so the old URL dies at transfer, which retires the address and not the content.
-
-This was never the largest exposure and the item used to imply it was. The repo is public, so
-`.claude/CLAUDE.md` stays readable at `blob/main/`, and A1's license audit in this file is the
-sharper disclosure. What the 2026-08-12 change bought is that the site stops presenting internal notes as
-package documentation, and stops indexing them for crawlers.
 
 ### A4. Retire the `control/` exemption when `cohorts` lands
 
@@ -139,41 +112,79 @@ hash were ever swapped.
 
 ### A7. Repoint every hard-coded owner reference, when the repo transfers
 
-The repo transfers to the lab's GitHub organization, whose exact slug is **not recorded here on
-purpose** -- see the warning below. Copyright is already Yale's (`LICENSE`,
-and `DESCRIPTION` lists Yale as `cph`), so the transfer moves control and not ownership, and it
-changes nothing about the code except the places that name `hhp94` in a string.
+The org is `HigginsChenLab`, and **it is not a transfer.** The lab created
+`HigginsChenLab/methylCIPHERv2` and `HigginsChenLab/methylCIPHER-meta` on 2026-08-06, both empty
+(size 0, no branches), and asked for the contents to be pushed over. That is a different operation
+from a GitHub transfer and the difference is load-bearing, so the rest of this item reads
+accordingly. Copyright is already Yale's (`LICENSE`, and `DESCRIPTION` lists Yale as `cph`), so
+neither operation moves ownership.
 
-**Do not make these edits until the organization's exact slug is known.** A GitHub org name is
-guessed wrong easily and every one of these fails silently or late.
+**Five of the six sites were repointed on 2026-08-12** and the sixth is deliberately unchanged.
+What is left of this item is below the site list.
 
-Six sites, and they are not equivalent:
+What a push does not carry, and a transfer would have:
 
-- `.github/CODE_OF_CONDUCT.md` carries the stub contact `hhp94@example.com`. **This one has a
-  different and earlier deadline: resolve it before the next pkgdown deploy, not before the
-  transfer.** The file renders on the public site, so until it is real the project publishes a dead
-  address to the people the document exists to protect. It also wants an **institutional** address
-  that survives the handover rather than a personal one, because whoever is named becomes the
-  enforcement body. The stub was chosen so this sweep catches it (DECISIONS 2026-08-12).
-- `.github/CONTRIBUTING.md` carries `usethis::create_from_github("hhp94/methylCIPHERv2", ...)`.
-  Cosmetic and survives on GitHub's redirect, so it fails late rather than loudly.
-- `_pkgdown.yml` `url:` and the matching `DESCRIPTION` `URL:` / `BugReports:`. **GitHub Pages does
-  not redirect**, so the old site URL dies at transfer rather than forwarding. Everything else on
-  this list keeps working on a redirect for a while.
-- `mc.release_repo` in `R/mc_data.R`, whose default is the literal `"hhp94/methylCIPHERv2"`. Asset
-  downloads survive on GitHub's redirect, so this fails late rather than loudly. A CRAN package
-  should not reach its weights through a redirect.
-- `META_REMOTE` in `data-raw/sync.R`. Maintainer-side only, and it points at
-  `methylCIPHER-meta`, which is a **separate private repo that does not move with this one**.
-  Whether it transfers is its own decision, not a consequence of this one.
-- `README.Rmd` carries the pkgdown article link and the `pak::pkg_install("hhp94/methylCIPHERv2")`
-  line. `README.md` is generated, so edit the `.Rmd` and re-render.
+- **Releases and their assets.** `git push` copies commits only. The old repo holds 4 releases /
+  8 assets / ~91 MB (SystemsAge, PCClocks, PCBrainAge, Zhang2019), and the org repo will hold
+  none, so every external clock stops scoring the moment `mc.release_repo` points at the org.
+  **No always-on test catches this** -- parity skips those clocks when no pack is cached, so a
+  warm-cache machine reports green. Fix is `sync(upload = TRUE)` with `MC_UPLOAD_PAT` set;
+  `package_release_repo()` derives the target from `git remote origin`, so no code edit is needed,
+  but the PAT needs release-write on the org, which is a new grant. **Do this before deleting or
+  archiving the old repo** -- until it runs, the old repo is the only place the weights exist.
+- **The redirect.** A transfer forwards old URLs; a push does not, and both repos stay live. Decide
+  what `hhp94/methylCIPHERv2` becomes. Deleting it yields 404s rather than redirects, since GitHub
+  only redirects on transfer or rename.
+- **Issues and PRs.** Near-zero cost here (0 stars, 0 watchers, 1 fork), with one exception:
+  **PR #3 is open and from an outside fork**, `dsborrus:feature/generics-and-qc`. Close it with a
+  note rather than abandoning it silently.
+- **`gh-pages`, and Pages itself.** The branch needs pushing or regenerating, Pages needs enabling
+  on the org repo, and org Actions permissions are worth checking before relying on the deploy.
+
+`ploidy-bmiq` is **not** in that list: it is fully merged (`origin/main..origin/ploidy-bmiq` is
+empty) and should not travel. Turn on automatic head-branch deletion on the org repo.
+
+The six sites, and they are not equivalent:
+
+- `.github/CODE_OF_CONDUCT.md` carried the stub contact `hhp94@example.com`, which the sweep caught
+  as intended. It now names the PI, `a.higginschen@yale.edu`, and **that is an interim, not the
+  finished answer.** The earlier deadline is met, so the site no longer publishes a dead address to
+  the people the document exists to protect. What is still owed is an address that is not a person:
+  whoever is named becomes the enforcement body, and a NetID-backed address moves when its holder
+  does. The target is a shared lab mailbox under the same org the repo transfers to, so that swap
+  belongs with the rest of this item rather than ahead of it. Yale's central equity offices were
+  considered and are wrong here -- a Contributor Covenant report can come from a contributor with
+  no Yale affiliation about another one, which is outside their jurisdiction and their intake.
+- `.github/CONTRIBUTING.md`, `create_from_github()`. **Done.**
+- `_pkgdown.yml` `url:` and the matching `DESCRIPTION` `URL:` / `BugReports:`. **Done**, and
+  `man/methylCIPHERv2-package.Rd` regenerated from them.
+- `mc.release_repo` in `R/mc_data.R`. **Done.** Read the release bullet above before assuming this
+  one is finished: the default now names a repo with no releases on it.
+- `README.Rmd`, both the article link and `pak::pkg_install()`; `README.md` re-rendered. **Done.**
+  The install line still names a GitHub repo rather than CRAN, per A5.
+- `META_REMOTE` in `data-raw/sync.R`. **Deliberately unchanged.** Maintainer-side only, and it
+  points at `methylCIPHER-meta`, a separate private repo. The org now has an empty
+  `HigginsChenLab/methylCIPHER-meta`, which makes the move look decided; it is not, and it is
+  upstream's call rather than a consequence of this one.
 
 **A5 and this item touch the same README block**, so do them in one pass or the second one
 re-renders over the first.
 
-Two things the transfer does **not** change, worth writing down because both get assumed: the
-`Authors@R` roles, and the CRAN maintainer. CRAN needs one human `cre` and cannot take an
+What is still open on this item:
+
+1. The push itself, and the four carry-over tasks above.
+2. The CoC contact, currently the PI as an interim; see that bullet.
+3. **`Authors@R`, which this item used to say the move does not change.** That is still true of the
+   move and was the wrong thing to record, because it reads as "nothing to do here". Pre-rewrite
+   history carries 156 commits from nine identities -- Kasamoto 47, Thrush 35, Pham 29, Sehgal 20,
+   Higgins-Chen 14, Borrus 10, Schaaf 1 -- against 124 post-rewrite commits from Pham alone.
+   `Authors@R` names Pham, Thrush and Yale, so five contributors including the PI appear nowhere in
+   the package metadata, and the commit log is the only record. That is worth settling before the
+   package carries the lab's name, and it is the reason not to truncate history (audited
+   2026-08-12: no secrets ever committed, and pre-rewrite is only 27 MB of 118 MB in blobs, most of
+   the bulk being post-rewrite `R/sysdata.rda` churn).
+
+One thing that genuinely does not change: CRAN needs one human `cre` and cannot take an
 organization, so `cre` stays a person and a later change of maintainer has to come from whoever
 holds it at the time.
 

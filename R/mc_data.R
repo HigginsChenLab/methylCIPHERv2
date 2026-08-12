@@ -40,7 +40,7 @@ mc_resolve_groups <- function(groups) {
 
 # public release-asset URL
 mc_asset_url <- function(row) {
-  repo <- getOption("mc.release_repo", "hhp94/methylCIPHERv2")
+  repo <- getOption("mc.release_repo", "HigginsChenLab/methylCIPHERv2")
   sprintf(
     "https://github.com/%s/releases/download/%s/%s",
     repo,
