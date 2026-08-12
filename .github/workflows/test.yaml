@@ -1,0 +1,76 @@
+# Workflow derived from https://github.com/r-lib/actions/tree/v2/examples
+# Need help debugging build failures? Start at https://github.com/r-lib/actions#where-to-find-help
+#
+# Run the always-on test tiers on every pull request. This is the gate: the
+# invariants in .claude/CLAUDE.md are enforced by tests, and until this workflow
+# existed none of them ran on a proposed change.
+#
+# This is deliberately NOT R CMD check. Check is maintainer-on-demand here, and
+# it would also need pandoc and LaTeX to build the vignettes. The suite is what
+# proves the scoring contract; check proves packaging.
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+name: test.yaml
+
+permissions: read-all
+
+concurrency:
+  group: test-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.config.os }}
+    name: test (${{ matrix.config.os }})
+
+    # Both platforms, because the package has compiled kernels and the two
+    # differ where it matters: the src/ bounds checks are about integer width,
+    # and Windows is the maintainer's own platform and the one CRAN encoding
+    # rules bite on.
+    strategy:
+      fail-fast: false
+      matrix:
+        config:
+          - os: ubuntu-24.04
+          - os: windows-latest
+
+    env:
+      GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}
+      # Load-bearing, not decoration. devtools::test() sets this itself, but the
+      # value is what decides whether the gated internal tier runs at all:
+      # measured on one tree, 441 passed / 96 skipped without it against
+      # 1030 passed / 2 skipped with it. Both report zero failures, so a run
+      # without it looks green while proving a fraction of what it claims.
+      NOT_CRAN: true
+      # MC_PARITY is deliberately unset. The cohort fixtures live in a private
+      # repo and take minutes; the tier emits one skip and the suite runs
+      # without duckdb, without a staged cohort and without a pack cache.
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: r-lib/actions/setup-r@v2
+        with:
+          use-public-rspm: true
+
+      # Hard dependencies plus devtools, so CI runs the same entry point the
+      # contributing guide tells a human to run. R/sysdata.rda is committed, so
+      # nothing here needs the meta repo, the release packs, or network access
+      # beyond installing dependencies.
+      - uses: r-lib/actions/setup-r-dependencies@v2
+        with:
+          dependencies: '"hard"'
+          extra-packages: |
+            any::devtools
+            any::testthat
+            any::withr
+            local::.
+
+      # stop_on_failure defaults to FALSE, which would let a red suite report a
+      # green job. Passing TRUE is the whole point of the step.
+      - name: Run tests
+        run: devtools::test(stop_on_failure = TRUE)
+        shell: Rscript {0}
