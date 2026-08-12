@@ -24,3 +24,4 @@
 ^vignettes/articles$
 ^tests/testthat/test-fixtures-parity\.R$
 ^tests/testthat/test-source-hygiene\.R$
+^air\.toml$

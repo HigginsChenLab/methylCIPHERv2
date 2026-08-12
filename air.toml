@@ -1,0 +1,20 @@
+# Air formats every R file in this repository. Run `air format .` at the root.
+#
+# The values below are Air's own defaults, written out on purpose. With no
+# config file at the project root, Air falls back to a user-level config or to
+# the contributor's editor settings, so two people running `air format .` can
+# get two different results. Stating the defaults here is what makes the
+# command mean the same thing on every machine.
+[format]
+line-width = 80
+indent-width = 2
+indent-style = "space"
+line-ending = "auto"
+persistent-line-breaks = true
+
+# Load-bearing, not boilerplate. The default exclude set honours .gitignore,
+# which is the only thing keeping Air out of data-raw/methylCIPHER-meta/ -- the
+# gitignored clone of the upstream weights repo. That is third-party source
+# this package does not own and must not reformat. Setting this to false
+# rewrites 25 upstream files on the next run.
+default-exclude = true

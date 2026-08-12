@@ -1102,13 +1102,30 @@ than prose: tests assert *that* a message errors and never its wording (see "Tes
 
 ## Source-of-truth docs (`dev/`)
 
-The `dev/` folder is local-only **except** these four, which are tracked:
+**This file is `.claude/CLAUDE.md`, not a root `CLAUDE.md`, and both halves of that are
+load-bearing.** `pkgdown` globs the package root plus `.github/` and drops only a short hard-coded
+list, so any other root markdown file becomes a page on the public website whether or not it is
+documentation. `./.claude/CLAUDE.md` is a documented project-instruction location that Claude Code
+loads in full at launch, so the move needs no root stub and no `@` import. **Do not move it into
+`dev/`**: a `CLAUDE.md` in a subdirectory is *also* discovered as a nested memory file and is
+injected again whenever a file in that directory is read, so it would load a second time every time
+someone opens `dev/to-do.md` -- which this file tells them to do. The name stays `CLAUDE.md`
+because most of its citations here sit in decision logs that are append-only, where a rename cannot
+follow (DECISIONS 2026-08-12).
 
-- `dev/DECISIONS.md` -- append-only, newest-first, date-stamped log of *why* / reversals (2026-07-30
-  and later). Add an entry when a decision reverses a prior approach or is likely second-guessed; do
-  not restate rules already stated here.
-- `dev/DECISIONS.old.md` -- full pre-2026-07-30 decision history. Dated citations earlier than that
-  cut resolve here; do not restate that archive in the live log.
+**The decision logs are not tracked, and a `(DECISIONS <date>)` tag is therefore a maintainer-side
+pointer.** `dev/DECISIONS.md` is local-only as of 2026-08-12 and `dev/DECISIONS.old.md` was deleted
+the same day. 58 tags in this file resolve in the maintainer's own working tree, and 17 more, dated
+before the 2026-07-30 cut, read out of git history (`git show e5c4ccb:dev/DECISIONS.old.md`). The
+log was kept whole and taken out of the repo rather than compacted inside it, because this file is
+short **only** because the log holds the measurements, and a summarised entry turns every tag
+pointing at it into a pointer to nothing. **A contributor will not have either file**, so do not
+send one to a `DECISIONS` entry in a message, a doc, or a review comment. Still add the entry
+yourself when a decision reverses a prior approach or is likely to be second-guessed, and do not
+restate rules already stated here (DECISIONS 2026-08-12).
+
+The `dev/` folder is local-only **except** these two, which are tracked:
+
 - `dev/WRITING.md` -- the single source for how user-facing text is written. See "CLI messages"
   above; this file points there and does not restate it.
 - `dev/to-do.md` -- queued work, tracked since 2026-08-04. A **staging area, not a record**: an item

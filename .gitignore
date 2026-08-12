@@ -12,12 +12,14 @@
 # Personal, machine-specific Claude overrides (never shared with collaborators)
 CLAUDE.local.md
 
-# dev folder: local-only, except the four canonical docs
-# (tracked so CLAUDE.md's pointers resolve in a fresh clone).
+# dev folder: local-only, except the two canonical docs below, which are tracked so
+# CLAUDE.md's pointers resolve in a fresh clone.
+#
+# The decision logs are deliberately NOT tracked, as of 2026-08-12. DECISIONS.md stays
+# local at full fidelity rather than being compacted, and DECISIONS.old.md was deleted.
+# Do not add either back without reading the entry that took them out.
 # Everything else -- legacy/, scratch.R, clock_tracker.csv, build scripts -- stays local.
 dev/*
-!dev/DECISIONS.md
-!dev/DECISIONS.old.md
 !dev/WRITING.md
 !dev/to-do.md
 
