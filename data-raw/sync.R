@@ -38,7 +38,7 @@ meta_dir <- file.path("data-raw", "methylCIPHER-meta")
 # gitignored lockfile for external pack rebuild skip.
 LOCKFILE <- file.path(asset_dir, "lockfile.rds")
 
-META_REMOTE <- "https://github.com/hhp94/methylCIPHER-meta.git"
+META_REMOTE <- "https://github.com/HigginsChenLab/methylCIPHER-meta.git"
 
 # external families as release assets, rest in sysdata
 EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
