@@ -687,7 +687,12 @@ maintainer runs it and commits the regenerated `R/sysdata.rda`. **You do not nee
 contribute** (the catalog is committed). `sync()` needs read access to `methylCIPHER-meta` (private,
 pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer-only).
 
-- **Remote:** `https://github.com/hhp94/methylCIPHER-meta.git`.
+- **Remote:** `https://github.com/HigginsChenLab/methylCIPHER-meta.git`, as of 2026-08-13. A
+  personal copy at `hhp94/methylCIPHER-meta` still exists and is **not** read; `META_REMOTE` in
+  `data-raw/sync.R` is the one place the location is recorded, and it names the org copy. The two
+  were identical when the pointer moved (same tip, same history), so nothing about the contract
+  changed. They are two repositories rather than a fork, so they can diverge, and if that ever
+  happens the one `META_REMOTE` names is the contract.
 - **Inputs R may read:** `manifest.json`, `weights/**`,
   `bibliography/{clock_citations.csv,clocks.bib}`, and `control/clock_meta_v1.csv`. **Never** the
   rest of `control/`, `papers/`, `scripts/`, or `bibliography/papers.csv`.
