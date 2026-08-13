@@ -1114,11 +1114,18 @@ someone opens `dev/to-do.md` -- which this file tells them to do. The name stays
 because most of its citations here sit in decision logs that are append-only, where a rename cannot
 follow (DECISIONS 2026-08-12).
 
-**There is no shared decision log, and you are not expected to write one.** `dev/DECISIONS.md` is
-untracked as of 2026-08-12 and `dev/DECISIONS.old.md` was deleted the same day; the pre-2026-07-30
-archive reads out of git history (`git show e5c4ccb:dev/DECISIONS.old.md`) if it is ever wanted. The
-log was kept whole and taken out of the repo rather than compacted inside it, because a summarised
-entry is worse than none: it reads as the argument while holding none of the measurements.
+**There is no shared decision log, and you are not expected to write one.** `dev/DECISIONS.md` was
+untracked on 2026-08-12, and on 2026-08-13 both it and `dev/DECISIONS.old.md` were removed from git
+history entirely. **They are not recoverable from this repository**, so do not send anyone to
+`git show` for them; the maintainer holds the only copies, locally and untracked. The log was kept
+whole and taken out rather than compacted inside, because a summarised entry is worse than none: it
+reads as the argument while holding none of the measurements.
+
+**It is not a candidate for restoring, and that is settled.** It was audited before removal and is
+not publishable; the findings stay with the maintainer, and there is no version of "just redact it"
+on the table. Tracking it would also make every future entry a published one, which is the property
+that made it worth writing in the first place. What faces outward is the FAQ article in
+`dev/to-do.md` B5, mined from the log rather than being it.
 
 **The rationale for a change goes in the commit message and the PR body.** That is where this repo
 already puts it, and it is the tracked, shared, conflict-free form of the same thing: `git log -S`
