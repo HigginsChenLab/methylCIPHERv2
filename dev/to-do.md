@@ -7,7 +7,7 @@ argued in the commit message and the PR body that land it, and an item that beco
 **An item number is a stable identifier, so the sequence has gaps and that is not an error.** A
 gap means that item shipped and was deleted. Do not renumber to close one: commit messages cite
 these numbers from outside this file, and a renumber silently repoints every citation. A2,
-A3 and B1 are the gaps today, and B1 cost a session real confusion before this line existed.
+A3, B1 and B3 are the gaps today, and B1 cost a session real confusion before this line existed.
 
 There is no open code defect. Everything below is licensing, release plumbing, prose, queued
 feature work, or deferred.
@@ -51,6 +51,14 @@ without a license grants no redistribution right.
 clock. Nothing can be settled package-side until it is. `LICENSE`, `LICENSE.md` and the
 `^LICENSE\.md$` line in `.Rbuildignore` are already in the shape CRAN expects, whichever license
 lands.
+
+**Yale as `cph` is part of this item, not a separate one.** `DESCRIPTION` names Yale University as
+copyright holder and `LICENSE` says the same, so the institution's name is already attached to
+whatever the package ships. That is exactly why the two cannot be settled apart: putting the lab's
+and the university's name on a distribution that violates a clock's terms is the failure mode, and
+the `cph` line is what makes it their exposure rather than a maintainer's. So the copyright holder,
+the package license and `Authors@R` in A7 resolve together, and none of the three is a formality to
+be tidied ahead of the other two. All of it is still open.
 
 ### A4. Retire the `control/` exemption when `cohorts` lands
 
@@ -110,110 +118,322 @@ so `std::hash` is disqualified outright rather than merely inferior. Deferring c
 way: labels are **derived, never assigned**, so no stored label anywhere would need migrating if the
 hash were ever swapped.
 
-### A7. Repoint every hard-coded owner reference, when the repo transfers
+### A7. Attribution, and the Code of Conduct contact
 
-The org is `HigginsChenLab`, and **it is not a transfer.** The lab created
-`HigginsChenLab/methylCIPHERv2` and `HigginsChenLab/methylCIPHER-meta` on 2026-08-06, both empty
-(size 0, no branches), and asked for the contents to be pushed over. That is a different operation
-from a GitHub transfer and the difference is load-bearing, so the rest of this item reads
-accordingly. Copyright is already Yale's (`LICENSE`, and `DESCRIPTION` lists Yale as `cph`), so
-neither operation moves ownership.
+**The move itself is finished and this item is what it left behind.** All six owner-reference sites
+are settled, the packs are republished and verified against the org from a cold cache, Pages is
+live, and the outside PR on the old repo was closed with a note. None of that needs revisiting.
+Two things are open, and both are about whose name is on the package rather than about plumbing.
 
-**Five of the six sites were repointed on 2026-08-12** and the sixth is deliberately unchanged.
-What is left of this item is below the site list.
+**1. The CoC contact is an interim.** `.github/CODE_OF_CONDUCT.md` names the PI personally,
+`a.higginschen@yale.edu`, which cleared the real problem: the file previously published a stub
+address to the people it exists to protect. What is still owed is an address that is not a person.
+Whoever is named becomes the enforcement body, and a NetID-backed address moves when its holder
+does, so the target is a shared lab mailbox under the org. Yale's central equity offices were
+considered and are wrong here, because a Contributor Covenant report can come from a contributor
+with no Yale affiliation about another one, which is outside their jurisdiction and their intake.
 
-What a push does not carry, and a transfer would have:
+**2. `Authors@R` does not match who wrote the package.** Pre-rewrite history carries 156 commits
+from nine identities (Kasamoto 47, Thrush 35, Pham 29, Sehgal 20, Higgins-Chen 14, Borrus 10,
+Schaaf 1) against 124 post-rewrite commits from Pham alone. `Authors@R` names Pham, Thrush and
+Yale, so five contributors including the PI appear nowhere in the package metadata and the commit
+log is the only record. This is the reason not to truncate history, which was audited 2026-08-12:
+no secrets were ever committed, and pre-rewrite accounts for 27 MB of 118 MB in blobs, most of the
+bulk being post-rewrite `R/sysdata.rda` churn.
 
-- **Releases and their assets.** `git push` copies commits only. The old repo holds 4 releases /
-  8 assets / ~91 MB (SystemsAge, PCClocks, PCBrainAge, Zhang2019), and the org repo will hold
-  none, so every external clock stops scoring the moment `mc.release_repo` points at the org.
-  **No always-on test catches this** -- parity skips those clocks when no pack is cached, so a
-  warm-cache machine reports green. Fix is `sync(upload = TRUE)` with `MC_UPLOAD_PAT` set;
-  `package_release_repo()` derives the target from `git remote origin`, so no code edit is needed,
-  but the PAT needs release-write on the org, which is a new grant. **Do this before deleting or
-  archiving the old repo** -- until it runs, the old repo is the only place the weights exist.
-- **The redirect.** A transfer forwards old URLs; a push does not, and both repos stay live. Decide
-  what `hhp94/methylCIPHERv2` becomes. Deleting it yields 404s rather than redirects, since GitHub
-  only redirects on transfer or rename.
-- **Issues and PRs.** Near-zero cost here (0 stars, 0 watchers, 1 fork), with one exception:
-  **PR #3 is open and from an outside fork**, `dsborrus:feature/generics-and-qc`. Close it with a
-  note rather than abandoning it silently.
-- **`gh-pages`, and Pages itself.** The branch needs pushing or regenerating, Pages needs enabling
-  on the org repo, and org Actions permissions are worth checking before relying on the deploy.
-
-`ploidy-bmiq` is **not** in that list: it is fully merged (`origin/main..origin/ploidy-bmiq` is
-empty) and should not travel. Turn on automatic head-branch deletion on the org repo.
-
-The six sites, and they are not equivalent:
-
-- `.github/CODE_OF_CONDUCT.md` carried the stub contact `hhp94@example.com`, which the sweep caught
-  as intended. It now names the PI, `a.higginschen@yale.edu`, and **that is an interim, not the
-  finished answer.** The earlier deadline is met, so the site no longer publishes a dead address to
-  the people the document exists to protect. What is still owed is an address that is not a person:
-  whoever is named becomes the enforcement body, and a NetID-backed address moves when its holder
-  does. The target is a shared lab mailbox under the same org the repo transfers to, so that swap
-  belongs with the rest of this item rather than ahead of it. Yale's central equity offices were
-  considered and are wrong here -- a Contributor Covenant report can come from a contributor with
-  no Yale affiliation about another one, which is outside their jurisdiction and their intake.
-- `.github/CONTRIBUTING.md`, `create_from_github()`. **Done.**
-- `_pkgdown.yml` `url:` and the matching `DESCRIPTION` `URL:` / `BugReports:`. **Done**, and
-  `man/methylCIPHERv2-package.Rd` regenerated from them.
-- `mc.release_repo` in `R/mc_data.R`. **Done.** Read the release bullet above before assuming this
-  one is finished: the default now names a repo with no releases on it.
-- `README.Rmd`, both the article link and `pak::pkg_install()`; `README.md` re-rendered. **Done.**
-  The install line still names a GitHub repo rather than CRAN, per A5.
-- `META_REMOTE` in `data-raw/sync.R`. **Deliberately unchanged.** Maintainer-side only, and it
-  points at `methylCIPHER-meta`, a separate private repo. The org now has an empty
-  `HigginsChenLab/methylCIPHER-meta`, which makes the move look decided; it is not, and it is
-  upstream's call rather than a consequence of this one.
-
-**A5 and this item touch the same README block**, so do them in one pass or the second one
-re-renders over the first.
-
-What is still open on this item:
-
-1. The push itself, and the four carry-over tasks above.
-2. The CoC contact, currently the PI as an interim; see that bullet.
-3. **`Authors@R`, which this item used to say the move does not change.** That is still true of the
-   move and was the wrong thing to record, because it reads as "nothing to do here". Pre-rewrite
-   history carries 156 commits from nine identities -- Kasamoto 47, Thrush 35, Pham 29, Sehgal 20,
-   Higgins-Chen 14, Borrus 10, Schaaf 1 -- against 124 post-rewrite commits from Pham alone.
-   `Authors@R` names Pham, Thrush and Yale, so five contributors including the PI appear nowhere in
-   the package metadata, and the commit log is the only record. That is worth settling before the
-   package carries the lab's name, and it is the reason not to truncate history (audited
-   2026-08-12: no secrets ever committed, and pre-rewrite is only 27 MB of 118 MB in blobs, most of
-   the bulk being post-rewrite `R/sysdata.rda` churn).
+**These resolve with A1, not before it.** Yale is already `cph`, so the institution's name is
+attached to whatever ships, and the contributor list is the other half of the same question. See
+the `cph` paragraph in A1: the copyright holder, the package license and this list are one
+decision taken three times, and taking any one of them early just means redoing it.
 
 One thing that genuinely does not change: CRAN needs one human `cre` and cannot take an
 organization, so `cre` stays a person and a later change of maintainer has to come from whoever
 holds it at the time.
 
+**Loose ends, small and independent of the above.** The old repo still needs archiving rather than
+deleting, since deletion yields 404s and GitHub only redirects on transfer or rename, and the
+merged `ploidy-bmiq` branch can go. Automatic head-branch deletion needs admin on the org repo,
+which is tracked in `dev/next-step.md` section 3.
+
 ---
 
 ## Backlog
 
-### B3. Re-audit the cli surface against the current rule set, on Opus 4.8
+### B4. `report_mc_result()`, a static HTML QC report
 
-The last full cli audit predates R9, so every message has been graded against a rule set that has
-since grown. Re-read `dev/WRITING.md` first, as the invariant requires, and grade the whole
-user-facing surface: cli message text, roxygen prose, `README.Rmd`, `vignettes/*.Rmd`.
+`summary()` shipped 2026-08-09 as the QC digest and is the first piece of this. The second is a
+static HTML render of the same material: the digest laid out properly, plus the full coverage
+output that `summary()` deliberately caps, in tabs.
 
-**Run this one on Opus 4.8, not Opus 5**, on the maintainer's judgement that 4.8 writes better
-prose. That is a standing preference for prose passes, not a one-off.
+**The two coverage frames are the two tabs, and there is no third.** `clocks_coverage()` is one row
+per (clock, batch), `samples_coverage()` is one row per sample per panel with the `note` column.
+A report tab is a view of one of those frames, never a new aggregation invented for the page.
 
-Two things that follow from that and are easy to get wrong. **It cannot be delegated to a
-subagent**: the model argument takes a family alias, so a spawned agent inherits the session's
-Opus, and pinning 4.8 means starting the session on 4.8. And it belongs on **its own branch off
-`main`**, after the current work has landed, because it grades text that work just wrote and a
-whole-surface copy-edit mixed into a code change is unreviewable.
+Four constraints the invariants already fix, each easy to break in a renderer:
 
-Two things this pass should not repeat. The audit section of `dev/WRITING.md` already lists the
-known-good exceptions an independent reader will otherwise re-report as defects, so read it before
-flagging anything. And a rule the shipped files violate is worse than no rule, so where a message
-and the file disagree, fix the file in the same pass rather than filing it.
+- **`summary()` never reads a score value**, which is what keeps it off `finalized()`'s call-site
+  list. A report that displays `$scores` **is** a finalizer and has to call `finalized()` and say
+  so. Decide that deliberately rather than discovering it.
+- **`$provenance` is internal.** No printed section may name it, and an HTML page is printed
+  output. Every fact in it has an exit that presents it better.
+- **The two problem tables are two views, not a transpose.** `by_clock` is keyed
+  (clock_id, panel, note); `by_sample` counts samples. Collapsing them into one sortable widget
+  loses the distinction that makes each readable.
+- **Never total a per-batch row across batches**, and the batch column only exists at multi-batch,
+  so the renderer must not assume it is there.
 
-Newest messages, least audited: `say_no_recorded()` and `say_mismatch()` in `R/predict_sex.R`, the
-`sex_aneuploidy` roxygen, and the `summary()` / `print.mc_summary()` block from 2026-08-09.
+**The dependency question comes first, and it is not free.** `reactable` and `htmltools` are in
+`Config/Needs/website` today, which is website-only and costs a user nothing. Calling them from
+`report_mc_result()` moves them into `Suggests`, which is a real user-facing dependency and lands
+squarely in A6. `rmarkdown` and `knitr` are already in `Suggests`. Settle the dependency shape
+before writing the renderer, because it decides whether this is a self-contained HTML writer or a
+widget host.
+
+### B5. Two pkgdown articles: a FAQ, and the clock licenses
+
+**Home is `vignettes/articles/faq.Rmd`.** `^vignettes/articles$` is in `.Rbuildignore`, so an
+article renders on the website and never enters the tarball: no bytes, no `R CMD check` surface, no
+CRAN cost. `clocks.Rmd` is the precedent, and pkgdown picks a new article up with no
+`_pkgdown.yml` change. It is not a root markdown file, so it avoids the root-glob problem that put
+`CLAUDE.md` under `.claude/`.
+
+**The sorting rule, because half of the candidate questions are really doc bugs.** If the answer
+belongs next to the thing, fix the reference page instead. "Where is the list of normalization
+schemes" is a gap in the `normalize` param and the Normalization section of `mc-params`, and
+answering it in a FAQ is how that gap survives. If the answer is "why this way and not the obvious
+other way", it is an entry.
+
+**Three properties keep this from becoming the decision log CLAUDE.md bans.** It is topical and
+edited in place rather than append-only newest-first, so two authors editing different questions do
+not collide at byte zero. Entries are deletable, and get deleted when the answer graduates into the
+reference docs, so the file shrinks. And each entry ends with a pointer to the commit or PR holding
+the measurements rather than reproducing them, which makes it an index and not a lossy replacement.
+
+**Seed only from questions actually asked.** Speculative entries are how it turns into a dump. The
+set with real evidence behind it today:
+
+- Why do the scores not match the Horvath online calculator? (the oracle fills absent probes
+  server-side with an unpublished per-probe constant and BMIQs its panel for `DNAmAge` only, so the
+  residual tracks absent-probe count; pairs with zero absent probes agree to about 1e-8 relative)
+- Why did my clock score `NA`? (both floors, and the `note` column of `samples_coverage()`)
+- Why do the large weight sets download instead of shipping with the package?
+- Why CRAN and not Bioconductor? (10 MB built and 5 MB per file is the same constraint on both, so
+  the difference is the mechanism: ExperimentHub would replace the whole asset surface)
+- Why can I not request `DNAmFitAge_Female` by name?
+
+**A second article, listing every clock's license.** Same `vignettes/articles/` home and the same
+website-only cost.
+
+It is **not** a view of the catalog surface, and that is the point rather than an oversight.
+`codebook()` and `list_clocks(all_columns = TRUE)` carry many descriptor columns because they
+answer "what is this clock", and a reader who wants to know whether they may use a clock in a
+commercial setting needs three columns rather than twenty. Making them read the wide table to find
+one field is how the question goes unanswered.
+
+Three columns: the clock, the declared terms, and **what the terms mean for use**. The third is
+the one that earns the page, because `GPL-2` and `CC BY-NC-ND 4.0` are strings a biologist has no
+reason to be able to decode, whereas "using this obliges your own work to be GPL" and "cannot be
+redistributed at all" are decisions they can act on.
+
+**Generate it from the catalog, never hand-maintain it.** The `license` field is populated for all
+137 clocks, so the page is a chunk reading the catalog at knit time. A hand-written table desyncs
+on the next sync and nothing would catch it.
+
+**It must state that the field is unverified, prominently and at the top.** A1 records that the
+catalog reports what upstream recorded and that no per-clock verification has happened yet.
+Publishing an authoritative-looking license table off an unverified field is worse than publishing
+none, because people will rely on it. The honest framing is "as declared upstream, corrections
+welcome", which also makes the page the natural place to point at B6's feedback route: a reader who
+knows a clock's real terms is the cheapest verification available, and A1 currently has no other
+source of it.
+
+### B6. A request front door for new clocks
+
+Where someone with no access to anything asks for a clock to be included.
+
+**Split `ADDING_A_CLOCK.md` in two, and that is the real finding here.** The document already shows
+the seam: it says meta is private and a contributor needs read access before any of it is possible,
+and everything after that sentence is written for someone who got access. A clock author asking to
+be included never will. So `.github/ADDING_A_CLOCK.md` stays what it is, the internal contract
+(meta fields, the derived path rule, the manifest row, sync, fixtures, routing), and a new public
+article carries the request path, assumes no access, and never mentions `manifest.json`. The two
+link to each other, and the article also links across to B5's license article, which is the same
+question from the submitter's side.
+
+**v1 is the field list as prose. No form, no JS, no issue template, no workflow.** The mechanism was
+discussed to the end and deliberately not built: an article-hosted HTML form doing client-side
+validation, building a prefilled issue URL (GitHub prefills issue-form fields by query parameter
+matching each field's `id`), with R validation in a `issues: [opened]` workflow using `setup-r` the
+way `test.yaml` already does. All of that is real and none of it is v1. Writing the fields down is
+what has to be right first, because every later mechanism just re-encodes them.
+
+**Uploads are not solved and should stop being attempted.** GitHub issue forms have no file field at
+all. Ask for a URL instead: most clock authors already publish their own work, and 26 clocks in the
+catalog are logged `public-github-unspecified`, meaning the weights are on GitHub right now. A link
+also beats an attachment on merit, since it keeps pointing at whatever the authors correct later
+where a pasted file is a snapshot with no provenance. Oversized or awkward cases contact the
+maintainer, which is one sentence of prose and will almost never fire: a single clock's coefficients
+are tens of KB, and the heavy things here are whole packs (SystemsAge 23 MB, PCClocks 8.9 MB).
+
+**Two things are not the maintainer's call alone.** A clock is declared in `methylCIPHER-meta`,
+which is private and separately owned, so the queue and the repository that fulfills it currently
+have different owners. And whoever triages has to answer requests, which is a standing commitment
+rather than a one-time build.
+
+#### The fields, v1
+
+Ids use upstream's own words (`n_cpgs`, `pmid`, `license`) so the article, the meta file and any
+later validation all say the same thing.
+
+**Disclaimer, at the top.** Say that it becomes a public issue, not that secrets are bad. "This
+becomes a public GitHub issue" is what makes someone check; "do not put your secrets" reads as
+boilerplate. Name the failure modes: unpublished data, credentials, file contents.
+
+**Who is asking.** `first_name`, `last_name`, `github_user`, `contact_email`, `relationship`.
+
+- At least one of `github_user` and `contact_email`, both allowed. No issue form can express that
+  rule, so it would live in the JS and again in the workflow.
+- But **a GitHub issue already records who opened it**, so the contact fields only do work when
+  someone files for a colleague or wants replies elsewhere. Frame them that way, or accept that
+  both are optional and the rule is vacuous. Undecided.
+- Email in `name at example dot com` form, to cost the naive scrapers something. It also costs any
+  future validation the `@` check, leaving only non-empty. Put the expected shape in the
+  placeholder or people invent five variants.
+- `relationship` (author / works with the authors / user) is the highest-value field and was not in
+  the first draft. It says whether the license and reference-value answers are authoritative or
+  secondhand, and secondhand answers to both need re-asking.
+
+**The paper.** `clock_name`, `doi`, `pmid`, `paper_url`.
+
+- **Published only, and say so explicitly.** Do not lean on `pmid` to enforce it: bioRxiv mints
+  DOIs and Europe PMC gives preprints a `PPR` id, but NIH-funded preprints deposited through the
+  NIH Preprint Pilot land in PMC with real PMIDs. A PMID does not prove peer review.
+- `pmid` stays required because upstream requires it and the two citation files cross-check it.
+
+**How the score is computed.** `model_url`, `clocks`, `model_notes`.
+
+- **Not "weights".** Upstream's own vocabulary already separates `weights_format`,
+  `computation_type` and `recipe`, and only one of those is a coefficient list. The user-facing
+  section is how the score is computed, and `model_notes` is the free-text home for normalization,
+  covariates, transforms, anything that is not a plain weighted sum.
+- **One paper per issue, not one clock**, which maps to `group_id` and scales to a twelve-member
+  family without twelve issues. `clocks` is a textarea with a declared line format, `name, n_cpgs`
+  one per line, so it stays machine-readable later. `assert_declared_n_cpgs()` stops the sync when
+  the declared count and the file disagree, so the CpG count is the one number a check can get a
+  real answer from.
+
+**License.** `license`, `license_url`. Its own section, physically separated from `model_url`.
+
+- A1 is the live blocker, and a non-commercial, no-derivatives or research-use-only clock cannot be
+  fulfilled by bundling at all, so asking at intake saves the whole round trip.
+- The trap the separation exists for: answering "here it is on GitHub" feels like it answered "you
+  may ship it". Those same 26 `public-github-unspecified` clocks are exactly the case, public and
+  granting no redistribution right at all.
+- Options in plain terms, not the catalog's internal labels: MIT/BSD/Apache; GPL or other copyleft;
+  CC BY; CC BY-NC; CC BY-ND; research or academic use only; public with no license stated; other;
+  I do not know.
+- **No copyright-holder field in v1.** The coefficients often belong to a publisher rather than the
+  authors, which is a different question from the license. Real, and judged too much for v1.
+
+**Reference values.** `has_reference_scores`, plus notes.
+
+- **Without oracle values there is no science gate**, so a request with none is either a rejection
+  or a research task, and the article should say which.
+- Options: yes; no; I do not know what this means. The third is deliberate, because someone picking
+  it has told you they are not the person to ask, which beats a guessed yes.
+
+### B7. `write_mc_results()`, one call that writes a whole run to a directory
+
+Scores, both coverage frames, and the B4 HTML report, written under a caller-supplied path.
+Depends on B4, so it lands after it.
+
+**It is a finalizer, and that is the first thing to get right.** The test has two clauses and this
+meets both: it returns something that is not an `mc_result`, and it reads the cells of `$scores`
+rather than their shape. So it calls `finalized()` and joins that call-site list, which is
+`as.data.frame()`, `as.matrix()`, `calc_accel()`, `score_associations()` and `samples_coverage()`
+today. It must **not** be reached by way of `rbind()` or become recursive, for the reason `rbind`
+is kept off the list.
+
+**Not a method, and the reason is the `cite_clocks()` precedent.** Base R has `write()` and
+`write.csv()` as plain functions, so taking either name masks them, and neither is generic. Make it
+a plain exported function like `calc_accel()`, and do not mint a `write` generic to satisfy the
+verb-is-a-method rule, which only binds where a suitable generic already exists.
+
+**The conditional batch column is the schema trap.** `as.data.frame()`, `calc_accel()` and both
+coverage frames build the `mc_batch_id` column only when the record spans more than one batch, and
+the invariant is that the four appear and vanish together. Writing files means those schemas become
+artifacts on someone's disk, so a single-batch run and a bound run produce differently shaped CSVs
+under the same filenames. Either accept that and document it, or decide the written form always
+carries the column. Do not resolve it by making one exit disagree with the other three.
+
+**Writing to a user's filespace is the CRAN-sensitive part.** The path is an argument with no
+default that writes anywhere surprising, and an existing directory needs the same consent register
+the assets surface already uses, where only `ask = FALSE` consents and anything that is not a
+single non-NA logical is an error rather than permission. Decide the overwrite behaviour explicitly
+rather than inheriting whatever `write.csv()` does.
+
+### B8. Score across multiply imputed beta matrices
+
+A caller with `m` imputed versions of the **beta matrix** wants every clock scored on each one and
+the results pooled, so that uncertainty from the imputation reaches the score instead of being
+discarded by picking one completion.
+
+**Two structural collisions, both with `rbind`, and they are the reason this is not just a loop.**
+Gate 1 refuses overlapping sample ids, and `m` imputations are by definition the same samples, so
+the records cannot be bound. And `batch_hash()` hashes the pheno id column alone, so all `m` runs
+derive the **identical** `mc_batch_id` and the batch axis cannot tell them apart. Q1 flags the same
+root problem for two cohorts sharing sample ids and proposes a tag folded into the hash. One
+mechanism would serve both, so decide them together rather than inventing a second one here.
+
+**Rubin's rules do not apply at the score level, and this is the part most likely to be got
+wrong.** A score is deterministic given the betas, so it carries no standard error and there is no
+within-imputation variance to combine. Pooling `$scores` is therefore a mean, and the
+between-imputation spread is genuinely new information that the record has nowhere to put today.
+Real pooling belongs at the analysis exits, `calc_accel()` and `score_associations()`, which fit
+models and do have standard errors. `mice::pool()` already implements Rubin's rules over a list of
+fits, so the question there is whether those exits can return something poolable rather than
+whether to reimplement the arithmetic. A `mice` dependency would be `Suggests` and lands in A6.
+
+**It interacts with the package's own fill, and the interaction depends on how complete the
+imputations are.** Imputation lives in one place today: cohort mean for a partial NA on a present
+probe, the vendored ref or a drop for a fully absent one. Matrices that arrive complete mean that
+path never fires, which is the clean case. Matrices still carrying NAs mean both mechanisms fire,
+and `score_imputed_partial` then differs across the `m` runs, so the coverage record stops being
+constant and has to be reported per imputation rather than once.
+
+**Decide the pooling question before the container question.** Whether this is a list of
+`mc_result`s plus a pooling function, or a new class, follows from what actually has to be carried,
+and that is not known until the paragraph above is settled. Do not mint a container first.
+
+### B9. One README pass, once the new surface exists
+
+`README.Rmd` has fallen behind what the package does. Four gaps, one of them already shipped and
+three of them pending other items.
+
+- **`summary()` is missing**, and it shipped 2026-08-09. The "Check the coverage" section walks
+  `clocks_coverage()` and `samples_coverage()` and stops there, so the QC digest that ties them
+  together is invisible to anyone who only reads the README. This one is stale **now** and does not
+  wait for anything.
+- **No Code of Conduct or Contributing pointer**, though both files exist under `.github/`. Standard
+  for a public repo, and the CoC link matters more than usual here because A7 is unfinished: the
+  document is only useful to someone who can find it.
+- **Only the `clocks` article is linked.** B5 adds a FAQ and a license article, and both want a line
+  here when they land.
+- **B4 and B7 add `report_mc_result()` and `write_mc_results()`**, which need a section rather than
+  a mention, since the whole point of them is producing an artifact a reader can look at.
+
+**Do this in one pass with A5**, which restores the CRAN install block at submission. Both edit the
+same file, and the second render overwrites the first. The old A7 carried that warning and it moved
+here when A7 was cut back.
+
+Mechanics that bite: `README.Rmd` is the source and `README.md` is generated, so the pass ends with
+`devtools::build_readme()`, which needs pandoc on both `RSTUDIO_PANDOC` and `PATH`. Chunks evaluate
+at knit time under `set.seed(1)`, and the missingness example depends on `remove = 10` plus a
+20-cell `sample.int()` draw, so touching either moves printed output that the prose does not quote.
+
+**This is one pass, not a standing chore.** Three of the four gaps are waiting on B4, B5 and B7, so
+doing it now means doing it again twice. The exception is `summary()`, which could ride along with
+any smaller change that is already touching the file.
 
 ---
 
