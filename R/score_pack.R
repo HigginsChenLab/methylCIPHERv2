@@ -32,18 +32,22 @@ pack_linpred <- function(design, M, cols) {
 pack_cov_contrib <- function(ids, pheno, n) {
   cc <- lapply(ids, clock_covariates_coefs)
   need <- unique(unlist(lapply(cc, names), use.names = FALSE))
+  out <- matrix(0, nrow = n, ncol = length(ids))
   if (!length(need)) {
-    return(matrix(0, nrow = n, ncol = length(ids)))
+    return(out)
   }
   # presence is a front-door check (check_pheno)
-  Cmat <- matrix(0, length(need), length(ids), dimnames = list(need, ids))
+  # one matmul per clock, never one shared over the group: a zero coefficient
+  # times an NA covariate is NA, so a group-wide product spreads one missing
+  # value onto every clock, including the clocks that read no covariate
+  cov_mat <- as.matrix(pheno[, need, drop = FALSE])
   for (j in seq_along(ids)) {
     v <- cc[[j]]
     if (length(v)) {
-      Cmat[names(v), ids[j]] <- v
+      out[, j] <- cov_mat[, names(v), drop = FALSE] %*% v
     }
   }
-  as.matrix(pheno[, need, drop = FALSE]) %*% Cmat
+  out
 }
 
 # dispatch a pack group to its batched scorer (cpgs: the group's shared panel)
