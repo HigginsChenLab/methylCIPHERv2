@@ -163,6 +163,38 @@ test_that("requesting a subset of PCClocks returns only those columns (no expans
   )
 })
 
+test_that("a missing covariate NAs only the PCClocks members that read it", {
+  skip_on_cran()
+  DNAm <- random_betas(pcc_cpgs, n = 3L)
+  pheno <- data.frame(
+    ID = rownames(DNAm),
+    Age = c(50, NA, 70),
+    Female = c(0L, 1L, 1L)
+  )
+
+  res <- expect_warning(
+    calc_clocks(DNAm, "PCClocks", pheno = pheno, ext_data = pcc_pack)
+  )
+
+  # derived from the catalog: the group holds both kinds, which is the point
+  reads_age <- vapply(
+    pcc_members,
+    function(id) "Age" %in% clock_covariates_required(id),
+    logical(1)
+  )
+  expect_true(any(reads_age))
+  expect_true(any(!reads_age))
+
+  # the group is scored in one batched call, so a zero coefficient times an
+  # NA covariate used to reach every member
+  expect_true(all(is.na(res$scores[2L, reads_age])))
+  expect_false(anyNA(res$scores[2L, !reads_age]))
+  expect_false(anyNA(res$scores[-2L, ]))
+
+  # and every NA cell has a note, which is what the digest reads
+  expect_no_error(summary(res))
+})
+
 # systemsAge
 
 test_that("calc_clocks('SystemsAge') scores the whole group end-to-end (closed set)", {
