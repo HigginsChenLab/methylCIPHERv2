@@ -504,3 +504,55 @@ Two package constraints on any trained variant. Wang's own per-sample standardiz
 autosomal reference domain is what makes its score comparable across arrays, so a new statistic
 needs an equivalent or it will not transfer. And a fitted model is weights: it belongs upstream in
 `methylCIPHER-meta` as a declared clock with tensors and a meta, never as a constant in `R/`.
+
+### Q5. A karyotype label on a partial chrY panel. NEXT
+
+Q4 is chrY absent, which fails honestly: the clock is refused and every call is `NA`. This is chrY
+**present but truncated**, which fails confidently. Hit on real data 2026-08-17, on a 694 sample
+sesame matrix of 896261 probes:
+
+| panel | present | share |
+| --- | --- | --- |
+| `DNAmSex_Wang_ChrX` | 3632 of 4047 | 0.8975 |
+| `DNAmSex_Wang_ChrY` | 164 of 284 | 0.5775 |
+
+At the default floors the column gate refused chrY and all 694 calls were `NA`, which is correct.
+With both floors lowered to 0.5 so it would score, the result was:
+
+- 304 of 304 recorded females called `47,XXY`
+- 343 of 343 recorded males called `Male`
+- nobody called `Female`, and the 47 samples with no recorded sex split 22 / 25 the same way
+
+So **discrimination is perfect and calibration is gone**. 47% of a cohort called Klinefelter, against
+a real prevalence near 1 in 500 to 1 in 1000 male births. `score_DNAmSex_Wang()` is a projection,
+`obs %*% rotation[present]`, so absent probes drop their loadings and the score moves against a
+threshold that was set on a complete panel. The rule table then reads a shifted female score as
+X-high with Y-present.
+
+The uncomfortable part is not this cohort, which the defaults already refused. It is that
+`min_clocks_coverage` is **a coverage gate, not a calibration gate**, and nobody has measured where
+those two part company. A cohort at 0.80 chrY clears the default floor and gets labels with no
+warning at all. The first task here is therefore a measurement, not a design: take a cohort with a
+complete Wang chrY panel, down-sample it, and find the coverage at which calls start to move. That
+curve decides everything below.
+
+Three candidate remedies, cheapest first.
+
+1. **Gate the vocabulary on panel completeness.** Below the bar the two scores still separate sex, so
+   emit the binary call and say the karyotype labels are unavailable. Precedent is exact:
+   `norm_gate()` declines a scheme whose background panel cannot support it rather than normalizing
+   badly, and this is the same shape one level up. Per sample, no model, no new dependency, and it
+   needs the measurement above to site the bar.
+2. **A cohort mixture as an ad hoc check**, fitting 2, 3 and 4 components and comparing by BIC, so a
+   rule table emitting three labels where the data supports two says so. Two objections carry over
+   from Q4 finding 2 and neither is answered by moving from call to check: it cannot work on a
+   single sex cohort, and it cannot score `n = 1`. It does dodge the cluster labelling problem,
+   since it compares counts rather than naming groups. Note `fit_mixture()` already exists in
+   `R/normalize_bmiq.R`, so this need not mean a new dependency.
+3. **A prevalence warning.** Aneuploid calls above some share of a cohort are not a finding. Catches
+   exactly what happened here, costs almost nothing, and says nothing about a single sample.
+
+One package constraint binds 2 and 3. A cohort derived verdict is cross-sample, so if it ever
+changes a **score** it has to route through `cross_sample_at`, `pending` and `refinalize_clocks()`,
+with the batch semantics that implies. A warning carries no such obligation. That asymmetry argues
+for shipping the check as a warning before considering it as part of the call.
