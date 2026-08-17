@@ -1144,14 +1144,24 @@ nobody else's copy is expected to exist or to agree with it. Writing one per con
 the project N files with one name, one format and disjoint contents, each looking like the log
 (DECISIONS 2026-08-12).
 
-The `dev/` folder is local-only **except** these two, which are tracked:
+The `dev/` folder is local-only **except** one file, which is tracked:
 
 - `dev/WRITING.md` -- the single source for how user-facing text is written. See "CLI messages"
   above; this file points there and does not restate it.
-- `dev/to-do.md` -- queued work, tracked since 2026-08-04. A **staging area, not a record**: an item
-  that becomes a design commitment gets a DECISIONS entry when it lands, an item that becomes a rule
-  moves here, and a shipped item is deleted rather than marked done. Read it before starting new
-  work; the pre-alpha section is what blocks a public release.
+
+**`dev/to-do.md` is maintainer-local as of 2026-08-17, and is not a candidate for tracking.** It
+is the queue -- a **staging area, not a record**, where an item that becomes a rule moves into this
+file and a shipped item is deleted rather than marked done -- and the pre-alpha section is what
+blocks a public release. It was tracked from 2026-08-04 for collaborators who do not exist yet, and
+it comes out because of what the queue is mostly about: it reasons openly about clock weights whose
+terms no OSI license absorbs, on a repo that names Yale University as copyright holder, and it
+names contributors and their commit counts to argue that `Authors@R` is wrong. Both items are
+correct and both block a release. Neither should be readable on the public web ahead of the
+decisions themselves, and the licensing one is a dated record of knowledge. **History was not
+rewritten**, unlike the decision logs, so revisions between 2026-08-04 and 2026-08-17 stay public;
+that was judged not worth a force-push over a 13-day window on a pre-alpha repo. Read the file
+before starting new work if you hold a copy. Items are still cited here by id (`A1`, `Q4`), and a
+reader without the file cannot follow one -- the same standing as a DECISIONS citation.
 
 **There is no live design doc, and that is deliberate.** `migration-plan.md` and `detail-plan.md`
 were retired on 2026-07-28, and `id-streaming-plan.md` (the chunking / binding / `prep()` design) was

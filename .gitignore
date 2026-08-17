@@ -12,16 +12,19 @@
 # Personal, machine-specific Claude overrides (never shared with collaborators)
 CLAUDE.local.md
 
-# dev folder: local-only, except the two canonical docs below, which are tracked so
+# dev folder: local-only, except the one canonical doc below, which is tracked so
 # CLAUDE.md's pointers resolve in a fresh clone.
 #
 # The decision logs are deliberately NOT tracked, as of 2026-08-12. DECISIONS.md stays
 # local at full fidelity rather than being compacted, and DECISIONS.old.md was deleted.
 # Do not add either back without reading the entry that took them out.
+#
+# to-do.md joined them on 2026-08-17, for the reason spelled out in CLAUDE.md: the
+# queue argues openly about unresolved clock licensing and about who is missing from
+# Authors@R, and neither reads well on a public repo ahead of the decisions themselves.
 # Everything else -- legacy/, scratch.R, clock_tracker.csv, build scripts -- stays local.
 dev/*
 !dev/WRITING.md
-!dev/to-do.md
 
 # Python / uv
 .venv/
