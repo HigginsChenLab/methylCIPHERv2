@@ -48,6 +48,19 @@ doubled `$per_clock`, the trim quoted as both 799 and 801, a stale memory note a
    root markdown file risks becoming a pkgdown page. Revisit only if that product is adopted.
 7. Nothing is cut until the audit table has been read and its verdicts approved.
 
+Added 2026-09-17, after the stage 1 audit (`dev/docs-overhaul-audit.md`):
+
+8. The audit verdicts are approved.
+9. Single hyphens in the rules files and the rationale file. The ASCII section narrows to say
+   `--` is required in package sources only.
+10. `codebook()` is a settled part of the surface. The text that calls it unbuilt goes.
+11. The full-panel front-door behavior is a line under the sweep rule, not a rule of its own.
+12. `dev/to-do.md` becomes a one-sentence pointer to a maintainer-local file, read on demand.
+13. **The numbers rule.** A rule names the declaration it reads and never a count. Any number the
+    code, the catalog or a test run can produce on demand is stripped from every loaded file and
+    from the rationale file. A dated measurement that decided something is evidence, and lives in
+    the rationale file only.
+
 ## Verified facts (Claude Code docs, checked 2026-09-17)
 
 - `.claude/rules/*.md` load at launch unless frontmatter carries `paths:` globs. A scoped file
@@ -170,7 +183,8 @@ Drop the header sentence that says a `(DECISIONS <date>)` tag is not a pointer.
 
 Add to `tests/testthat/test-source-hygiene.R` (already `.Rbuildignore`d):
 
-- every `R/*.R` and `src/*.cpp` file matches some rules file's globs,
+- every `R/*.R` and `src/*.cpp` file matches some rules file's globs or is on the core-only list
+  written in CLAUDE.md,
 - every `(why: slug)` resolves to a heading, and every heading is cited,
 - every backticked `fn()` in CLAUDE.md and the rules files is defined in `R/`.
 
@@ -200,7 +214,7 @@ the rules file needs a "looks wrong, is decided" line, not a code change.
 
 ### Stage 9 - close out
 
-Delete this file and the audit file. Open the PR with the rationale for the restructure in the body.
+Delete this file, the audit file and the partition file. Open the PR with the rationale for the restructure in the body.
 
 ## Risks
 
