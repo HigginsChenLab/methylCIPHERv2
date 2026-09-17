@@ -179,6 +179,22 @@ What a review gains from grouping is **order** and **seams**, and both come from
 pass 4 for `mc_block()` and `score_cohort()`. Pass 5 carries the two largest rule areas, so it is the one to split, into
 record then coverage, if its findings come back shallow.
 
+### Tiers (proposed 2026-09-17, not yet approved)
+
+The passes are not equally urgent, and their fixes land as separate PRs, one per pass.
+
+| Tier | Passes | Test | Standing |
+|---|---|---|---|
+| 1 | 1 norm-kernels, 2 catalog, 3 front-door, 4 engine, 5 record and coverage | A bug here returns a wrong number with no error | The gate. Fix PRs from these also need a parity run. |
+| 2 | 6 print-summary and predict-sex, 7 assets | A bug here is visible: a wrong table, a failed download | After tier 1, in any order |
+| 3 | low-level files, `R/sim_DNAm.R`, README and vignettes, 8 sync, 9 tests | Nothing downstream trusts it | Whenever |
+
+**The gate is per area, not global.** A feature waits for the pass over the areas it touches, and
+for nothing else. Two reasons: a review of code that is about to change is wasted, and a fix PR
+and a feature PR in the same file conflict. So the `pheno` change, which touches front-door and
+record, goes *before* passes 3 and 5 rather than after them, and passes 1, 2 and 4 can run while
+it is being written.
+
 Two things the stage 3 canary decides. Whether a target can be several paths: if not, a pass is
 one run per file, in the order above. And whether scoped rules load inside the reviewer: if not,
 each pass names its rules files by hand, which the core index already tells it to do.
