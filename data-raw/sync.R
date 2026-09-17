@@ -755,6 +755,9 @@ KNOWN_OPS <- c(
   "transform",
   "poly",
   "row_sum",
+  "row_mean",
+  "threshold_select",
+  "route_by_score",
   "fitage_kdm",
   "epitoc2",
   "project",
@@ -1762,7 +1765,27 @@ assert_declared_n_cpgs <- function(entry, cpgs, cid) {
   invisible(TRUE)
 }
 
-# materialize probe_sets, then resolve each clock's scoring panel via own tensors / inputs DAG
+# own panel of one direct input of `cid`, read from the input's own group bundle.
+# empty for a composite input: it enters as a scalar and is not recursed into.
+input_scoring_cpgs <- function(catalog, bundles, dep, cid) {
+  entry <- catalog[["clocks"]][[dep]]
+  if (is.null(entry)) {
+    stop(
+      "clock '",
+      cid,
+      "': recipe input '",
+      dep,
+      "' is not a released clock",
+      call. = FALSE
+    )
+  }
+  # a leaf input whose bundle is not in hand stops in tensor_row_keys()
+  tensors <- bundles[[entry[["group_id"]]]][["tensors"]]
+  own_scoring_cpgs(entry, tensors, paste0(dep, " (input of ", cid, ")"))
+}
+
+# materialize probe_sets, then resolve each clock's scoring panel: its own
+# cpg-keyed tensors, else the union over its direct leaf inputs in any group
 resolve_group_scoring_probe_sets <- function(catalog, bundles) {
   for (gid in names(bundles)) {
     tensors <- bundles[[gid]][["tensors"]]
@@ -1780,47 +1803,27 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
       }
     }
 
-    memo <- new.env(parent = emptyenv())
-    panel_of <- function(cid, stack) {
-      hit <- memo[[cid]]
-      if (!is.null(hit)) {
-        return(hit)
-      }
-      if (cid %in% stack) {
-        stop(
-          "Dependency cycle among clocks: ",
-          paste(c(stack, cid), collapse = " -> "),
-          call. = FALSE
-        )
-      }
+    panel_of <- function(cid) {
       entry <- catalog[["clocks"]][[cid]]
       cpgs <- own_scoring_cpgs(entry, tensors, cid)
+      # score-assembled: no recursion, so no cycle to walk into
       if (!length(cpgs)) {
         deps <- setdiff(
           as.character(entry[["clock_inputs"]] %||% character()),
           cid
         )
-        deps <- Filter(
-          function(d) {
-            identical(
-              catalog[["clocks"]][[d]][["group_id"]],
-              entry[["group_id"]]
-            )
-          },
-          deps
-        )
-        cpgs <- unique(unlist(
-          lapply(deps, panel_of, stack = c(stack, cid)),
+        cpgs <- unlist(
+          lapply(deps, function(d) {
+            input_scoring_cpgs(catalog, bundles, d, cid)
+          }),
           use.names = FALSE
-        ))
+        )
       }
-      cpgs <- unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
-      memo[[cid]] <- cpgs
-      cpgs
+      unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
     }
 
     for (cid in ids) {
-      cpgs <- panel_of(cid, character())
+      cpgs <- panel_of(cid)
       assert_declared_n_cpgs(catalog[["clocks"]][[cid]], cpgs, cid)
       catalog[["clocks"]][[cid]][["probe_sets"]] <- add_scoring_probe_set(
         catalog[["clocks"]][[cid]],
