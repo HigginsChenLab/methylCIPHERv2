@@ -59,7 +59,7 @@ doubled `$per_clock`, the trim quoted as both 799 and 801, a stale memory note a
 - Local `/code-review` runs as a background subagent, follows CLAUDE.md, does not read
   `REVIEW.md`, and accepts a file path, PR number, branch, or ref range as target.
 
-Not documented, so tested in stage 0 or treated as unknown:
+Not documented, so tested by the stage 3 canary or treated as unknown:
 
 - Whether scoped rules fire inside the `/code-review` subagent.
 - Whether a `/code-review` target can be several paths.
@@ -83,7 +83,7 @@ and kernels, record and bind, coverage, exits and print, catalog and accessors, 
 
 The index in the core is an instruction: before editing, reviewing, or designing in an area, read
 its rules file by hand. This covers an agent that never reads a matching file, and it covers the
-reviewer subagent whatever stage 0 finds.
+reviewer subagent whatever the canary finds.
 
 Size target for the core: near 200 lines. This is a target, not a measurement.
 
@@ -91,14 +91,10 @@ Size target for the core: near 200 lines. This is a target, not a measurement.
 
 Each stage ends with a stop for approval unless marked otherwise.
 
-### Stage 0 - canary
-
-Make one throwaway scoped rules file holding a distinctive sentence. Run `/code-review` at low
-effort on a matching file and see whether the sentence reaches the reviewer. In the same run, test
-whether the target accepts more than one path. Record both answers in this file. Delete the canary.
-
-Exit: both unknowns answered. If scoped rules do not fire in the reviewer, the layout stands and
-the core index carries the load, but each rules file gains a line saying so.
+The audit comes first and the canary does not. A canary reviewer loads the whole CLAUDE.md like
+any subagent, so running it up front pays the full file to answer a question nothing in stages 1
+or 2 depends on: the audit is read-only and the partition is the same whichever way the canary
+falls. It runs inside stage 3, against the first real rules file, so no throwaway file is needed.
 
 ### Stage 1 - deep audit of CLAUDE.md (read-only)
 
@@ -147,6 +143,13 @@ One commit per area, smallest first, so the pattern is proven before the hard ca
 write the rules file, write the rationale entries it cites, remove the text from CLAUDE.md. The
 "Result is an S3 record" bullet goes last. Then rewrite the core: header, spine, index.
 
+**Canary, after the first area lands.** Run `/code-review` at low effort on a file that area's
+globs match, and see whether a rule that now lives only in the rules file reaches the reviewer.
+In the same run, test whether the target accepts more than one path. Record both answers here.
+If scoped rules do not fire in the reviewer, the layout stands and the core index carries the
+load, but each rules file gains a line saying so. The answer is needed before the second area is
+written, not before the first.
+
 Rules for the trim:
 
 - Every explicit "do not" survives with its one-clause reason.
@@ -183,7 +186,7 @@ stale. Local-only `dev/` files are out of scope.
 
 - `devtools::test()` green. Check is not run unless asked.
 - Measure core and per-area sizes against the forecast.
-- Re-run the stage 0 canary against a real rules file.
+- Re-run the stage 3 canary against a second rules file, now under the slim core.
 - Fresh-agent probe: ask a new subagent a handful of questions whose answers lived in cut text
   (why `rbind` reconciles nothing, why there is no `below_min` column, why `not_finite` excludes a
   plain `NA`) and confirm each rule is still found and its reason still reachable.
@@ -203,7 +206,8 @@ Delete this file and the audit file. Open the PR with the rationale for the rest
 
 - **Over-trimming.** Evidence is part of what stops an agent reversing a decision. Mitigation: the
   guard sentences stay, the slug is one hop away, and stage 7 probes for it.
-- **Scoped rules not loading where expected.** Mitigation: the imperative index, and stage 0.
+- **Scoped rules not loading where expected.** Mitigation: the imperative index, and the
+  stage 3 canary.
 - **The rationale file growing into a log.** Mitigation: the closure rule and its hygiene check.
 - **A second partition drifting from the first.** Mitigation: there is only one; the globs are it.
 
