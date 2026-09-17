@@ -84,8 +84,9 @@ gap_walk <- function(x, na_mat, nf, masks, seq_ids, rows) {
         own
       )
       # mask routed members outside their sex so the alias owns the dependency rule.
-      key <- routed[["sex"]][[id]]
-      if (!is.null(key)) {
+      # na when the clock routes no sex -- masks nothing
+      key <- routed[["sex"]][id]
+      if (!is.na(key)) {
         gone <- gone & sex[[key]]
       }
     }

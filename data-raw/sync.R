@@ -755,6 +755,8 @@ KNOWN_OPS <- c(
   "transform",
   "poly",
   "row_sum",
+  "row_mean",
+  "route_by_score",
   "fitage_kdm",
   "epitoc2",
   "project",
@@ -1293,6 +1295,57 @@ attach_sex_routed_aliases <- function(catalog) {
   catalog
 }
 
+# score-routed members
+
+# router -> the models that are pieces of that one published predictor: scored
+# and counted, never a score column, never requested by name. hard-coded on
+# purpose: upstream declares them as ordinary clocks, and the build stops when
+# a router's inputs drift from this list.
+SCORE_ROUTED_MEMBERS <- list(cAge = c("cAge_gt_20", "cAge_le_20"))
+
+KIND_SCORE_ROUTED_MEMBER <- "score_routed_member"
+
+# mark each registered member with its router, after checking the recipe agrees
+attach_score_routed_members <- function(catalog) {
+  clocks <- catalog[["clocks"]]
+  for (router in names(SCORE_ROUTED_MEMBERS)) {
+    members <- SCORE_ROUTED_MEMBERS[[router]]
+    steps <- Filter(
+      function(s) identical(as.character(s[["op"]]), "route_by_score"),
+      clocks[[router]][["recipe"]] %||% list()
+    )
+    inputs <- unique(as.character(unlist(lapply(steps, `[[`, "inputs"))))
+    if (length(steps) != 1L || !setequal(inputs, members)) {
+      stop(
+        "score-routed registry: '",
+        router,
+        "' does not route exactly over ",
+        paste(members, collapse = ", "),
+        call. = FALSE
+      )
+    }
+    # a hidden member read by another clock would vanish from under it
+    readers <- names(Filter(
+      function(e) any(members %in% as.character(unlist(e[["clock_inputs"]]))),
+      clocks
+    ))
+    if (!setequal(readers, router)) {
+      stop(
+        "score-routed registry: members of '",
+        router,
+        "' are also read by ",
+        paste(setdiff(readers, router), collapse = ", "),
+        call. = FALSE
+      )
+    }
+    for (m in members) {
+      catalog[["clocks"]][[m]][["kind"]] <- KIND_SCORE_ROUTED_MEMBER
+      catalog[["clocks"]][[m]][["routed_by"]] <- router
+    }
+  }
+  catalog
+}
+
 # every label a karyotype_call can emit, its karyotype and whether it is euploid.
 # hard-coded on purpose: the build stops on any upstream drift, so a new or
 # renamed call can never be classified by a silent string test downstream.
@@ -1762,7 +1815,27 @@ assert_declared_n_cpgs <- function(entry, cpgs, cid) {
   invisible(TRUE)
 }
 
-# materialize probe_sets, then resolve each clock's scoring panel via own tensors / inputs DAG
+# own panel of one direct input of `cid`, read from the input's own group bundle.
+# empty for a composite input: it enters as a scalar and is not recursed into.
+input_scoring_cpgs <- function(catalog, bundles, dep, cid) {
+  entry <- catalog[["clocks"]][[dep]]
+  if (is.null(entry)) {
+    stop(
+      "clock '",
+      cid,
+      "': recipe input '",
+      dep,
+      "' is not a released clock",
+      call. = FALSE
+    )
+  }
+  # a leaf input whose bundle is not in hand stops in tensor_row_keys()
+  tensors <- bundles[[entry[["group_id"]]]][["tensors"]]
+  own_scoring_cpgs(entry, tensors, paste0(dep, " (input of ", cid, ")"))
+}
+
+# materialize probe_sets, then resolve each clock's scoring panel: its own
+# cpg-keyed tensors, else the union over its direct leaf inputs in any group
 resolve_group_scoring_probe_sets <- function(catalog, bundles) {
   for (gid in names(bundles)) {
     tensors <- bundles[[gid]][["tensors"]]
@@ -1780,47 +1853,27 @@ resolve_group_scoring_probe_sets <- function(catalog, bundles) {
       }
     }
 
-    memo <- new.env(parent = emptyenv())
-    panel_of <- function(cid, stack) {
-      hit <- memo[[cid]]
-      if (!is.null(hit)) {
-        return(hit)
-      }
-      if (cid %in% stack) {
-        stop(
-          "Dependency cycle among clocks: ",
-          paste(c(stack, cid), collapse = " -> "),
-          call. = FALSE
-        )
-      }
+    panel_of <- function(cid) {
       entry <- catalog[["clocks"]][[cid]]
       cpgs <- own_scoring_cpgs(entry, tensors, cid)
+      # score-assembled: no recursion, so no cycle to walk into
       if (!length(cpgs)) {
         deps <- setdiff(
           as.character(entry[["clock_inputs"]] %||% character()),
           cid
         )
-        deps <- Filter(
-          function(d) {
-            identical(
-              catalog[["clocks"]][[d]][["group_id"]],
-              entry[["group_id"]]
-            )
-          },
-          deps
-        )
-        cpgs <- unique(unlist(
-          lapply(deps, panel_of, stack = c(stack, cid)),
+        cpgs <- unlist(
+          lapply(deps, function(d) {
+            input_scoring_cpgs(catalog, bundles, d, cid)
+          }),
           use.names = FALSE
-        ))
+        )
       }
-      cpgs <- unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
-      memo[[cid]] <- cpgs
-      cpgs
+      unique(cpgs[nzchar(cpgs) & !is.na(cpgs)])
     }
 
     for (cid in ids) {
-      cpgs <- panel_of(cid, character())
+      cpgs <- panel_of(cid)
       assert_declared_n_cpgs(catalog[["clocks"]][[cid]], cpgs, cid)
       catalog[["clocks"]][[cid]][["probe_sets"]] <- add_scoring_probe_set(
         catalog[["clocks"]][[cid]],
@@ -2512,6 +2565,7 @@ build_sysdata <- function(
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
+  catalog <- attach_score_routed_members(catalog)
   catalog <- attach_karyotype_euploid(catalog)
   # before the trim: n_cpgs is a build-only field and the codebook reads it
   mc_codebook <- build_codebook_table(

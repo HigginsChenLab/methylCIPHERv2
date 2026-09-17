@@ -1,11 +1,11 @@
 # typo-suggestion pools: matched names, recommended token values
 suggestion_pools <- function() {
-  routed <- sex_routed_members()
-  callable <- setdiff(mc_index[["clock_id"]], names(routed[["alias"]]))
+  routed <- routed_members()
+  callable <- setdiff(mc_index[["clock_id"]], names(routed))
   groups <- unique(mc_index[["group_id"]])
   list(
     groups = stats::setNames(groups, groups),
-    clocks = c(stats::setNames(callable, callable), routed[["alias"]])
+    clocks = c(stats::setNames(callable, callable), routed)
   )
 }
 
@@ -48,9 +48,9 @@ suggestion_bullets <- function(toks, pools = suggestion_pools(), n = 5L) {
 # user tokens -> catalog clock_ids (all > tag > group_id > clock_id)
 resolve_clocks <- function(clocks) {
   clock_ids <- mc_index[["clock_id"]]
-  # sex-routed members are internal -- request the alias
-  routed <- sex_routed_members()
-  callable <- setdiff(clock_ids, names(routed[["alias"]]))
+  # routed members are internal -- request the clock that routes them
+  routed <- routed_members()
+  callable <- setdiff(clock_ids, names(routed))
   # every token the argument accepts, so one of each is the most a request can
   # hold. the bound says nothing without the unique = TRUE below it.
   accepted <- unique(c("all", names(MC_TAGS), mc_index[["group_id"]], callable))
@@ -67,26 +67,30 @@ resolve_clocks <- function(clocks) {
 
   members <- split(clock_ids, mc_index[["group_id"]])
 
-  asked_routed <- intersect(clocks, names(routed[["alias"]]))
+  asked_routed <- intersect(clocks, names(routed))
   if (length(asked_routed)) {
     cli::cli_abort(
       c(
-        "{length(asked_routed)} sex-specific model{?s} cannot be requested by
-         name:",
+        "{length(asked_routed)} model{?s} cannot be requested by name:",
         capped_bullets(asked_routed, function(toks) {
           vapply(
             toks,
             function(tok) {
               cli::format_inline(
-                "{.val {tok}}. Request {.val {routed[['alias']][[tok]]}}
+                "{.val {tok}}. Request {.val {routed[[tok]]}}
                  instead."
               )
             },
             character(1L)
           )
         }),
-        "i" = "The group name reads each sample's sex from {.arg pheno} and
-               picks the model."
+        # only a sex-specific model has a second fact the reader can act on
+        if (any(asked_routed %in% names(sex_routed_members()[["sex"]]))) {
+          c(
+            "i" = "A sex-specific model is picked from each sample's sex in
+                   {.arg pheno}."
+          )
+        }
       ),
       call = NULL
     )

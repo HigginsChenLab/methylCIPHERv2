@@ -86,9 +86,9 @@ list_clocks <- function(
   checkmate::assert_string(pattern, null.ok = TRUE)
   checkmate::assert_flag(all_columns)
 
-  # a sex-routed member is not a clock a user can request, so it is not listed
+  # a routed member is not a clock a user can request, so it is not listed
   idx <- mc_index[
-    !mc_index[["clock_id"]] %in% names(sex_routed_members()[["alias"]]),
+    !mc_index[["clock_id"]] %in% names(routed_members()),
     ,
     drop = FALSE
   ]

@@ -172,8 +172,8 @@ test_that("a missing covariate NAs only the PCClocks members that read it", {
     Female = c(0L, 1L, 1L)
   )
 
-  res <- expect_warning(
-    calc_clocks(DNAm, "PCClocks", pheno = pheno, ext_data = pcc_pack)
+  expect_warning(
+    res <- calc_clocks(DNAm, "PCClocks", pheno = pheno, ext_data = pcc_pack)
   )
 
   # derived from the catalog: the group holds both kinds, which is the point

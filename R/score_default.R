@@ -78,8 +78,9 @@ vendor_offset <- function(coef, absent, ref, id) {
   sum(coef[absent] * ref[absent])
 }
 
-# absent-CpG contribution under the declared policy (vendor_mean or drop)
-absent_fill <- function(id, coef, absent, ref = NULL, label = id) {
+# absent-CpG contribution under the declared policy (vendor_mean or drop).
+# power = 2 fills a squared term with ref^2.
+absent_fill <- function(id, coef, absent, ref = NULL, label = id, power = 1) {
   no_fill <- list(offset = 0, filled = character(0))
   if (!length(absent)) {
     return(no_fill)
@@ -90,7 +91,7 @@ absent_fill <- function(id, coef, absent, ref = NULL, label = id) {
   if (is.null(ref)) {
     ref <- clock_impute_ref(id)
   }
-  list(offset = vendor_offset(coef, absent, ref, label), filled = absent)
+  list(offset = vendor_offset(coef, absent, ref^power, label), filled = absent)
 }
 
 # n x 1 score matrix every branch returns
@@ -108,9 +109,10 @@ anti_trafo <- function(x) {
   ifelse(x < 0, 21 * exp(x) - 1, 21 * x + 20)
 }
 
-# retroelement pan-mammalian back-transform: trained on log(age + 2)
-log_offset_anti_trafo <- function(x) {
-  exp(x) - 2
+# back-transform for a model trained on log(age + offset). the retroelement
+# pan-mammalian clocks declare no offset and take 2.
+log_offset_anti_trafo <- function(x, offset = 2) {
+  exp(x) - offset
 }
 
 resolve_output_transform <- function(name) {
@@ -121,6 +123,12 @@ resolve_output_transform <- function(name) {
     log_offset_anti_trafo = log_offset_anti_trafo,
     stop(sprintf("Unknown output_transform %s.", name), call. = FALSE)
   )
+}
+
+# one declared `transform` step applied to x, under its declared params
+step_transform <- function(step, x) {
+  transform <- resolve_output_transform(as.character(step[["name"]]))
+  do.call(transform, c(list(x), step[["params"]]))
 }
 
 # linpred = intercept + sum(coef * beta) + covariates
@@ -195,6 +203,33 @@ component_linpred <- function(
   } else {
     as.numeric(lp[["linpred"]] + fill[["offset"]])
   }
+}
+
+# one declared `linear` step: intercept + X %*% coef + X^2 %*% coef_sq.
+# coef_sq is optional, and a CpG may carry a squared weight alone.
+step_linpred <- function(id, step, cpgs, block) {
+  term <- function(name, power) {
+    if (is.null(name)) {
+      return(0)
+    }
+    label <- paste0(id, " component ", name)
+    coef <- component_tensor_named(id, name)
+    present <- component_present(coef, cpgs, label)
+    obs <- observed_panel(present[["cols"]], present[["idx"]], block)
+    absent <- setdiff(names(coef), present[["cols"]])
+    fill <- absent_fill(id, coef, absent, label = label, power = power)
+    # squared after the cohort-mean fill, as upstream squares after impute
+    values <- obs[["values"]]
+    if (power != 1) {
+      values <- values^power
+    }
+    values %*% coef[obs[["cols"]]] + fill[["offset"]]
+  }
+  as.numeric(
+    (step[["intercept"]] %||% 0) +
+      term(step[["coef"]], 1) +
+      term(step[["coef_sq"]], 2)
+  )
 }
 
 # linear engine for one cpg_coefficient clock
