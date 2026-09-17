@@ -85,5 +85,5 @@ columns with base R.
 all_clocks <- list_clocks()
 bundled <- all_clocks[!all_clocks[["external"]], ]
 nrow(bundled)
-#> [1] 94
+#> [1] 102
 ```
