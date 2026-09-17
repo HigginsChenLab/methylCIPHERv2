@@ -25,6 +25,9 @@ CLAUDE.local.md
 # Everything else -- legacy/, scratch.R, clock_tracker.csv, build scripts -- stays local.
 dev/*
 !dev/WRITING.md
+# The evidence behind the rules in .claude/. Keyed by rule and closed against them, so it is
+# not the decision log the lines above took out. Its own header says what keeps it that way.
+!dev/RATIONALE.md
 
 # Python / uv
 .venv/

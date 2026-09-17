@@ -7,6 +7,21 @@ to a file you are expected to open**: it marks a rule as deliberately decided on
 argue before reversing it. This file states the rule and the shortest reason, and does not restate
 the evidence.
 
+## Area rules
+
+Rules that bind one area of the tree live in `.claude/rules/<area>.md`, not here. Each file names
+the source files it binds in its `paths:` frontmatter, and loads when one of them is read.
+**Before you edit, review, or design in an area, read its rules file by hand.** A session that
+reasons about a file without reading it loads nothing. A `(why: slug)` in a rule points at the
+heading of that name in `dev/RATIONALE.md`, which holds the evidence and the history. Read an
+entry before arguing with a rule; you do not need it to follow one.
+
+This file is being split area by area. A rule still written below has not moved yet.
+
+| Area | Rules file | Binds |
+|---|---|---|
+| predict-sex | `.claude/rules/predict-sex.md` | `R/predict_sex.R` |
+
 ## What this package is
 
 `methylCIPHERv2` scores CpG-based DNA-methylation ("epigenetic clock") ages. One public scorer,
@@ -206,14 +221,6 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
       them. Do not "simplify" an internal call site back onto the export, and do not fix a
       duplicate by suppressing the warning -- the frame is what is wanted, so take the frame
       (DECISIONS 2026-08-10).
-    - **`predict_sex()` carries `_coverage` and `_note` per score, and stays a data.frame.**
-      Per clock, never summarized across the pair: the two Wang panels are 4047 and 284 CpGs, so
-      one `min()` would put the same number on two panels where it means different things, and it
-      would erase the chrX-kept-chrY-stripped case that Q4 in `dev/to-do.md` turns on. **`note` is
-      not redundant with `coverage`** and that is why the frame is four columns rather than two:
-      the Wang branch emits `fit_spread`, so a sample can read `1` coverage and still score `NA`.
-      `clocks_coverage()` is **not** joined and cannot be -- it has no sample axis, so every column
-      it contributed would be constant down the frame (DECISIONS 2026-08-10).
     - **`summary()` counts those notes, and counts nothing itself.** It is the QC digest
       (DECISIONS 2026-08-09), and it is not a third coverage frame: it takes `samples_coverage()`'s
       output and returns an `mc_summary` of `input` / `arguments` / `by_clock` / `by_sample`. Two
@@ -757,12 +764,6 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
        soft and silently classifies what it does not recognise, where the assertion stops the build
        naming the offending label. `R/` then reads a declared field and never a label's text
        (DECISIONS 2026-08-10).
-       - **`BINARY_CALLS` (`R/predict_sex.R`) survives that, and is not a leftover.** `euploid`
-         says which labels are euploid; **nothing declares which emitted label a binary `Female`
-         column records as**, and deriving it would mean testing the karyotype string for `XX`.
-         It is narrowed to that one job, and `sex_mismatch` gates on the declared euploidy.
-         `sex_aneuploidy` is `NA` for an unscorable sample where `sex_mismatch` is `FALSE`, which
-         is deliberate: no call is not a disagreement, but it is also not a euploid verdict.
      - Verify a sync change by **dry-running the build in memory first** (build catalog + bundles,
        diff every panel against the committed `R/sysdata.rda`) before regenerating.
        `assert_declared_n_cpgs()` is the standing guard: every clock's derived scoring panel must
