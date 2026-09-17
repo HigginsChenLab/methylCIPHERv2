@@ -967,14 +967,16 @@ output**, not implementation detail (see "Test altitude").
     whose 14 members carry them (both halves derived, never listed). It needs no duckdb, so
     `test_parity()` runs it even where nothing is staged -- but it **is** behind `MC_PARITY`, so a
     plain `devtools::test()` does not catch a dropped fixture; CI does (DECISIONS 2026-07-26).
-  - **Standing state with both cohorts staged: 266 blocks / 0 fail**, the block count raised from
-    264 by the two `parity (horvath normalized)` targets on 2026-08-04 (stage one fewer cohort and
+  - **Standing state with both cohorts staged: 282 blocks / 0 fail**, measured 2026-09-17. The
+    count was 264, then 266 with the two `parity (horvath normalized)` targets on 2026-08-04, then
+    282 with the 16 `core` targets for cAge, Garma, PAYA and Ensaya (stage one fewer cohort and
     it drops, by design). testthat counts *expectations*, not `test_that` blocks, and
-    `expect_parity()` carries three (all-finite, abs, rel): 228 targets x 3 + PhysAge 2 x 6 +
+    `expect_parity()` carries three (all-finite, abs, rel): 244 targets x 3 + PhysAge 2 x 6 +
     census 3 + the Dunedin reference golden's 8 + the normalized-horvath 450K target's 3.
     **The skip count depends on what else is cached, so check it against a cause before reading
-    anything into it.** With packs cached it was 32 skip / `PASS 707` on 2026-08-02, so 33 / 710
-    now; measured 2026-08-04 on a machine with **no packs cached**: 266 blocks / 91 skip /
+    anything into it.** With packs cached it is 33 skip / `PASS 758` (2026-09-17), the 33 being
+    30 horvath-online + 2 Wang gaps + the normalized-horvath EPICv1 guard; it was 33 / 710 before
+    the 16 new targets. Measured 2026-08-04 with **no packs cached**: 266 blocks / 91 skip /
     `PASS 536` / 0 fail, the 91 being 56 packs + 30 horvath-online + 2 Wang gaps + 2 Zhang BLUP +
     the normalized-horvath EPICv1 guard. Read a parity run by its **fail and skip** counts,
     checked against each other, before concluding anything from the pass number; the fail count is
