@@ -172,22 +172,27 @@ What a review gains from grouping is **order** and **seams**, and both come from
 | 5 | record, coverage | 2.2k | pending, notes, batch, normalization second half |
 | 6 | print-summary, predict-sex | 0.9k | notes, tail end |
 | 7 | assets, low-level files | 1.2k | packs, the download side |
-| 8 | sync | 3.1k | optional; maintainer-side tooling |
+| 8 | sync | 3.1k | tier 1; run it next to pass 2, since the accessors read what sync builds |
 | 9 | testing, parity | - | optional; test quality, not package correctness |
 
 `R/score_cohort.R` is judged twice on purpose, in pass 3 for `mc_spec()` and `mc_cohort()` and in
 pass 4 for `mc_block()` and `score_cohort()`. Pass 5 carries the two largest rule areas, so it is the one to split, into
 record then coverage, if its findings come back shallow.
 
-### Tiers (proposed 2026-09-17, not yet approved)
+### Tiers (approved 2026-09-17)
 
 The passes are not equally urgent, and their fixes land as separate PRs, one per pass.
 
 | Tier | Passes | Test | Standing |
 |---|---|---|---|
-| 1 | 1 norm-kernels, 2 catalog, 3 front-door, 4 engine, 5 record and coverage | A bug here returns a wrong number with no error | The gate. Fix PRs from these also need a parity run. |
+| 1 | 1 norm-kernels, 2 catalog, 8 sync, 3 front-door, 4 engine, 5 record and coverage | A bug here returns a wrong number with no error | The gate. Fix PRs from these also need a parity run. |
 | 2 | 6 print-summary and predict-sex, 7 assets | A bug here is visible: a wrong table, a failed download | After tier 1, in any order |
-| 3 | low-level files, `R/sim_DNAm.R`, README and vignettes, 8 sync, 9 tests | Nothing downstream trusts it | Whenever |
+| 3 | low-level files, `R/sim_DNAm.R`, README and vignettes, 9 tests | Nothing downstream trusts it | Whenever |
+
+Sync is tier 1 on the maintainer's ruling: it builds the catalog, the registries and the packs,
+so it sets the structure every other core area reads. A defect there is a wrong number in every
+clock it touches, shipped as data. It is maintainer-side and not under test, which is a reason to
+review it, not a reason to defer it.
 
 **The gate is per area, not global.** A feature waits for the pass over the areas it touches, and
 for nothing else. Two reasons: a review of code that is about to change is wasted, and a fix PR
