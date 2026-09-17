@@ -30,5 +30,5 @@ score_sex_routed <- function(id, cpgs, block, results) {
 
 # routed members: scored for coverage, never a score column
 drop_routed_members <- function(ids) {
-  setdiff(ids, names(sex_routed_members()[["sex"]]))
+  setdiff(ids, names(routed_members()))
 }

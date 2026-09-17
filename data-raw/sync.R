@@ -1295,6 +1295,57 @@ attach_sex_routed_aliases <- function(catalog) {
   catalog
 }
 
+# score-routed members
+
+# router -> the models that are pieces of that one published predictor: scored
+# and counted, never a score column, never requested by name. hard-coded on
+# purpose: upstream declares them as ordinary clocks, and the build stops when
+# a router's inputs drift from this list.
+SCORE_ROUTED_MEMBERS <- list(cAge = c("cAge_gt_20", "cAge_le_20"))
+
+KIND_SCORE_ROUTED_MEMBER <- "score_routed_member"
+
+# mark each registered member with its router, after checking the recipe agrees
+attach_score_routed_members <- function(catalog) {
+  clocks <- catalog[["clocks"]]
+  for (router in names(SCORE_ROUTED_MEMBERS)) {
+    members <- SCORE_ROUTED_MEMBERS[[router]]
+    steps <- Filter(
+      function(s) identical(as.character(s[["op"]]), "route_by_score"),
+      clocks[[router]][["recipe"]] %||% list()
+    )
+    inputs <- unique(as.character(unlist(lapply(steps, `[[`, "inputs"))))
+    if (length(steps) != 1L || !setequal(inputs, members)) {
+      stop(
+        "score-routed registry: '",
+        router,
+        "' does not route exactly over ",
+        paste(members, collapse = ", "),
+        call. = FALSE
+      )
+    }
+    # a hidden member read by another clock would vanish from under it
+    readers <- names(Filter(
+      function(e) any(members %in% as.character(unlist(e[["clock_inputs"]]))),
+      clocks
+    ))
+    if (!setequal(readers, router)) {
+      stop(
+        "score-routed registry: members of '",
+        router,
+        "' are also read by ",
+        paste(setdiff(readers, router), collapse = ", "),
+        call. = FALSE
+      )
+    }
+    for (m in members) {
+      catalog[["clocks"]][[m]][["kind"]] <- KIND_SCORE_ROUTED_MEMBER
+      catalog[["clocks"]][[m]][["routed_by"]] <- router
+    }
+  }
+  catalog
+}
+
 # every label a karyotype_call can emit, its karyotype and whether it is euploid.
 # hard-coded on purpose: the build stops on any upstream drift, so a new or
 # renamed call can never be classified by a silent string test downstream.
@@ -2514,6 +2565,7 @@ build_sysdata <- function(
   bundles <- build_group_bundles(repo_path, catalog, ship_groups)
   catalog <- resolve_group_scoring_probe_sets(catalog, bundles)
   catalog <- attach_sex_routed_aliases(catalog)
+  catalog <- attach_score_routed_members(catalog)
   catalog <- attach_karyotype_euploid(catalog)
   # before the trim: n_cpgs is a build-only field and the codebook reads it
   mc_codebook <- build_codebook_table(

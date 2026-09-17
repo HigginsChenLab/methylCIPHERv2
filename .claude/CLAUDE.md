@@ -488,7 +488,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   write ourselves (DECISIONS 2026-08-03).
   - **A token argument is bounded by its own token set, and a duplicate is refused.**
     `resolve_clocks()` asserts `unique = TRUE` and `max.len = length(accepted)`, where `accepted`
-    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 152 today, derived
+    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 150 today, derived
     every call so a sync moves it. The pair is load-bearing: a length bound means nothing while
     `rep(id, 3e5)` is legal, and uniqueness alone still admits 300k distinct strings. The output
     was already deduplicated, so refusing a repeat buys no correctness -- it is refused because
@@ -501,7 +501,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     check can refuse. `tag` proved it: `assert_subset()` passed 300k copies of a real tag into a
     per-element `resolve_clocks()` loop, 68.7 seconds. The loop is gone and the assertion sits at
     each front door, not inherited, so the message names the caller's own argument. **Every one
-    carries `max.len`, and it is derived, never a flat number** -- 152 / 47 / 3, computed at call
+    carries `max.len`, and it is derived, never a flat number** -- 150 / 47 / 3, computed at call
     time so a sync moves it. A round constant answers "is this absurd" where the token count
     answers "is this more than could be wanted", and 500 would have loosened `clocks`. The
     `group` ceiling counts declared groups rather than selectable ones, because the assertion
@@ -552,9 +552,11 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   aliases, `GrimAgeV1`, `DNAmFitAge_{Sex}`, the `cAge` and `Garma` routers and `Ensaya`
   (`GrimAgeV2` keeps its record -- its cox stack declares `internal` surrogates and it really does
   read its CpGs -- and so do the two `cAge` and four `Garma` models a router picks among, **for
-  every sample and never masked to the routed ones**: a score route is not known until scoring,
-  coverage is computed before it, and each model is a returned column that is true of every
-  sample). **This loses nothing**: a clock
+  every sample and never masked to the routed ones**: a score route is not known until scoring
+  and coverage is computed before it, and one model can be a routed branch under one request and
+  a plain input under another, as `GarmaYoung` is under `Garma` and under `Ensaya`. That holds
+  for the two `cAge` models too, which are hidden from the output but not from coverage).
+  **This loses nothing**: a clock
   that reads no betas can only be fed through its dependencies, so every CpG in its declared panel
   is already counted on a descendant that does. Do not "fill in" a `NULL` record with a merged
   figure and do not restore a stitched per-sample count for an alias -- read the descendants' rows
@@ -625,7 +627,26 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   alias. A sex-routed family returns exactly one column per alias, populated for every sample --
   never a male column, a female column and NAs. The pool, the refusal, its suggestion, the output
   filter (`drop_routed_members()`) and the `list_clocks()` menu all derive from one source
-  (`sex_routed_members()`).
+  (`routed_members()`), which is the sex-routed members plus the score-routed ones.
+  - **A score-routed model is hidden only where it is a piece of one published predictor**, and
+    today that is `cAge_gt_20` and `cAge_le_20` under `cAge`. The paper never reports the log(age)
+    model for a sample the age model puts above 20, yet the column would hold a plausible number
+    for every adult, under an id that names the routed range and reads as a training range. The
+    four `Garma` models stay visible and callable: `GarmaYoung` is a clock another clock
+    (`Ensaya`) reads, so the split from `cAge` is a fact about the clocks, not an inconsistency.
+    Upstream declares all of them as ordinary clocks, so hidden-ness is the
+    `SCORE_ROUTED_MEMBERS` registry in `data-raw/sync.R`, which stops the build unless the list
+    is exactly the router's `route_by_score` inputs and no other clock reads a member. `R/` reads
+    the `kind` and `routed_by` it attaches. **That registry is a stopgap and is expected to
+    move**: it states a fact about a clock that upstream does not hold, which the older
+    registries do not, so once upstream declares it the constant becomes a read and nothing in
+    `R/` changes (DECISIONS 2026-09-17). **`sex_routed_members()` keeps the jobs that are
+    about sex** -- the coverage mask and the `gap_reasons()` mask -- and a score-routed member
+    takes neither (see the no-masking rule under `clock_reads_cpgs()`). `gap_reasons()` hands a
+    hidden member's own note up to its router, so an `NA` `cAge` reads `sample_coverage` or
+    `clock_coverage`, never `dependency` on a column the reader cannot find. Parity reads a
+    score-routed member off `score_cohort()` directly, because its fixture spans every sample and
+    the router equals it on only the routed ones (1 or 2 per cohort for `cAge_le_20`).
   - **`list_clocks()` lists what `clocks =` accepts and nothing else**, so a routed member is not a
     row there and there is no `callable` column to mark one -- it would be constant, and so would
     `request_as`, which existed only to name a member's alias (DECISIONS 2026-08-07, reversing
@@ -718,9 +739,10 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
      build-skip cache).
      - **A registry adapting the upstream contract is closed, hard-coded, and asserted.** There
-       are **three**, all running inside the build so everything downstream sees ordinary catalog
+       are **four**, all running inside the build so everything downstream sees ordinary catalog
        entries. `attach_sex_routed_aliases()` mints one alias clock per `_group.meta.json`
-       `routing.sex` stem. `attach_karyotype_euploid()` checks every declared
+       `routing.sex` stem. `attach_score_routed_members()` checks `SCORE_ROUTED_MEMBERS` against
+       each router's recipe and marks the members. `attach_karyotype_euploid()` checks every declared
        `routing.karyotype_call` against `KARYOTYPE_EXPECTED`, the four emitted labels with their
        karyotype and euploid flag, then attaches the `euploid` map it validated.
        `attach_bmiq_gold_prefit()` checks every bmiq clock against `BMIQ_GOLD_EXPECTED`, which

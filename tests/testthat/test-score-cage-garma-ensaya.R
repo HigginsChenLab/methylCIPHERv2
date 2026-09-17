@@ -44,14 +44,15 @@ test_that("cAge squares after the fill, and keeps the model its age score picks"
   expect_true(any(age_score > 20) && any(age_score <= 20))
 
   res <- calc_clocks(DNAm[, setdiff(colnames(DNAm), drop)], "cAge")
-  sc <- res$scores
-  expect_equal(unname(sc[, gt]), age_score, tolerance = 1e-10)
-  expect_equal(unname(sc[, le]), years, tolerance = 1e-10)
+  # the two models are pieces of cAge: scored and counted, never a column
+  expect_equal(colnames(res$scores), "cAge")
   expect_equal(
-    unname(sc[, "cAge"]),
+    unname(res$scores[, "cAge"]),
     ifelse(age_score > 20, age_score, years),
     tolerance = 1e-10
   )
+  expect_error(calc_clocks(DNAm, gt))
+  expect_false(any(c(gt, le) %in% list_clocks()$clock_id))
 
   # each model counts its own panel, and the router counts nothing
   per_clock <- res$coverage$per_clock[[1]]
@@ -113,17 +114,26 @@ test_that("a gated cAge model matters only to the samples routed to it", {
 
   expect_warning(res <- calc_clocks(DNAm, "Ensaya"))
   sc <- res$scores
-  # the log(age) model is nobody's pick
-  expect_true(all(sc[-2, "cAge_gt_20"] > 20))
-  expect_true(is.na(sc[1, "cAge_le_20"]))
-  expect_true(all(is.finite(sc[-2, c("cAge", "Ensaya")])))
-  expect_true(all(is.na(sc[2, c("cAge_gt_20", "cAge", "Ensaya")])))
+  # the log(age) model is nobody's pick, so losing it costs sample 1 nothing
+  expect_true(all(sc[-2, "cAge"] > 20))
+  expect_true(all(is.finite(sc[-2, "Ensaya"])))
+  expect_true(all(is.na(sc[2, c("cAge", "Ensaya")])))
 
   expect_warning(cov <- samples_coverage(res))
-  gap <- cov[cov$id == rownames(DNAm)[2] & cov$panel == "score", ]
-  expect_equal(gap$note[gap$clock_id == "cAge_gt_20"], "sample_coverage")
-  expect_equal(gap$note[gap$clock_id == "cAge"], "dependency")
-  expect_equal(gap$note[gap$clock_id == "Ensaya"], "dependency")
+  cell <- function(sample, id) {
+    cov[
+      cov$id == rownames(DNAm)[sample] &
+        cov$clock_id == id &
+        cov$panel == "score",
+    ]
+  }
+  # the counts stay on the model rows, and the note sits on a returned column.
+  # cAge takes its model's own note: the model is not a column to point at.
+  expect_true(cell(1, "cAge_le_20")$coverage < 0.75)
+  expect_true(cell(2, "cAge_gt_20")$coverage < 0.75)
+  expect_true(is.na(cell(1, "cAge")$note))
+  expect_equal(cell(2, "cAge")$note, "sample_coverage")
+  expect_equal(cell(2, "Ensaya")$note, "dependency")
 })
 
 test_that("Garma and Ensaya are assembled from the input columns they return", {

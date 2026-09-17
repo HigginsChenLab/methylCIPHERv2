@@ -263,8 +263,8 @@ run_parity_target <- function(clock_id, cohort) {
   if (!is.null(gap)) {
     skip(paste0("known parity gap -- ", gap))
   }
-  # routed members scored as their alias's dependency
-  routed <- sex_routed_members()$alias
+  # routed members scored as a dependency of the clock that routes them
+  routed <- routed_members()
   request <- if (clock_id %in% names(routed)) {
     routed[[clock_id]]
   } else {
@@ -278,6 +278,16 @@ run_parity_target <- function(clock_id, cohort) {
   } else {
     # same union as clock_cpgs() (panels alone would drop moment refs).
     cohort_betas(cohort_cons[[cohort]], sequence_cpgs(seq_ids, packs))
+  }
+  # a score-routed member is never a column, and its router equals it on only
+  # the samples routed to it. its fixture spans every sample, so read the
+  # member's own score off the scoring loop.
+  if (clock_id %in% names(score_routed_members())) {
+    spec <- mc_spec(request, "ID", NULL, packs, FALSE)
+    pheno <- canonicalize_covariates(cohort_pheno(cohort), NULL, spec[["covariates"]])
+    facts <- mc_cohort(DNAm, spec, pheno, 0)
+    scored <- score_cohort(DNAm, spec, facts, 0)
+    return(expect_parity(scored[["scores"]][[clock_id]][, 1L], clock_id, cohort))
   }
   # parity gates numbers, not coverage policy
   res <- calc_clocks(

@@ -239,6 +239,25 @@ sex_routed_members <- function() {
   list(sex = sex, alias = alias)
 }
 
+# score-routed member clock_id -> its router. a piece of one published
+# predictor, which sync marks from a closed registry.
+score_routed_members <- function() {
+  members <- mc_index[["clock_id"]][
+    mc_index[["kind"]] == "score_routed_member"
+  ]
+  vapply(
+    stats::setNames(members, members),
+    function(m) as.character(required_field(m, "routed_by")),
+    character(1L)
+  )
+}
+
+# every member that is scored and counted but never requested or returned,
+# named by the clock to request in its place
+routed_members <- function() {
+  c(sex_routed_members()[["alias"]], score_routed_members())
+}
+
 # declared array-normalization scheme, lowercased ("none" when absent)
 clock_norm_scheme <- function(id) {
   tolower(as.character(optional_field(id, "normalization", "none")))
