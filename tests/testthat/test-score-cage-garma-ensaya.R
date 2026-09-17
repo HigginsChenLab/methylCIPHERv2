@@ -1,17 +1,23 @@
-# cAge, Garma, Ensaya: squared terms, a threshold pick, a router, a row mean.
+# cAge, Garma, Ensaya: squared terms, two routers, a row mean.
 # parity scores clean panels that sit well away from every cutoff, so it cannot
 # see a squared fill, a tie, or a missing input.
 
 # absent CpGs fill with the vendor mean, and a squared term squares the fill.
 test_that("cAge squares after the fill, and keeps the model its age score picks", {
   skip_on_cran()
-  id <- "cAge"
-  tensor <- function(name) component_tensor_named(id, name)
-  age <- list(coef = tensor("age_coef"), sq = tensor("age_sq_coef"))
-  logage <- list(coef = tensor("logage_coef"), sq = tensor("logage_sq_coef"))
-  rec <- clock_entry(id)[["recipe"]]
+  gt <- "cAge_gt_20"
+  le <- "cAge_le_20"
+  tensors <- function(id) {
+    list(
+      coef = component_tensor_named(id, "coef"),
+      sq = component_tensor_named(id, "coef_sq"),
+      intercept = recipe_step_op(id, "linear")[["intercept"]]
+    )
+  }
+  age <- tensors(gt)
+  logage <- tensors(le)
 
-  DNAm <- random_betas(clock_cpgs(id), n = 4L)
+  DNAm <- random_betas(clock_cpgs("cAge"), n = 4L)
   # one sample the age model puts far under 20, so both models are kept once
   weight <- c(age$coef, age$sq)
   DNAm[1, ] <- 0
@@ -19,35 +25,57 @@ test_that("cAge squares after the fill, and keeps the model its age score picks"
 
   # held out: squared-only CpGs, CpGs with both weights, and linear ones
   sq_only <- setdiff(names(age$sq), names(age$coef))
-  drop <- c(
+  drop <- unique(c(
     sq_only[1:3],
     intersect(names(age$sq), names(age$coef))[1:3],
     names(logage$coef)[1:3]
-  )
+  ))
   expect_true(length(sq_only) > 0L)
 
   full <- DNAm
-  full[, drop] <- rep(clock_impute_ref(id)[drop], each = nrow(full))
-  model <- function(m, out) {
-    rec[[out]][["intercept"]] +
+  full[, drop] <- rep(clock_impute_ref(gt)[drop], each = nrow(full))
+  model <- function(m) {
+    m$intercept +
       as.numeric(full[, names(m$coef)] %*% m$coef) +
       as.numeric(full[, names(m$sq)]^2 %*% m$sq)
   }
-  age_score <- model(age, "age_score")
-  want <- ifelse(age_score > 20, age_score, exp(model(logage, "logage_score")))
+  age_score <- model(age)
+  years <- exp(model(logage))
   expect_true(any(age_score > 20) && any(age_score <= 20))
 
-  res <- calc_clocks(DNAm[, setdiff(colnames(DNAm), drop)], id)
-  expect_equal(unname(res$scores[, id]), want, tolerance = 1e-10)
+  res <- calc_clocks(DNAm[, setdiff(colnames(DNAm), drop)], "cAge")
+  sc <- res$scores
+  expect_equal(unname(sc[, gt]), age_score, tolerance = 1e-10)
+  expect_equal(unname(sc[, le]), years, tolerance = 1e-10)
   expect_equal(
-    res$coverage$per_clock[[1]][[id]]$score_imputed_full,
-    length(unique(drop))
+    unname(sc[, "cAge"]),
+    ifelse(age_score > 20, age_score, years),
+    tolerance = 1e-10
   )
+
+  # each model counts its own panel, and the router counts nothing
+  per_clock <- res$coverage$per_clock[[1]]
+  for (id in c(gt, le)) {
+    expect_equal(
+      per_clock[[id]]$score_imputed_full,
+      length(intersect(drop, clock_scoring_cpgs(id)))
+    )
+  }
+  expect_null(per_clock[["cAge"]])
 })
 
-test_that("an age score of exactly 20 takes the log(age) model", {
+# the break and its tie come from the recipe: exactly 20 is the log(age) model
+test_that("an age score at the cAge break follows the declared tie", {
   skip_on_cran()
-  expect_equal(threshold_select(c(20, 20.5, NA), c(1, 2, 3), 20), c(1, 20.5, NA))
+  router <- c(19, 20, 20.5, NA, Inf)
+  ids <- paste0("s", seq_along(router))
+  results <- list(
+    cAge_gt_20 = score_matrix(router, ids, "cAge_gt_20"),
+    cAge_le_20 = score_matrix(1, ids, "cAge_le_20")
+  )
+  got <- score_cAge("cAge", NULL, list(sample_id = ids), results)
+  # an age score that is not finite picks no model
+  expect_equal(as.numeric(got), c(1, 1, 20.5, NA, NA))
 })
 
 # the breaks and ties come from the recipe: at most 36 is young, 59 and up is old
@@ -64,6 +92,38 @@ test_that("a Garma putative age at a break follows the declared tie", {
   got <- score_Garma("Garma", NULL, list(sample_id = ids), results)
   # a putative age that is not finite picks no model
   expect_equal(as.numeric(got), c(1, 2, 2, 3, NA, NA))
+})
+
+# only the model a sample was routed to can cost it its cAge, and so its Ensaya
+test_that("a gated cAge model matters only to the samples routed to it", {
+  skip_on_cran()
+  panel <- function(id) clock_scoring_cpgs(id)
+  DNAm <- random_betas(clock_cpgs("Ensaya"), n = 4L)
+  # every sample an adult: the age model's positive weights at 1, the rest at 0
+  weight <- c(
+    component_tensor_named("cAge_gt_20", "coef"),
+    component_tensor_named("cAge_gt_20", "coef_sq")
+  )
+  DNAm[, names(weight)] <- 0
+  DNAm[, names(weight)[weight > 0]] <- 1
+  others <- union(panel("GarmaYoung"), panel("PAYA"))
+  # sample 1 loses the log(age) model, sample 2 the age model
+  DNAm[1, setdiff(panel("cAge_le_20"), c(panel("cAge_gt_20"), others))] <- NA_real_
+  DNAm[2, setdiff(panel("cAge_gt_20"), c(panel("cAge_le_20"), others))] <- NA_real_
+
+  expect_warning(res <- calc_clocks(DNAm, "Ensaya"))
+  sc <- res$scores
+  # the log(age) model is nobody's pick
+  expect_true(all(sc[-2, "cAge_gt_20"] > 20))
+  expect_true(is.na(sc[1, "cAge_le_20"]))
+  expect_true(all(is.finite(sc[-2, c("cAge", "Ensaya")])))
+  expect_true(all(is.na(sc[2, c("cAge_gt_20", "cAge", "Ensaya")])))
+
+  expect_warning(cov <- samples_coverage(res))
+  gap <- cov[cov$id == rownames(DNAm)[2] & cov$panel == "score", ]
+  expect_equal(gap$note[gap$clock_id == "cAge_gt_20"], "sample_coverage")
+  expect_equal(gap$note[gap$clock_id == "cAge"], "dependency")
+  expect_equal(gap$note[gap$clock_id == "Ensaya"], "dependency")
 })
 
 test_that("Garma and Ensaya are assembled from the input columns they return", {

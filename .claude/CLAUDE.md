@@ -488,7 +488,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   write ourselves (DECISIONS 2026-08-03).
   - **A token argument is bounded by its own token set, and a duplicate is refused.**
     `resolve_clocks()` asserts `unique = TRUE` and `max.len = length(accepted)`, where `accepted`
-    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 150 today, derived
+    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 152 today, derived
     every call so a sync moves it. The pair is load-bearing: a length bound means nothing while
     `rep(id, 3e5)` is legal, and uniqueness alone still admits 300k distinct strings. The output
     was already deduplicated, so refusing a repeat buys no correctness -- it is refused because
@@ -501,7 +501,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     check can refuse. `tag` proved it: `assert_subset()` passed 300k copies of a real tag into a
     per-element `resolve_clocks()` loop, 68.7 seconds. The loop is gone and the assertion sits at
     each front door, not inherited, so the message names the caller's own argument. **Every one
-    carries `max.len`, and it is derived, never a flat number** -- 150 / 47 / 3, computed at call
+    carries `max.len`, and it is derived, never a flat number** -- 152 / 47 / 3, computed at call
     time so a sync moves it. A round constant answers "is this absurd" where the token count
     answers "is this more than could be wanted", and 500 would have loosened `clocks`. The
     `group` ceiling counts declared groups rather than selectable ones, because the assertion
@@ -549,9 +549,12 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   sits; a row saying nothing was counted is not a coverage figure.
   `clock_reads_cpgs()` (`R/score_cohort.R`) is the one source and switches on `score_type()`, so it
   is a fact about the closed branch set, not a clock list; today it selects the 7 sex-routed
-  aliases, `GrimAgeV1`, `DNAmFitAge_{Sex}`, the `Garma` router and `Ensaya` (`GrimAgeV2` keeps its
-  record -- its cox stack declares `internal` surrogates and it really does read its CpGs -- and
-  so do the four `Garma` models the router picks among). **This loses nothing**: a clock
+  aliases, `GrimAgeV1`, `DNAmFitAge_{Sex}`, the `cAge` and `Garma` routers and `Ensaya`
+  (`GrimAgeV2` keeps its record -- its cox stack declares `internal` surrogates and it really does
+  read its CpGs -- and so do the two `cAge` and four `Garma` models a router picks among, **for
+  every sample and never masked to the routed ones**: a score route is not known until scoring,
+  coverage is computed before it, and each model is a returned column that is true of every
+  sample). **This loses nothing**: a clock
   that reads no betas can only be fed through its dependencies, so every CpG in its declared panel
   is already counted on a descendant that does. Do not "fill in" a `NULL` record with a merged
   figure and do not restore a stitched per-sample count for an alias -- read the descendants' rows
@@ -967,16 +970,17 @@ output**, not implementation detail (see "Test altitude").
     whose 14 members carry them (both halves derived, never listed). It needs no duckdb, so
     `test_parity()` runs it even where nothing is staged -- but it **is** behind `MC_PARITY`, so a
     plain `devtools::test()` does not catch a dropped fixture; CI does (DECISIONS 2026-07-26).
-  - **Standing state with both cohorts staged: 282 blocks / 0 fail**, measured 2026-09-17. The
+  - **Standing state with both cohorts staged: 286 blocks / 0 fail**, measured 2026-09-17. The
     count was 264, then 266 with the two `parity (horvath normalized)` targets on 2026-08-04, then
-    282 with the 16 `core` targets for cAge, Garma, PAYA and Ensaya (stage one fewer cohort and
+    282 with the 16 `core` targets for cAge, Garma, PAYA and Ensaya, then 286 with the 4 for the
+    two `cAge` models (stage one fewer cohort and
     it drops, by design). testthat counts *expectations*, not `test_that` blocks, and
-    `expect_parity()` carries three (all-finite, abs, rel): 244 targets x 3 + PhysAge 2 x 6 +
+    `expect_parity()` carries three (all-finite, abs, rel): 248 targets x 3 + PhysAge 2 x 6 +
     census 3 + the Dunedin reference golden's 8 + the normalized-horvath 450K target's 3.
     **The skip count depends on what else is cached, so check it against a cause before reading
-    anything into it.** With packs cached it is 33 skip / `PASS 758` (2026-09-17), the 33 being
+    anything into it.** With packs cached it is 33 skip / `PASS 770` (2026-09-17), the 33 being
     30 horvath-online + 2 Wang gaps + the normalized-horvath EPICv1 guard; it was 33 / 710 before
-    the 16 new targets. Measured 2026-08-04 with **no packs cached**: 266 blocks / 91 skip /
+    the 20 new targets. Measured 2026-08-04 with **no packs cached**: 266 blocks / 91 skip /
     `PASS 536` / 0 fail, the 91 being 56 packs + 30 horvath-online + 2 Wang gaps + 2 Zhang BLUP +
     the normalized-horvath EPICv1 guard. Read a parity run by its **fail and skip** counts,
     checked against each other, before concluding anything from the pass number; the fail count is

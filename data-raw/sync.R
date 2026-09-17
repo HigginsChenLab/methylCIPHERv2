@@ -756,7 +756,6 @@ KNOWN_OPS <- c(
   "poly",
   "row_sum",
   "row_mean",
-  "threshold_select",
   "route_by_score",
   "fitage_kdm",
   "epitoc2",

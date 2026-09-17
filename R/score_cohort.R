@@ -99,8 +99,10 @@ clock_reads_cpgs <- function(p) {
     sex_routed = FALSE,
     DNAmFitAge = FALSE,
     Ensaya = FALSE,
-    # the family owns the derivation -- see R/score_GrimAge.R, R/score_Garma.R
+    # the family owns the derivation -- see R/score_GrimAge.R, R/score_cAge.R,
+    # R/score_Garma.R
     GrimAge = grimage_reads_cpgs(p),
+    cAge = cage_reads_cpgs(p),
     Garma = garma_reads_cpgs(p),
     TRUE
   )
