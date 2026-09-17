@@ -88,8 +88,6 @@ bmiq_calibrated <- function(m) {
 test_that("normalize= refuses what the catalog cannot express", {
   # no scheme declared at all
   expect_error(resolve_normalize(c(Hannum = TRUE), "Hannum"))
-  # noob is an IDAT-level correction, unreachable from a beta matrix
-  expect_error(resolve_normalize(c(Horvath2 = TRUE), "Horvath2"))
   # a clock outside the run, an unnamed vector, a non-logical
   expect_error(resolve_normalize(c(Horvath1 = TRUE), "Hannum"))
   expect_error(resolve_normalize(c(TRUE, FALSE), c("Hannum", "Horvath1")))

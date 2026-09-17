@@ -488,7 +488,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   write ourselves (DECISIONS 2026-08-03).
   - **A token argument is bounded by its own token set, and a duplicate is refused.**
     `resolve_clocks()` asserts `unique = TRUE` and `max.len = length(accepted)`, where `accepted`
-    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 142 today, derived
+    is `"all"` plus the tags, group ids and callable clock ids, deduplicated -- 150 today, derived
     every call so a sync moves it. The pair is load-bearing: a length bound means nothing while
     `rep(id, 3e5)` is legal, and uniqueness alone still admits 300k distinct strings. The output
     was already deduplicated, so refusing a repeat buys no correctness -- it is refused because
@@ -501,7 +501,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
     check can refuse. `tag` proved it: `assert_subset()` passed 300k copies of a real tag into a
     per-element `resolve_clocks()` loop, 68.7 seconds. The loop is gone and the assertion sits at
     each front door, not inherited, so the message names the caller's own argument. **Every one
-    carries `max.len`, and it is derived, never a flat number** -- 142 / 43 / 3, computed at call
+    carries `max.len`, and it is derived, never a flat number** -- 150 / 47 / 3, computed at call
     time so a sync moves it. A round constant answers "is this absurd" where the token count
     answers "is this more than could be wanted", and 500 would have loosened `clocks`. The
     `group` ceiling counts declared groups rather than selectable ones, because the assertion
@@ -549,8 +549,9 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   sits; a row saying nothing was counted is not a coverage figure.
   `clock_reads_cpgs()` (`R/score_cohort.R`) is the one source and switches on `score_type()`, so it
   is a fact about the closed branch set, not a clock list; today it selects the 7 sex-routed
-  aliases, `GrimAgeV1` and `DNAmFitAge_{Sex}` (`GrimAgeV2` keeps its record -- its cox stack
-  declares `internal` surrogates and it really does read its CpGs). **This loses nothing**: a clock
+  aliases, `GrimAgeV1`, `DNAmFitAge_{Sex}`, the `Garma` router and `Ensaya` (`GrimAgeV2` keeps its
+  record -- its cox stack declares `internal` surrogates and it really does read its CpGs -- and
+  so do the four `Garma` models the router picks among). **This loses nothing**: a clock
   that reads no betas can only be fed through its dependencies, so every CpG in its declared panel
   is already counted on a descendant that does. Do not "fill in" a `NULL` record with a merged
   figure and do not restore a stitched per-sample count for an alias -- read the descendants' rows
@@ -933,8 +934,9 @@ output**, not implementation detail (see "Test altitude").
     proves the tensors and the engine are right and puts the divergence in the oracle's input.
     **Do not "fix" this with a tolerance**: the residual spans 4.2e-08 to 2.7e-01, so any bound wide
     enough is vacuous (DECISIONS 2026-07-25). **`Horvath1` is the one exception to that reading**,
-    because it is the one the oracle BMIQ'd: of the 15, 13 declare `scheme = none` and `Horvath2`
-    declares the inexpressible `noob`, leaving `Horvath1`'s `bmiq` as the only scheme we can apply.
+    because it is the one the oracle BMIQ'd: of the 15, 14 declare `scheme = none` (`Horvath2` declared the inexpressible `noob`
+    until upstream retired that scheme on 2026-09-16), leaving `Horvath1`'s `bmiq` as the only
+    scheme declared at all.
     The four-block loop still scores it with `normalize` at its opt-in default of **off**, so its
     gap there is a normalization gap, not a fill gap.
   - **That exception is now its own generated block**, `parity (horvath normalized)`, admitted

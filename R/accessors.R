@@ -336,6 +336,15 @@ recipe_step_out <- function(id, out) {
   clock_entry(id)[["recipe"]][[out]]
 }
 
+# the recipe step producing `out`, which must declare `op`
+recipe_step_out_op <- function(id, out, op) {
+  step <- recipe_step_out(id, as.character(out))
+  if (!identical(as.character(step[["op"]]), op)) {
+    catalog_bug("%s: recipe step '%s' is not a declared %s step.", id, out, op)
+  }
+  step
+}
+
 # covariate weights, numeric(0) when none
 clock_covariates_coefs <- function(id) {
   cov <- clock_entry(id)[["covariates"]]

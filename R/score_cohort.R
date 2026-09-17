@@ -68,6 +68,9 @@ score_type <- function(p) {
     EpiTOC2 = switch(ct, reference_code_required = "EpiTOC2", NULL),
     MiAge = switch(ct, reference_code_required = "MiAge", NULL),
     CellDRIFT = switch(ct, reference_code_required = "linear", NULL),
+    cAge = switch(ct, wrapper = "cAge", NULL),
+    Garma = switch(ct, wrapper = "Garma", NULL),
+    Ensaya = switch(ct, wrapper = "Ensaya", NULL),
     NULL
   )
   if (!is.null(gtag)) {
@@ -95,8 +98,10 @@ clock_reads_cpgs <- function(p) {
     score_type(p),
     sex_routed = FALSE,
     DNAmFitAge = FALSE,
-    # the family owns the derivation -- see R/score_GrimAge.R
+    Ensaya = FALSE,
+    # the family owns the derivation -- see R/score_GrimAge.R, R/score_Garma.R
     GrimAge = grimage_reads_cpgs(p),
+    Garma = garma_reads_cpgs(p),
     TRUE
   )
 }
@@ -512,6 +517,9 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
       MiAge = score_MiAge(p, cpgs, block, results),
       Zhang2019 = score_Zhang2019(p, cpgs, block, results),
       DNAmSex_Wang = score_DNAmSex_Wang(p, cpgs, block, results),
+      cAge = score_cAge(p, cpgs, block, results),
+      Garma = score_Garma(p, cpgs, block, results),
+      Ensaya = score_Ensaya(p, cpgs, block, results),
       sex_routed = score_sex_routed(p, cpgs, block, results),
       stop(
         sprintf("No dispatch branch for score_type %s (clock %s).", ty, p),
