@@ -207,10 +207,15 @@ stale. Local-only `dev/` files are out of scope.
 
 ### Stage 8 - first `/code-review`
 
-Slice by slice, as the first real user of the layout. Order: kernels and normalization, engine
-and branches, front door and gates, record and bind, coverage, exits and print, catalog, assets.
-`data-raw/sync.R` last or not at all. Findings that contradict a documented decision are a signal
-the rules file needs a "looks wrong, is decided" line, not a code change.
+In passes, as the first real user of the layout. The pass table is in
+`dev/docs-overhaul-partition.md` under "Review passes": seven passes over the package in
+data-flow order, one or two areas each, each also tracing the seams that end in it, with sync and
+the tests as optional eighth and ninth. The rules file is the loading unit and the pass is the
+review unit; they are deliberately not the same cut. Findings that contradict a documented
+decision are a signal the rules file needs a "looks wrong, is decided" line, not a code change.
+
+If the passes prove useful beyond the first full review, the table moves to a tracked file under
+`dev/` before this plan is deleted. The seams do not need rescuing: they live in the core.
 
 ### Stage 9 - close out
 
