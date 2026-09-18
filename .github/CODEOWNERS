@@ -11,13 +11,13 @@
 # branch protection on main turns on "Require review from Code Owners", which
 # needs a repository admin to enable once.
 
-*                   @hhp94
+*
 
-/R/                 @hhp94
-/src/               @hhp94
-/tests/             @hhp94
-/data-raw/          @hhp94
-/.claude/           @hhp94
-/.github/           @hhp94
-/DESCRIPTION        @hhp94
-/NAMESPACE          @hhp94
+/R/
+/src/
+/tests/
+/data-raw/
+/.claude/
+/.github/
+/DESCRIPTION
+/NAMESPACE
