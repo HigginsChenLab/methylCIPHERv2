@@ -3,9 +3,12 @@ Package: methylCIPHERv2
 Title: Calculate Epigenetic Clocks
 Version: 0.1.0
 Authors@R: c(
-    person("Hung", "Pham", , "amser.hoanghung@gmail.com", role = c("aut", "cre"),
+    person("Jenel", "Armstrong", , "jenel.fraij@yale.edu", role = c("aut", "cre")),
+    person("Hung", "Pham", , "amser.hoanghung@gmail.com", role = "aut",
            comment = c(ORCID = "0000-0002-8271-9355")),
-    person("Kyra L.", "Thrush", , "kyra.thrush@yale.edu", role = "aut"),
+    person("Albert", "Higgins-Chen", role = "aut"),
+    person("Daniel", "Borrus", role = "aut"),
+    person("Raghav", "Sehgal", role = "aut"),
     person("Yale University", role = "cph")
   )
 Description: Calculates scores for CpG-based epigenetic clocks to support
