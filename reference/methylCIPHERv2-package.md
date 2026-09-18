@@ -28,11 +28,13 @@ Authors:
 - Hung Pham <amser.hoanghung@gmail.com>
   ([ORCID](https://orcid.org/0000-0002-8271-9355))
 
-- Albert Higgins-Chen
-
 - Daniel Borrus
 
 - Raghav Sehgal
+
+- Kyra L. Thrush <kyra.thrush@yale.edu>
+
+- Albert Higgins-Chen
 
 Other contributors:
 
