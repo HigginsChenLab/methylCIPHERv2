@@ -19,15 +19,20 @@ Useful links:
 
 ## Author
 
-**Maintainer**: Hung Pham <amser.hoanghung@gmail.com>
-([ORCID](https://orcid.org/0000-0002-8271-9355))
+**Maintainer**: Jenel Armstrong <jenel.fraij@yale.edu>
 
 Authors:
+
+- Jenel Armstrong <jenel.fraij@yale.edu>
 
 - Hung Pham <amser.hoanghung@gmail.com>
   ([ORCID](https://orcid.org/0000-0002-8271-9355))
 
-- Kyra L. Thrush <kyra.thrush@yale.edu>
+- Albert Higgins-Chen
+
+- Daniel Borrus
+
+- Raghav Sehgal
 
 Other contributors:
 
