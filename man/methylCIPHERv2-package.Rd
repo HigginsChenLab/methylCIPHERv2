@@ -24,9 +24,10 @@ Authors:
 \itemize{
   \item Jenel Armstrong \email{jenel.fraij@yale.edu}
   \item Hung Pham \email{amser.hoanghung@gmail.com} (\href{https://orcid.org/0000-0002-8271-9355}{ORCID})
-  \item Albert Higgins-Chen
   \item Daniel Borrus
   \item Raghav Sehgal
+  \item Kyra L. Thrush \email{kyra.thrush@yale.edu}
+  \item Albert Higgins-Chen
 }
 
 Other contributors:
