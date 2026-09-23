@@ -42,10 +42,10 @@ article provides a searchable table.
 
 ``` r
 head(list_clocks(), n = 3)
-#>    clock_id     group_id covariates external        tags
-#> 1 Bohlin251       Bohlin               FALSE gestational
-#> 2  Bohlin96       Bohlin               FALSE gestational
-#> 3  AdaptAge CausalityAge               FALSE
+#>    clock_id group_id covariates external        tags
+#> 1 Bohlin251   Bohlin               FALSE gestational
+#> 2  Bohlin96   Bohlin               FALSE gestational
+#> 3      cAge     cAge               FALSE
 ```
 
 A clock can be selected by `clock_id`, `group_id`, or `tag`.
@@ -253,6 +253,40 @@ above.
 score_associations(res, age = sim[["pheno"]][["Age"]])
 #>   clock_id n obs_age_r exp_age_r exp_lo exp_hi outside wrong_sign
 #> 1 Horvath1 6    -0.124     0.827  0.226  0.972    TRUE       TRUE
+```
+
+### Write a QC report
+
+`qc_report()` writes one HTML page that checks the inputs and the result
+together. Every input is optional. A section whose input is not given
+says that it is not computable, and the overview at the top gives the
+key counts from every section.
+
+- `DNAm` adds the beta value distribution, the missing values for each
+  sample and each CpG, the array that the probe ids match, the coverage
+  of the X and Y chromosomes, and the share of each clock's CpGs that
+  the matrix holds.
+- `pheno` adds summary statistics and missing values for each column,
+  and the age distribution, split by sex and by each column with two to
+  eight distinct values.
+- `x` adds the scoring problems from `summary()` and the age correlation
+  of each clock against the blood reference from `score_associations()`,
+  and closes the page with a bibliography of the scored clocks.
+
+When `pheno` has an `Age` column and `DNAm` or `x` is given, the
+overview also plots `Horvath1` and `Zhang2019EN` against age and flags
+the samples far from the trend. Pass the whole beta matrix, not only the
+clock CpGs, because the array and sex chromosome checks read every
+probe.
+
+``` r
+qc_report(
+  DNAm = sim[["DNAm"]],
+  pheno = sim[["pheno"]],
+  x = res,
+  clocks = c("Horvath1", "Bohlin96"),
+  file = "qc_report.html"
+)
 ```
 
 ### Bibliography
