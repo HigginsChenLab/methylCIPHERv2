@@ -72,14 +72,14 @@ combined
 #> <mc_result> 20 samples x 2 clocks
 #> 
 #> $scores [6 of 20 rows, 2 clocks]
-#>              Horvath1    Hannum
-#>   -------  ----------  --------
-#>   sample1   24.446923  89.81762
-#>   sample2  125.015160  78.01230
-#>   sample3   76.028173  95.92080
-#>   sample4    3.734628  56.41727
-#>   sample5   87.489365  57.66653
-#>   sample6   43.735877  67.46298
+#>             Horvath1    Hannum
+#>   -------  ---------  --------
+#>   sample1   39.07357  99.41836
+#>   sample2   25.60942  87.09818
+#>   sample3  137.19828  80.02799
+#>   sample4   63.05925  42.35102
+#>   sample5   61.33898  67.61679
+#>   sample6   91.21213  42.78517
 #>   ... 14 more rows
 #> 
 #> $pheno [6 of 20 rows, 1 column]

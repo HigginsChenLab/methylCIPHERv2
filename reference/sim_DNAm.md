@@ -125,10 +125,10 @@ dim(sim[["DNAm"]])
 #> [1]  10 418
 head(sim[["pheno"]])
 #>        ID      Age Female
-#> 1 sample1 51.44352      0
-#> 2 sample2 37.41641      1
-#> 3 sample3 49.47463      0
-#> 4 sample4 46.19316      0
-#> 5 sample5 45.13304      0
-#> 6 sample6 41.04052      1
+#> 1 sample1 31.97045      1
+#> 2 sample2 47.78404      0
+#> 3 sample3 49.45057      0
+#> 4 sample4 43.99444      0
+#> 5 sample5 37.16859      0
+#> 6 sample6 47.38377      1
 ```

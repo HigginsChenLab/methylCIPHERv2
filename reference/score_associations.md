@@ -68,6 +68,6 @@ sim <- sim_DNAm(clocks, n = 20)
 res <- calc_clocks(sim[["DNAm"]], clocks)
 score_associations(res, age = runif(20, 20, 80))
 #>   clock_id  n obs_age_r exp_age_r exp_lo exp_hi outside wrong_sign
-#> 1 Horvath1 20     0.102     0.827  0.226  0.972    TRUE      FALSE
-#> 2   Hannum 20     0.273     0.845  0.261  0.976   FALSE      FALSE
+#> 1 Horvath1 20    -0.321     0.827  0.226  0.972    TRUE       TRUE
+#> 2   Hannum 20    -0.221     0.845  0.261  0.976    TRUE       TRUE
 ```

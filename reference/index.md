@@ -24,8 +24,8 @@ Read the clock catalog before a run.
 
 ## Quality control
 
-Report the panel coverage for each clock and for each sample, and digest
-a whole run.
+Report the panel coverage for each clock and for each sample, digest a
+whole run, and write an HTML report on the inputs and the result.
 
 - [`clocks_coverage()`](https://HigginsChenLab.github.io/methylCIPHERv2/reference/clocks_coverage.md)
   : Clock Coverage Counts
@@ -35,6 +35,8 @@ a whole run.
   : Summary Method For An mc_result Object
 - [`print(`*`<mc_summary>`*`)`](https://HigginsChenLab.github.io/methylCIPHERv2/reference/print.mc_summary.md)
   : Print Method For An mc_summary Object
+- [`qc_report()`](https://HigginsChenLab.github.io/methylCIPHERv2/reference/qc_report.md)
+  : Quality Control Report
 
 ## Working with an mc_result
 
