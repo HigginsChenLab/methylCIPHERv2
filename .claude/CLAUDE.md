@@ -778,7 +778,7 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
        diff every panel against the committed `R/sysdata.rda`) before regenerating.
        `assert_declared_n_cpgs()` is the standing guard: every clock's derived scoring panel must
        equal its declared `n_cpgs`, with no exemption list.
-  3. **External packs** (SystemsAge, PCClocks, PCBrainAge, Zhang2019): reuse when `force = FALSE`
+  3. **External packs** (SystemsAge, PCClocks, PCBrainAge, Zhang2019, GP_age): reuse when `force = FALSE`
      and `data-raw/assets/lockfile.rds` hits (every external clock's `bundle_hash` unchanged and
      every staged pack on disk); else rebuild the content-addressed `<group>-<payload_hash>.rds`
      packs and rewrite the lockfile. `bundle_hash` (from `manifest.json`) moves iff that clock's
@@ -800,11 +800,16 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   a pack** (`pack_groups_needed()`, parity's `skip_if_no_pack()`) keys on externality, and **how the
   arithmetic runs** (`score_type()`'s group hooks, parity's relaxed `packs` tolerance) keys on the
   scoring path. `score_type()`'s external branch carries a group hook per group whose arithmetic is
-  not a plain weighted sum -- `SystemsAge` (`center_scale`), `Zhang2019` (`sample_scale`) -- and
-  those clocks reach their coefficients through `clock_coefs(id, packs)`, which reads the pack's raw
+  not a plain weighted sum -- `SystemsAge` (`center_scale`), `Zhang2019` (`sample_scale`),
+  `GP_age` (gaussian process regression, `R/score_GP_age.R`) -- and the coefficient clocks reach
+  their coefficients through `clock_coefs(id, packs)`, which reads the pack's raw
   tensor by the same `coef_path` the bundled arm reads out of `mc_bundles`. Do **not** hoist the
   `switch(gid, ...)` above the external check: that changes dispatch precedence for every clock in
   the catalog to solve a one-group problem (DECISIONS 2026-07-29).
+  - **A pack's members need not share a panel.** `clock_scoring_cpgs()` reads
+    `pack[["member_cpgs"]][[id]]` when the pack carries it and `pack[["cpgs"]]` otherwise. `GP_age`
+    is the one pack that carries it (10 / 30 / 71 CpGs, nested), so its `cpgs` is the union and
+    `n_cpgs` in the registry counts that union (DECISIONS 2026-09-23).
 - **"Assets" are the packs, and every public name is `<verb>_mc_<noun>`**: `get_mc_assets_dir()` /
   `set_mc_assets_dir()` (the setter `NULL`-clears and returns the old value invisibly),
   `list_mc_assets()` (read-only table), `download_mc_assets()` (bytes -> disk), `load_mc_assets()`
@@ -847,6 +852,14 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   release tag, which is what makes re-upload of unchanged weights a no-op. It stays maintainer-side
   and never reaches a result record. There is no second hash and no runtime re-hash of a loaded
   pack.
+  - **The hash reads the declared inputs, never a derived value.** `build_external_assets()` drops
+    the payload's `derived` field before hashing and saves the pack with it. Today only `GP_age`
+    has one: `alpha`, the N x N Cholesky solve `sync()` runs once per member, whose last digits
+    follow the BLAS build and thread count. Hashing it would mint a different pack filename on
+    every collaborator's machine, and the lockfile is gitignored and all-or-nothing, so any
+    `sync.R` edit rebuilds every pack. Every other pack is an exact read of CSV values and has no
+    `derived`, so its hash did not move (asserted in the dry run). A change to how `alpha` is
+    built is an `EXTERNAL_ENCODING_VERSION` bump (DECISIONS 2026-09-23).
   - **A pack is a gzipped `.rds`, and `mc_read_pack()` is the only reader.** qs2 was dropped on
     2026-08-06 for the same total size and read time at three fewer compiled dependencies. What it
     took with it was `validate_checksum`, and the replacement is one rule: **a warning from

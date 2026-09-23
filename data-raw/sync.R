@@ -41,7 +41,7 @@ LOCKFILE <- file.path(asset_dir, "lockfile.rds")
 META_REMOTE <- "https://github.com/HigginsChenLab/methylCIPHER-meta.git"
 
 # external families as release assets, rest in sysdata
-EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge")
+EXTERNAL_GROUPS <- c("SystemsAge", "PCClocks", "PCBrainAge", "GP_age")
 
 # single external clocks inside an otherwise-bundled group (group in both buckets)
 EXTERNAL_CLOCKS <- c("Zhang2019BLUP")
@@ -110,6 +110,7 @@ COMPONENT_FIELDS <- c(
   "file",
   "row_key",
   "col_key",
+  "col_axis",
   "intercept",
   "covariates"
 )
@@ -1043,22 +1044,34 @@ coef_path <- function(clock_id, group_id) {
 TENSOR_KIND <- "tensor"
 CODE_KIND <- "r_source"
 
-# declared tensor shape: row_key is col 1, col_key the rest
+# declared tensor shape: row_key is col 1. col_key is the literal header of
+# the rest, col_axis names what the columns index (header not compared).
 tensor_spec <- function(
   kind = TENSOR_KIND,
   row_key = NULL,
   col_key = NULL,
-  field = NA_character_
+  field = NA_character_,
+  col_axis = NULL
 ) {
   cols <- character()
   if (!is.null(col_key) && nzchar(as.character(col_key))) {
     cols <- trimws(strsplit(as.character(col_key), ",", fixed = TRUE)[[1L]])
   }
+  axis <- if (is.null(col_axis)) NA_character_ else as.character(col_axis)
+  if (length(cols) && !is.na(axis)) {
+    stop(
+      "Component declared by ",
+      field,
+      " has both col_key and col_axis",
+      call. = FALSE
+    )
+  }
   list(
     kind = kind,
     field = as.character(field),
     row_key = if (is.null(row_key)) NA_character_ else as.character(row_key),
-    col_key = cols
+    col_key = cols,
+    col_axis = axis
   )
 }
 
@@ -1071,13 +1084,14 @@ declared_tensors <- function(meta) {
     field,
     kind = TENSOR_KIND,
     row_key = NULL,
-    col_key = NULL
+    col_key = NULL,
+    col_axis = NULL
   ) {
     d <- declared_path(x, field, cid)
     if (!d$vendor) {
       return(invisible(NULL))
     }
-    out[[d$path]] <<- tensor_spec(kind, row_key, col_key, field)
+    out[[d$path]] <<- tensor_spec(kind, row_key, col_key, field, col_axis)
     invisible(NULL)
   }
 
@@ -1103,7 +1117,8 @@ declared_tensors <- function(meta) {
       comp[["file"]],
       "components[].file",
       row_key = comp[["row_key"]],
-      col_key = comp[["col_key"]]
+      col_key = comp[["col_key"]],
+      col_axis = comp[["col_axis"]]
     )
   }
   # probe_sets and shared: cpg list or cpg,value (header says which)
@@ -1131,14 +1146,26 @@ read_tensor_csv <- function(path, spec = NULL) {
 
   # row_key names column 1, col_key asserted only when declared
   if (!is.null(spec)) {
+    shown <- function(x) {
+      cap <- 12L
+      if (length(x) <= cap) {
+        return(paste(x, collapse = ", "))
+      }
+      paste0(
+        paste(x[seq_len(cap)], collapse = ", "),
+        ", ... [",
+        length(x),
+        " columns]"
+      )
+    }
     mismatch <- function(want) {
       stop(
         "Tensor ",
         path,
         " has header (",
-        paste(header, collapse = ", "),
+        shown(header),
         ") but declares (",
-        paste(want, collapse = ", "),
+        shown(want),
         ")",
         call. = FALSE
       )
@@ -2277,6 +2304,122 @@ encode_zhang2019 <- function(bundle, catalog) {
   bundle
 }
 
+# gp_age: one GP regression model per member. alpha = (K + (noise + jitter) I)^-1 y
+# is built here, once, and is the only derived value in any pack.
+GP_AGE_JITTER <- 1e-8
+GP_AGE_PARAMS <- c("rbf_variance", "rbf_lengthscale", "noise_variance")
+
+gp_age_alpha <- function(X, y, variance, lengthscale, noise) {
+  sq <- rowSums(X^2)
+  K <- outer(sq, sq, "+") - 2 * tcrossprod(X)
+  K[K < 0] <- 0
+  K <- variance * exp(-0.5 * K / lengthscale^2)
+  diag(K) <- diag(K) + noise + GP_AGE_JITTER
+  R <- chol(K)
+  rm(K)
+  as.numeric(backsolve(R, backsolve(R, y, transpose = TRUE)))
+}
+
+encode_gp_age <- function(bundle, catalog) {
+  gid <- "GP_age"
+  tensors <- bundle[["tensors"]]
+  ids <- as.character(bundle[["clocks"]] %||% character())
+  models <- list()
+  derived <- list()
+  member_cpgs <- list()
+  used <- character()
+
+  for (cid in ids) {
+    entry <- catalog[["clocks"]][[cid]]
+    x_rel <- component_file(entry, "train_X", cid)
+    y_rel <- component_file(entry, "train_y", cid)
+    k_rel <- component_file(entry, "kernel_params", cid)
+    fill_rel <- vendored_path(
+      entry[["imputation"]][["ref"]],
+      "imputation.ref",
+      cid
+    )
+    code_rel <- vendored_path(entry[["code_ref"]], "code_ref", cid)
+    for (r in c(x_rel, y_rel, k_rel, fill_rel, code_rel)) {
+      if (is.null(tensors[[r]])) {
+        stop(gid, ": missing tensor ", r, call. = FALSE)
+      }
+    }
+
+    xdf <- tensors[[x_rel]]
+    cpgs <- as.character(xdf[[1L]])
+    if (!setequal(cpgs, resolved_scoring_cpgs(entry, cid))) {
+      stop(
+        cid,
+        ": train_X rows differ from the resolved scoring panel",
+        call. = FALSE
+      )
+    }
+    train_ids <- names(xdf)[-1L]
+    X <- t(as.matrix(xdf[-1L]))
+    dimnames(X) <- list(NULL, cpgs)
+    y <- tensors[[y_rel]]
+    # the declared join: train_X columns are train_y rows, in order
+    if (!identical(train_ids, names(y))) {
+      stop(
+        cid,
+        ": train_X columns and train_y rows are not the same samples",
+        call. = FALSE
+      )
+    }
+    par <- tensors[[k_rel]]
+    if (!all(GP_AGE_PARAMS %in% names(par))) {
+      stop(
+        cid,
+        ": kernel_params lacks one of ",
+        paste(GP_AGE_PARAMS, collapse = ", "),
+        call. = FALSE
+      )
+    }
+    fill <- stats::setNames(
+      align_double(tensors[[fill_rel]], cpgs, fill_rel),
+      cpgs
+    )
+
+    message("sync: ", cid, ": solving alpha over ", length(y), " rows...")
+    alpha <- gp_age_alpha(
+      X,
+      unname(y),
+      par[["rbf_variance"]],
+      par[["rbf_lengthscale"]],
+      par[["noise_variance"]]
+    )
+
+    models[[cid]] <- list(
+      cpgs = cpgs,
+      X = X,
+      variance = par[["rbf_variance"]],
+      lengthscale = par[["rbf_lengthscale"]],
+      fill = fill
+    )
+    derived[[cid]] <- list(alpha = alpha)
+    member_cpgs[[cid]] <- cpgs
+    used <- c(used, x_rel, y_rel, k_rel, fill_rel, code_rel)
+  }
+
+  left <- residual_tensors(tensors, used)
+  if (length(left)) {
+    stop(
+      gid,
+      ": unconsumed tensors: ",
+      paste(names(left), collapse = ", "),
+      call. = FALSE
+    )
+  }
+  bundle[["cpgs"]] <- unique(unlist(member_cpgs, use.names = FALSE))
+  bundle[["member_cpgs"]] <- member_cpgs
+  bundle[["models"]] <- models
+  bundle[["derived"]] <- derived
+  bundle[["tensors"]] <- list()
+  bundle[["encoding"]] <- "gp_models"
+  bundle
+}
+
 encode_external_asset <- function(bundle, catalog) {
   gid <- bundle[["group_id"]] %||% NA_character_
   if (identical(gid, "PCClocks")) {
@@ -2287,6 +2430,8 @@ encode_external_asset <- function(bundle, catalog) {
     encode_pcbrainage(bundle, catalog)
   } else if (identical(gid, "Zhang2019")) {
     encode_zhang2019(bundle, catalog)
+  } else if (identical(gid, "GP_age")) {
+    encode_gp_age(bundle, catalog)
   } else {
     stop("No external encoding for group_id=", gid, call. = FALSE)
   }
@@ -2673,6 +2818,9 @@ stable_external_payload <- function(bundle) {
     systems = bundle[["systems"]],
     age = bundle[["age"]],
     impute = bundle[["impute"]],
+    member_cpgs = bundle[["member_cpgs"]],
+    models = bundle[["models"]],
+    derived = bundle[["derived"]],
     tensors = if (length(tensors)) tensors else NULL
   )
   out[!vapply(out, is.null, logical(1L))]
@@ -2910,7 +3058,11 @@ build_external_assets <- function(repo_path, catalog, external_groups) {
     bundle[["encoding_version"]] <- EXTERNAL_ENCODING_VERSION
 
     payload <- stable_external_payload(bundle)
-    phash <- payload_hash_of(payload)
+    # `derived` is computed (its last digits follow the BLAS), so the content
+    # address reads the declared inputs only. no other pack carries it.
+    hashed <- payload
+    hashed[["derived"]] <- NULL
+    phash <- payload_hash_of(hashed)
     fname <- sprintf("%s-%s.rds", tolower(gid), phash)
     fpath <- file.path(asset_dir, fname)
     # tag = filename stem (<group>-<hash>)
