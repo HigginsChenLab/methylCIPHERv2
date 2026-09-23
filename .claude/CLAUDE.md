@@ -100,7 +100,7 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   surface that reads a beta matrix; everything else reads the **catalog** (`list_clocks`,
   `clock_cpgs`, `list_clock_tags`) or a **finished record** (`clocks_coverage`, `samples_coverage`,
   `calc_accel`, `score_associations`, `refinalize_clocks`, `cite_clocks`). Only
-  `calc_clocks` and `predict_sex` take a `DNAm` argument, and `predict_sex` touches it *through*
+  `calc_clocks`, `predict_sex` and `qc_report` (see the exception below) take a `DNAm` argument, and `predict_sex` touches it *through*
   `calc_clocks`; `sim_DNAm` generates a matrix rather than reading one. A "dry run", a coverage
   preview, or a `report(DNAm)` arm is **a second beta reader**, and that is what is refused: it
   takes its own independently-supplied matrix, so its verdict can be about a different object than
@@ -112,6 +112,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   expensive IDAT parse; we have neither. `predict_sex()` is composition, not a pre-check. This rests
   on scoring staying cheap; a streaming or chunked path would need an explicit answer rather than an
   inherited one (DECISIONS 2026-08-03).
+  - **One deliberate exception: `qc_report(DNAm =)` is a second, descriptive beta reader**, added
+    at the maintainer's request. It reads the matrix for QC (beta distribution, missingness on
+    both axes, array identity from `inst/extdata/array_reference.rds`, chrX/chrY presence) and
+    counts each clock's scoring panel against `colnames(DNAm)`. It stays inside the reason for the
+    rule only because it **grades nothing and refuses nothing**: no floor is enforced there,
+    nothing it computes is fed to `calc_clocks()`, and its per-clock status is worded (roxygen and
+    page) as a description of *that* matrix, never as what scoring will do -- it points at
+    `clocks_coverage()` for that. It never downloads an asset (`qc_packs()` loads only what is
+    already on disk). Its sex call goes through `predict_sex()`, so through `calc_clocks()`. Do
+    not turn it into a pre-flight gate, and do not add a third reader without the same argument
+    (DECISIONS 2026-09-22).
 - **One engine + a finite, closed branch set.** Every work unit routes on the catalog pair
   `(weights_format, computation_type)` to shared `linear_score()` or a named branch (pre-transform,
   family orchestrator, sex-routed alias, external, custom). There is **no** recipe

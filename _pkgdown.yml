@@ -30,13 +30,14 @@ reference:
 
 - title: Quality control
   desc: >
-    Report the panel coverage for each clock and for each sample, and digest
-    a whole run.
+    Report the panel coverage for each clock and for each sample, digest
+    a whole run, and write an HTML report on the inputs and the result.
   contents:
   - clocks_coverage
   - samples_coverage
   - summary.mc_result
   - print.mc_summary
+  - qc_report
 
 - title: Working with an mc_result
   desc: >
