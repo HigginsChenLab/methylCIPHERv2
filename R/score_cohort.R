@@ -35,6 +35,7 @@ score_type <- function(p) {
       gid,
       SystemsAge = "pack_systemsage",
       Zhang2019 = "Zhang2019",
+      GP_age = "GP_age",
       NULL
     )
     if (!is.null(etag)) {
@@ -518,6 +519,7 @@ score_cohort <- function(DNAm, spec, facts, min_samples_coverage = 0.75) {
       EpiTOC2 = score_EpiTOC2(p, cpgs, block, results),
       MiAge = score_MiAge(p, cpgs, block, results),
       Zhang2019 = score_Zhang2019(p, cpgs, block, results),
+      GP_age = score_GP_age(p, cpgs, block, results),
       DNAmSex_Wang = score_DNAmSex_Wang(p, cpgs, block, results),
       cAge = score_cAge(p, cpgs, block, results),
       Garma = score_Garma(p, cpgs, block, results),
