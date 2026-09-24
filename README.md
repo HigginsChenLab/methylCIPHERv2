@@ -7,6 +7,14 @@
 
 <!-- badges: end -->
 
+<figure>
+<img src="man/figures/README-workflow.png"
+alt="The methylCIPHERv2 workflow: choosing a clock, auditing the data, scoring, auditing the results, and reporting." />
+<figcaption aria-hidden="true">The methylCIPHERv2 workflow: choosing a
+clock, auditing the data, scoring, auditing the results, and
+reporting.</figcaption>
+</figure>
+
 `{methylCIPHERv2}` is a lightweight epigenetic clocks R package. The
 main function, `calc_clocks()`, has 3 important inputs (see
 `calc_clocks()` docs for more details):
