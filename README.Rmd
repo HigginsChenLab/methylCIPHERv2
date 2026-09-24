@@ -20,6 +20,8 @@ knitr::opts_chunk$set(
 <!-- badges: start -->
 <!-- badges: end -->
 
+![The methylCIPHERv2 workflow: choosing a clock, auditing the data, scoring, auditing the results, and reporting.](man/figures/README-workflow.png)
+
 `{methylCIPHERv2}` is a lightweight epigenetic clocks R package. The main function, `calc_clocks()`, has 3 important inputs (see `calc_clocks()` docs for more details):
 
 * `DNAm`: A DNAm beta-matrix where samples are in the rows and CpGs are in the columns
