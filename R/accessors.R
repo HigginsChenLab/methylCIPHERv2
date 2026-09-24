@@ -141,7 +141,9 @@ probe_sets_cpgs <- function(entry, role) {
 clock_scoring_cpgs <- function(id, packs = NULL) {
   entry <- clock_entry(id)
   if (isTRUE(entry[["external_group"]])) {
-    return(clock_pack(id, packs)[["cpgs"]])
+    pack <- clock_pack(id, packs)
+    # a pack whose members read different panels lists each under member_cpgs
+    return(pack[["member_cpgs"]][[id]] %||% pack[["cpgs"]])
   }
   probe_sets_cpgs(entry, "scoring")
 }
