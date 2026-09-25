@@ -297,6 +297,27 @@ qc_report(
 )
 ```
 
+The `context` argument adds a record of how the data were made. It
+takes a list, or the path of a JSON file. The record can hold notes on a
+section, a `pheno` column or a sample, overview cards, key findings,
+stated values beside measured values, groups of samples that should
+score alike, and whole extra sections. The report draws a value taken
+from a record and a written summary in different styles. See the Context
+section of `?qc_report`.
+
+``` r
+qc_report(
+  pheno = sim[["pheno"]],
+  x = res,
+  file = "qc_report.html",
+  context = list(
+    version = 1,
+    source = "Curation notes",
+    notes = list(list(on = "variable", key = "Age", text = "Age in years at the draw."))
+  )
+)
+```
+
 ### Bibliography
 
 `cite_clocks()` returns the reference for every clock in a result.
