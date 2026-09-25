@@ -387,7 +387,7 @@ ctx_note_html <- function(st, n, wrap = "div") {
     ctx_kind_label(st, n[["kind"]]),
     if (!is.null(n[["badge"]])) paste0(" ", chip(n[["badge"]][["text"]], n[["badge"]][["status"]])),
     if (!is.null(n[["text"]])) paste0(" ", html_escape(n[["text"]])),
-    if (!is.null(n[["href"]])) paste0(" <a href=\"", html_escape(n[["href"]]), "\">Open</a>"),
+    if (!is.null(n[["href"]])) paste0(" <a href=\"", html_escape(n[["href"]]), "\">", html_escape(ctx_link_text(n[["href"]])), "</a>"),
     ctx_refs_html(st, n[["ref"]]),
     if (!is.null(n[["fields"]])) {
       html_table(
@@ -401,6 +401,11 @@ ctx_note_html <- function(st, n, wrap = "div") {
     },
     "</", wrap, ">"
   )
+}
+
+# the text of a link: the file name of a path, or "Open" for an anchor
+ctx_link_text <- function(href) {
+  if (startsWith(href, "#")) "Open" else basename(sub("[?#].*$", "", href))
 }
 
 ctx_notes_on <- function(st, on, key = NULL) {

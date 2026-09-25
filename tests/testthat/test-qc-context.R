@@ -29,7 +29,7 @@ ctx_full <- function(ids) {
       list(on = "variable", key = "site", text = "From the title column.", ref = "col.site",
            badge = list(text = "confidence low", status = "warn"), details = "Long <reason>."),
       list(on = "variable", key = "site", topic = "missing", text = "Read as not applicable."),
-      list(on = "variable", key = "Female", text = "Mapped from gender."),
+      list(on = "variable", key = "Female", text = "Mapped from gender.", href = "../code/make.py"),
       list(on = "variable", key = "cRACE", text = "Not in the source."),
       list(on = "section", key = "dnam", text = "Values copied without conversion.",
            fields = list(`Source file` = "betas.txt.gz", Probes = "485,000")),
@@ -82,6 +82,7 @@ test_that("each part of a context lands in its place", {
   expect_match(page, "<h2>Methylation data</h2><div class=\"ctx-note ctx-fact\">", fixed = TRUE)
   expect_match(page, "Age correlation against blood</h3><div class=\"ctx-note ctx-account\">", fixed = TRUE)
   expect_match(page, "betas.txt.gz", fixed = TRUE)
+  expect_match(page, "<a href=\"../code/make.py\">make.py</a>", fixed = TRUE)
   # a note on a part the page does not have goes to the overview
   expect_match(page, "[no-such-part] Lost note.", fixed = TRUE)
   # samples
