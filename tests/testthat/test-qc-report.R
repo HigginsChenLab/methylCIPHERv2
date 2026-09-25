@@ -199,3 +199,17 @@ test_that("a large scatter keeps hover titles only on the points that ask", {
   small <- svg_points(p, x[1:5], x[1:5], titles = paste0("s", 1:5))
   expect_equal(lengths(regmatches(small, gregexpr("<title>", small, fixed = TRUE))), 5L)
 })
+
+test_that("the page for a fixed input does not change", {
+  withr::local_seed(20260925L)
+  fx <- qc_fixture()
+  local_mocked_bindings(qc_now = function() as.POSIXct("2026-01-01 12:00", tz = "UTC"))
+  path <- withr::local_tempfile(fileext = ".html")
+  qc_report(fx$DNAm, fx$pheno, fx$result, clocks = fx$clocks, file = path, open = FALSE)
+  page <- readLines(path, warn = FALSE)
+  # the package and R versions differ between machines
+  page <- sub("by methylCIPHERv2 [^<]*</p>", "by methylCIPHERv2.</p>", page)
+  shown <- withr::local_tempfile(fileext = ".html")
+  writeLines(page, shown, useBytes = TRUE)
+  expect_snapshot_file(shown, "qc_report.html")
+})

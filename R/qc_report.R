@@ -1212,6 +1212,9 @@ qc_inputs_html <- function(DNAm, pheno, x) {
   html_table(df, c("Input", "Shape"))
 }
 
+# the time stamped in the page header. a function, so a test can fix it.
+qc_now <- function() Sys.time()
+
 qc_page <- function(title, sections, st, DNAm, pheno, x, age_plot) {
   cards_html <- vapply(sections[1:3], function(s) {
     paste0(
@@ -1251,7 +1254,7 @@ qc_page <- function(title, sections, st, DNAm, pheno, x, age_plot) {
     toggle_css(c("none", "age", "sex", "both")), "</style></head><body>",
     "<header><h1>", html_escape(title), "</h1><p class=\"meta\">",
     html_escape(sprintf("Written %s by methylCIPHERv2 %s, %s.",
-                        format(Sys.time(), "%Y-%m-%d %H:%M"), ver, R.version.string)),
+                        format(qc_now(), "%Y-%m-%d %H:%M"), ver, R.version.string)),
     "</p>", nav, "</header><main>",
     "<section id=\"overview\"><h2>Overview</h2>", qc_inputs_html(DNAm, pheno, x),
     "<h3>Key findings</h3><ul class=\"findings\">", paste(findings, collapse = ""), "</ul>",
