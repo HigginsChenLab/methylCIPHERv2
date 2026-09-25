@@ -14,7 +14,8 @@ qc_report(
   covariates = NULL,
   ext_data = NULL,
   title = "methylCIPHERv2 QC report",
-  open = interactive()
+  open = interactive(),
+  context = NULL
 )
 }
 \arguments{
@@ -51,6 +52,10 @@ assets. Default is \code{NULL}, which uses the assets directory.}
 
 \item{open}{A boolean. Opens the report in a browser after it is written.
 Default is \code{interactive()}.}
+
+\item{context}{A list. Notes, cards, findings and sections to add to the
+report. A string with the path of a JSON file that holds them is also
+accepted. Default is \code{NULL}, which adds nothing. See the Context section.}
 }
 \value{
 A string. The path of the written file, invisibly.
@@ -94,6 +99,47 @@ the scored clocks from \code{\link[=cite_clocks]{cite_clocks()}} closes the repo
 Warnings and messages raised while the report is built are listed at the
 end of the report, not printed.
 }
+\section{Context}{
+
+A context describes how the data were made. The report shows it beside its
+own checks. Every string in a context is shown as text, never as HTML. A
+JSON file needs the jsonlite package. The list, or the JSON object, has
+these fields. Only \code{version} is required.
+\itemize{
+\item \code{version}: the number \code{1}.
+\item \code{source}: a string that names who wrote the context.
+\item \code{cards}: a \code{heading} and a list of \code{items}. Each item has a \code{label}, a
+\code{value}, and optionally a \code{status} and a \code{detail}. The cards are added to
+the overview.
+\item \code{comparisons}: a list. Each entry has a \code{label}, a \code{stated} value, a
+\code{measured} value and a \code{status}. It can also have \code{stated_from},
+\code{measured_from}, \code{note} and \code{ref}. The overview shows them in one table.
+A \code{status} of \code{"warn"} or \code{"bad"} also adds a key finding.
+\item \code{findings}: a list. Each entry has a \code{status}, a \code{text} and optionally a
+\code{ref}. They are added to the key findings.
+\item \code{notes}: a list. Each note has \code{on}, \code{key} and \code{text}. \code{on} is
+\code{"section"}, \code{"variable"} or \code{"sample"}. The \code{key} is a section id or a
+sub-heading id, a column of \code{pheno}, or a sample id. A note on a variable
+with \code{topic = "missing"} gives the reason for its missing values.
+\item \code{sample_groups}: a \code{label} and a named list of \code{groups}. Each group holds
+the ids of samples that should score alike, such as technical
+replicates. The clock results compare the first two scored samples of
+each group.
+\item \code{sections}: a list. Each section has an \code{id}, a \code{heading} and a list of
+\code{blocks}. A block has a \code{type}: \code{"text"}, \code{"list"} or \code{"table"}. A table
+has \code{columns} and \code{rows}. It can also name an \code{anchor} column, whose
+values a \code{ref} links to, a \code{details} column that is folded, and
+\code{filters} columns that the reader can filter on.
+}
+
+A note, a text block and a list item can have a \code{kind}, a \code{badge}, a
+\code{details} text that is folded, named \code{fields}, a \code{ref} and an \code{href}. The
+\code{kind} is \code{"fact"}, for a value taken from a record, or \code{"account"}, for a
+summary written by the source. The two are drawn in different styles. A
+\code{status} is \code{"ok"}, \code{"warn"}, \code{"bad"}, \code{"na"} or \code{"info"}. An \code{href} is an
+anchor or a relative path.
+}
+
 \section{Covariate columns}{
 
 Some clocks read a covariate from the sample metadata. A clock names the

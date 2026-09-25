@@ -1,23 +1,5 @@
 # qc_report(): the html report and the descriptive helpers behind it.
 
-qc_fixture <- function(n = 12L, clocks = c("Horvath1", "Hannum")) {
-  DNAm <- random_betas(clock_cpgs(clocks), n = n)
-  pheno <- mc_pheno(
-    rownames(DNAm),
-    Age = mc_ages(n),
-    Female = rep(c(0L, 1L), length.out = n)
-  )
-  pheno[["site"]] <- rep(c("a", "b", "c"), length.out = n)
-  list(
-    DNAm = DNAm,
-    pheno = pheno,
-    result = calc_clocks(DNAm, clocks, pheno = pheno),
-    clocks = clocks
-  )
-}
-
-read_page <- function(path) paste(readLines(path, warn = FALSE), collapse = "\n")
-
 test_that("qc_report() refuses a call with nothing to report on", {
   expect_error(qc_report(open = FALSE))
 })
