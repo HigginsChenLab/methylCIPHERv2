@@ -34,8 +34,49 @@
 #'   `"methylCIPHERv2 QC report"`.
 #' @param open A boolean. Opens the report in a browser after it is written.
 #'   Default is `interactive()`.
+#' @param context A list. Notes, cards, findings and sections to add to the
+#'   report. A string with the path of a JSON file that holds them is also
+#'   accepted. Default is `NULL`, which adds nothing. See the Context section.
 #'
 #' @inheritSection mc-params Covariate columns
+#'
+#' @section Context:
+#' A context describes how the data were made. The report shows it beside its
+#' own checks. Every string in a context is shown as text, never as HTML. A
+#' JSON file needs the jsonlite package. The list, or the JSON object, has
+#' these fields. Only `version` is required.
+#'
+#' * `version`: the number `1`.
+#' * `source`: a string that names who wrote the context.
+#' * `cards`: a `heading` and a list of `items`. Each item has a `label`, a
+#'   `value`, and optionally a `status` and a `detail`. The cards are added to
+#'   the overview.
+#' * `comparisons`: a list. Each entry has a `label`, a `stated` value, a
+#'   `measured` value and a `status`. It can also have `stated_from`,
+#'   `measured_from`, `note` and `ref`. The overview shows them in one table.
+#'   A `status` of `"warn"` or `"bad"` also adds a key finding.
+#' * `findings`: a list. Each entry has a `status`, a `text` and optionally a
+#'   `ref`. They are added to the key findings.
+#' * `notes`: a list. Each note has `on`, `key` and `text`. `on` is
+#'   `"section"`, `"variable"` or `"sample"`. The `key` is a section id or a
+#'   sub-heading id, a column of `pheno`, or a sample id. A note on a variable
+#'   with `topic = "missing"` gives the reason for its missing values.
+#' * `sample_groups`: a `label` and a named list of `groups`. Each group holds
+#'   the ids of samples that should score alike, such as technical
+#'   replicates. The clock results compare the first two scored samples of
+#'   each group.
+#' * `sections`: a list. Each section has an `id`, a `heading` and a list of
+#'   `blocks`. A block has a `type`: `"text"`, `"list"` or `"table"`. A table
+#'   has `columns` and `rows`. It can also name an `anchor` column, whose
+#'   values a `ref` links to, a `details` column that is folded, and
+#'   `filters` columns that the reader can filter on.
+#'
+#' A note, a text block and a list item can have a `kind`, a `badge`, a
+#' `details` text that is folded, named `fields`, a `ref` and an `href`. The
+#' `kind` is `"fact"`, for a value taken from a record, or `"account"`, for a
+#' summary written by the source. The two are drawn in different styles. A
+#' `status` is `"ok"`, `"warn"`, `"bad"`, `"na"` or `"info"`. An `href` is an
+#' anchor or a relative path.
 #'
 #' @details
 #' Every argument is optional, but at least one of `DNAm`, `pheno` and `x` is
@@ -93,7 +134,8 @@ qc_report <- function(
   covariates = NULL,
   ext_data = NULL,
   title = "methylCIPHERv2 QC report",
-  open = interactive()
+  open = interactive(),
+  context = NULL
 ) {
   checkmate::assert_string(pheno_id, min.chars = 1L)
   checkmate::assert_string(title, min.chars = 1L)
@@ -136,9 +178,14 @@ qc_report <- function(
     file <- tempfile("qc_report_", fileext = ".html")
   }
   checkmate::assert_path_for_output(file, overwrite = TRUE)
+  ctx <- qc_context_read(context)
 
   st <- new.env(parent = emptyenv())
   st[["notes"]] <- list()
+  st[["ctx"]] <- ctx
+  if (!is.null(ctx)) {
+    st[["ctx_anchors"]] <- ctx_collect_anchors(ctx)
+  }
 
   dn <- qc_section_dnam(st, DNAm, pheno, pheno_id, clocks, ext_data)
   ph <- qc_section_pheno(st, pheno, pheno_id, pheno_src, DNAm, x)
@@ -147,7 +194,10 @@ qc_report <- function(
   # after the DNAm section, which leaves the sex calls in st
   ov <- qc_overview_age(st, DNAm, pheno, pheno_id, x)
 
-  page <- qc_page(title, list(dn, ph, cr, bib), st, DNAm, pheno, x, ov)
+  # after every other section, which leave their flagged variables in st
+  sections <- ctx_place_notes(st, c(list(dn, ph, cr), ctx_sections(st), list(bib)))
+
+  page <- qc_page(title, sections, st, DNAm, pheno, x, ov)
   con <- file(file, open = "w", encoding = "UTF-8")
   on.exit(close(con), add = TRUE)
   writeLines(page, con, useBytes = TRUE)
@@ -433,7 +483,7 @@ qc_section_dnam <- function(st, DNAm, pheno, pheno_id, clocks, ext_data) {
       cards <- c(cards, list(card("Sex mismatches", "Not computable", "na", "No sample has a predicted sex")))
       findings <- c(findings, finding(
         "na",
-        "No sample has a predicted sex, so the Female column could not be checked."
+        paste0("No sample has a predicted sex, so the Female column could not be checked.", ctx_see(st, "Female"))
       ))
     } else if ("sex_mismatch" %in% names(ps)) {
       mm <- which(ps[["sex_mismatch"]] %in% TRUE)
@@ -442,14 +492,21 @@ qc_section_dnam <- function(st, DNAm, pheno, pheno_id, clocks, ext_data) {
         sprintf("of %s samples with both sexes", fmt_int(sum(called & !is.na(ps[["sex_mismatch"]]))))
       )))
       if (length(mm)) {
+        ctx_flag(st, "Female", "Predicted sex differs")
         findings <- c(findings, finding(
           "bad",
-          sprintf("%s sample%s have a predicted sex that differs from the Female column.",
-                  fmt_int(length(mm)), if (length(mm) == 1L) "" else "s")
+          paste0(sprintf("%s sample%s have a predicted sex that differs from the Female column.",
+                         fmt_int(length(mm)), if (length(mm) == 1L) "" else "s"), ctx_see(st, "Female"))
         ))
         mm_df <- ps[mm, intersect(c("ID", "predicted_sex", "recorded_sex"), names(ps)), drop = FALSE]
+        mm_labels <- c("Sample", "Predicted sex", "Recorded sex")[seq_along(mm_df)]
+        mm_note <- ctx_sample_col(st, mm_df[[1L]])
+        if (!is.null(mm_note)) {
+          mm_df[["note"]] <- mm_note
+          mm_labels <- c(mm_labels, "Note")
+        }
         mm_html <- paste0(tag("h4", "Samples with a sex mismatch"),
-                          html_table(mm_df, c("Sample", "Predicted sex", "Recorded sex")[seq_along(mm_df)], cap = 20L))
+                          html_table(mm_df, mm_labels, cap = 20L))
       }
     } else {
       cards <- c(cards, list(card("Sex mismatches", "Not computable", "na", "No Female column in pheno")))
@@ -586,7 +643,7 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
   if (is.null(pheno)) {
     return(qc_section(
       "pheno", "Phenotype data",
-      not_computable("No pheno data frame was supplied."),
+      paste0(not_computable("No pheno data frame was supplied."), ctx_variables_html(st, NULL), ctx_samples_html(st)),
       cards = lapply(labels, function(l) card(l, "Not computable", "na", "No pheno supplied")),
       findings = finding("na", "The phenotype checks need a pheno data frame.")
     ))
@@ -646,6 +703,8 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
            if (n_hivar) "warn" else if (n_missvar) "info" else "ok",
            sprintf("%d above %s missing", n_hivar, fmt_pct(QC_VAR_MISS, 0L)))
     ))
+    ctx_flag(st, ps[["variable"]][ps[["pct_missing"]] > QC_VAR_MISS], sprintf("More than %s missing", fmt_pct(QC_VAR_MISS, 0L)))
+    ctx_flag(st, ps[["variable"]][!is.na(ps[["n_outliers"]]) & ps[["n_outliers"]] > 0], sprintf("Values beyond %d SD", QC_OUTLIER_Z))
     if (n_hivar) {
       findings <- c(findings, finding("warn", sprintf(
         "%d variable%s miss more than %s of values: %s.", n_hivar, if (n_hivar == 1L) "" else "s",
@@ -689,11 +748,17 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
                                                  ifelse(ps[["pct_missing"]] > 0, "warn", "ok"))),
       stringsAsFactors = FALSE
     )
+    miss_labels <- c("Variable", "Missing", "Share missing")
+    reasons <- ctx_missing_reasons(st, ps[["variable"]])
+    if (!is.null(reasons)) {
+      miss_df[["reason"]] <- reasons
+      miss_labels <- c(miss_labels, "Stated reason")
+    }
     miss_df <- miss_df[order(-ps[["pct_missing"]], ps[["variable"]]), , drop = FALSE]
     paste0(
       sub_head("pheno-stats", "Descriptive statistics"), num_html, cat_html,
       sub_head("pheno-missing", "Missing values"),
-      html_table(miss_df, c("Variable", "Missing", "Share missing"), html = "pct")
+      html_table(miss_df, miss_labels, html = c("pct", "reason"))
     )
   }
 
@@ -714,7 +779,8 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
                 if (sum(ok) > 1L) fmt_num(stats::sd(age[ok])) else "NA")
       )))
       if (max(age[ok]) > 120 || min(age[ok]) < 0) {
-        findings <- c(findings, finding("warn", "Some Age values are below 0 or above 120. Check that Age is in years."))
+        ctx_flag(st, "Age", "Values below 0 or above 120")
+        findings <- c(findings, finding("warn", paste0("Some Age values are below 0 or above 120. Check that Age is in years.", ctx_see(st, "Age"))))
       }
       parts <- chart_hist(age, "Age", label = "Age distribution")
       if ("Female" %in% names(pheno)) {
@@ -730,6 +796,9 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
   }
   sex_card <- if ("Female" %in% names(pheno)) {
     f <- female_label(pheno[["Female"]])
+    if (anyNA(f)) {
+      ctx_flag(st, "Female", "Missing or not coded 0 or 1")
+    }
     card("Sex", sprintf("%s F / %s M", fmt_int(sum(f %in% "Female")), fmt_int(sum(f %in% "Male"))),
          if (anyNA(f)) "warn" else "info",
          sprintf("%s missing or not coded 0 or 1", fmt_int(sum(is.na(f)))))
@@ -745,8 +814,8 @@ qc_section_pheno <- function(st, pheno, pheno_id, pheno_src, DNAm, x) {
   }
   body <- paste0(
     src_note,
-    sub_head("pheno-ids", "Sample ids"), html_table(id_df, c("Measure", "Value")),
-    stats_html,
+    sub_head("pheno-ids", "Sample ids"), html_table(id_df, c("Measure", "Value")), ctx_samples_html(st),
+    stats_html, ctx_variables_html(st, if (is_qc_error(ps)) NULL else ps),
     sub_head("pheno-age", "Age distribution"), age_html
   )
   by_label <- stats::setNames(cards, vapply(cards, `[[`, character(1L), "label"))
@@ -859,10 +928,13 @@ qc_section_result <- function(st, x, pheno, pheno_id) {
     qc_assoc_html(assoc, m, age)
   }
 
+  groups <- ctx_groups_section(st, m)
+  findings <- c(findings, groups[["findings"]])
   body <- paste0(
     sub_head("clocks-run", "Run"), html_table(run_df, c("Measure", "Value")),
     sub_head("clocks-problems", "Scoring problems"), prob_html,
-    sub_head("clocks-age", "Age correlation against blood"), assoc_html
+    sub_head("clocks-age", "Age correlation against blood"), assoc_html,
+    groups[["html"]]
   )
   by_label <- stats::setNames(cards, vapply(cards, `[[`, character(1L), "label"))
   cards <- lapply(labels, function(l) by_label[[l]] %||% card(l, "Not computable", "na"))
@@ -1155,18 +1227,25 @@ qc_overview_age <- function(st, DNAm, pheno, pheno_id, x) {
   if (nrow(fl)) {
     n_age <- length(unique(fl[["sample"]][fl[["age_flag"]]]))
     if (n_age) {
-      findings <- finding("warn", sprintf(
+      ctx_flag(st, "Age", "Clock age far from the trend")
+      findings <- finding("warn", paste0(sprintf(
         "%s sample%s %s a Horvath1 or Zhang2019EN age far from the trend with Age.",
         fmt_int(n_age), if (n_age == 1L) "" else "s", if (n_age == 1L) "has" else "have"
-      ))
+      ), ctx_see(st, "Age")))
     }
     fl[["flag"]] <- ifelse(fl[["age_flag"]] & fl[["sex_flag"]], "age and sex",
                            ifelse(fl[["age_flag"]], "age", "sex"))
     fl <- fl[order(fl[["sample"]], fl[["clock"]]), c("sample", "clock", "age", "score", "flag"), drop = FALSE]
+    fl_labels <- c("Sample", "Clock", "Age", "Score", "Flag")
+    fl_note <- ctx_sample_col(st, fl[["sample"]])
+    if (!is.null(fl_note)) {
+      fl[["note"]] <- fl_note
+      fl_labels <- c(fl_labels, "Note")
+    }
     table_html <- paste0(
       "<details><summary>", fmt_int(length(unique(fl[["sample"]]))), " flagged sample",
       if (length(unique(fl[["sample"]])) == 1L) "" else "s", "</summary>",
-      html_table(fl, c("Sample", "Clock", "Age", "Score", "Flag"), cap = 50L), "</details>"
+      html_table(fl, fl_labels, cap = 50L), "</details>"
     )
   }
   src <- if (!is.null(x) && all(names(sc) %in% colnames(x[["scores"]]))) "x" else "DNAm"
@@ -1212,6 +1291,9 @@ qc_inputs_html <- function(DNAm, pheno, x) {
   html_table(df, c("Input", "Shape"))
 }
 
+# the time stamped in the page header. a function, so a test can fix it.
+qc_now <- function() Sys.time()
+
 qc_page <- function(title, sections, st, DNAm, pheno, x, age_plot) {
   cards_html <- vapply(sections[1:3], function(s) {
     paste0(
@@ -1222,7 +1304,7 @@ qc_page <- function(title, sections, st, DNAm, pheno, x, age_plot) {
       "</div></div>"
     )
   }, character(1L))
-  findings <- c(unlist(lapply(sections, `[[`, "findings"), use.names = FALSE), age_plot[["findings"]])
+  findings <- c(unlist(lapply(sections, `[[`, "findings"), use.names = FALSE), age_plot[["findings"]], ctx_findings_html(st))
   rank <- function(f) {
     if (grepl("chip bad", f, fixed = TRUE)) 1L
     else if (grepl("chip warn", f, fixed = TRUE)) 2L
@@ -1248,14 +1330,17 @@ qc_page <- function(title, sections, st, DNAm, pheno, x, age_plot) {
     "<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">",
     "<meta name=\"viewport\" content=\"width=device-width, initial-scale=1\">",
     "<title>", html_escape(title), "</title><style>", QC_CSS,
-    toggle_css(c("none", "age", "sex", "both")), "</style></head><body>",
+    toggle_css(c("none", "age", "sex", "both")),
+    if (ctx_on(st)) paste(c(QC_CONTEXT_CSS, st[["ctx_css"]]), collapse = "\n"),
+    "</style></head><body>",
     "<header><h1>", html_escape(title), "</h1><p class=\"meta\">",
     html_escape(sprintf("Written %s by methylCIPHERv2 %s, %s.",
-                        format(Sys.time(), "%Y-%m-%d %H:%M"), ver, R.version.string)),
+                        format(qc_now(), "%Y-%m-%d %H:%M"), ver, R.version.string)),
     "</p>", nav, "</header><main>",
     "<section id=\"overview\"><h2>Overview</h2>", qc_inputs_html(DNAm, pheno, x),
+    ctx_overview_html(st),
     "<h3>Key findings</h3><ul class=\"findings\">", paste(findings, collapse = ""), "</ul>",
-    age_plot[["html"]], paste(cards_html, collapse = ""), "</section>",
+    age_plot[["html"]], paste(cards_html, collapse = ""), ctx_cards_html(st), "</section>",
     body_sections,
     "<section id=\"notes\"><h2>Messages raised while building the report</h2>", qc_notes_html(st), "</section>",
     "</main></body></html>"
