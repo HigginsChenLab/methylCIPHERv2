@@ -745,6 +745,19 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
     this exemption. Do not read anything else under `control/` in the meantime, and do not treat
     the shape of `mc_codebook` as settled -- it is a left join of an unverified table
     (DECISIONS 2026-08-09).
+- **A tensor double is never read by R's own parser.** `R_strtod` (behind `read.csv` and
+  `as.numeric`) is not correctly rounded, and how wrong it is depends on the
+  platform: it builds digits in a long double, 80-bit on x86_64 and plain double on arm64. At
+  meta dca6604 it misreads 581 of 6,298,740 tensor tokens on x86_64 Windows and 751,826 on arm64
+  macOS, so pack hashes and the BMIQ gold hash followed whoever ran `sync()`, and GP_age was
+  reverted for it. `read_tensor_csv()` reads every cell as text, lets `type.convert()` pick each
+  column's type (integer stays integer, because the hashes cover storage type), and re-reads the
+  double columns through `parse_doubles_exact()`: jsonlite, which hands each token to C `strtod`
+  and is the reader upstream's writer checks against (`weights_extraction.md` sec 3). A
+  source-time canary stops `sync()` if jsonlite ever stops rounding correctly, and a token outside
+  the JSON number grammar stops it naming the file. Do not swap in `readr`, `vroom` or `fread`
+  for speed: upstream measured `readr::parse_double` disagreeing with C `strtod` on 240,678
+  strings, and on x86_64 `fread` misreads the same cells as base R.
 - **Entry point:** `sync(source_git_sha = NULL, upload = FALSE, force = FALSE)`.
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
