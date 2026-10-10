@@ -1124,9 +1124,82 @@ declared_tensors <- function(meta) {
 
 # tensor IO
 
+# R's own decimal reader (R_strtod, behind read.csv and as.numeric) is
+# not correctly rounded, and its error depends on the platform: it builds the
+# digits in a long double, which is 80-bit on x86_64 and plain double on arm64.
+# over weights/** at meta dca6604 it reads 581 tokens differently from a
+# correctly rounded parser on x86_64 Windows and 751826 on arm64 macOS, so
+# every hash over parsed tensors followed whoever ran sync. jsonlite hands each
+# number to the C library's strtod, which is correctly rounded on glibc, ucrt
+# and macOS, and is the reader upstream's writer checks against
+# (weights_extraction.md sec 3). a tensor double never goes through R_strtod.
+JSON_NUMBER_RE <- "^-?(0|[1-9][0-9]*)([.][0-9]+)?([eE][-+]?[0-9]+)?$"
+
+# correctly rounded doubles from the text of one column. every token gets an
+# exponent so jsonlite takes its strtod path, not its integer reader (which
+# would also read "-0" as 0). blank and NA cells stay NA, as read.csv had them.
+parse_doubles_exact <- function(x, path) {
+  out <- rep(NA_real_, length(x))
+  special <- c("Inf" = Inf, "-Inf" = -Inf, "NaN" = NaN)
+  hit <- x %in% names(special)
+  out[hit] <- special[x[hit]]
+  num <- !is.na(x) & nzchar(x) & !hit
+  tok <- x[num]
+  bad <- !grepl(JSON_NUMBER_RE, tok)
+  if (any(bad)) {
+    stop(
+      "Tensor ",
+      path,
+      " holds a number no correctly rounded reader is pinned for: '",
+      tok[bad][[1L]],
+      "' (",
+      sum(bad),
+      " such cell(s))",
+      call. = FALSE
+    )
+  }
+  if (length(tok)) {
+    tok <- ifelse(grepl("[eE]", tok), tok, paste0(tok, "e0"))
+    json <- paste0("[", paste(tok, collapse = ","), "]")
+    out[num] <- as.double(jsonlite::parse_json(json, simplifyVector = TRUE))
+  }
+  out
+}
+
+# canary, at source time: a correctly rounded reader returns `good` for these,
+# and R_strtod on x86_64 reads each 1 ULP away. the same pair upstream's writer
+# checks (scripts/extract_weights/lib_exact_csv.R).
+local({
+  s <- c("0.0121214826887856", "-3.40089985463833")
+  good <- c(0x1.8d325ddd1a45fp-7, -0x1.b350afba5246bp+1)
+  if (!identical(parse_doubles_exact(s, "<canary>"), good)) {
+    stop(
+      "sync: jsonlite's number reader is not correctly rounded on this ",
+      "platform, so tensors would parse differently from other machines",
+      call. = FALSE
+    )
+  }
+})
+
 # load a declared weights/ tensor and assert row_key / col_key vs header
 read_tensor_csv <- function(path, spec = NULL) {
-  df <- utils::read.csv(path, stringsAsFactors = FALSE, check.names = FALSE)
+  # every cell as text, so no double is read by R_strtod (see above)
+  df <- utils::read.csv(
+    path,
+    stringsAsFactors = FALSE,
+    check.names = FALSE,
+    colClasses = "character"
+  )
+  # column types exactly as read.csv picks them, so integer and logical
+  # columns keep their storage type (the hashes cover it); only the doubles
+  # are re-read
+  for (j in seq_along(df)) {
+    typed <- utils::type.convert(df[[j]], as.is = TRUE)
+    if (is.double(typed)) {
+      typed <- parse_doubles_exact(df[[j]], path)
+    }
+    df[[j]] <- typed
+  }
   header <- names(df)
 
   # row_key names column 1, col_key asserted only when declared
@@ -1451,16 +1524,18 @@ attach_karyotype_euploid <- function(catalog) {
 
 # every bmiq clock and the gold it must carry, by size and by content.
 # hard-coded on purpose: anything unexpected stops the build rather than
-# silently shipping a refitted constant.
+# silently shipping a refitted constant. the hash is of the correctly rounded
+# reading (parse_doubles_exact), the same on every platform; the earlier
+# 8e1d6e84... was x86_64 R_strtod's reading of the same text.
 BMIQ_GOLD_ROLE <- "bmiq_gold_standard"
 BMIQ_GOLD_EXPECTED <- list(
   "Horvath1" = list(
     n_cpgs = 21368L,
-    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+    gold_hash = "f950ce0b8ed1f4c633376033f7a28b6271a91dd1a6146a431c1f5ba6aec4d648"
   ),
   "Knight" = list(
     n_cpgs = 21368L,
-    gold_hash = "8e1d6e84df80c59cfcfb47a644f7dde06d5b3751981be925466850ff63540128"
+    gold_hash = "f950ce0b8ed1f4c633376033f7a28b6271a91dd1a6146a431c1f5ba6aec4d648"
   )
 )
 
