@@ -1,23 +1,5 @@
 # qc_report(): the html report and the descriptive helpers behind it.
 
-qc_fixture <- function(n = 12L, clocks = c("Horvath1", "Hannum")) {
-  DNAm <- random_betas(clock_cpgs(clocks), n = n)
-  pheno <- mc_pheno(
-    rownames(DNAm),
-    Age = mc_ages(n),
-    Female = rep(c(0L, 1L), length.out = n)
-  )
-  pheno[["site"]] <- rep(c("a", "b", "c"), length.out = n)
-  list(
-    DNAm = DNAm,
-    pheno = pheno,
-    result = calc_clocks(DNAm, clocks, pheno = pheno),
-    clocks = clocks
-  )
-}
-
-read_page <- function(path) paste(readLines(path, warn = FALSE), collapse = "\n")
-
 test_that("qc_report() refuses a call with nothing to report on", {
   expect_error(qc_report(open = FALSE))
 })
@@ -198,4 +180,18 @@ test_that("a large scatter keeps hover titles only on the points that ask", {
 
   small <- svg_points(p, x[1:5], x[1:5], titles = paste0("s", 1:5))
   expect_equal(lengths(regmatches(small, gregexpr("<title>", small, fixed = TRUE))), 5L)
+})
+
+test_that("the page for a fixed input does not change", {
+  withr::local_seed(20260925L)
+  fx <- qc_fixture()
+  local_mocked_bindings(qc_now = function() as.POSIXct("2026-01-01 12:00", tz = "UTC"))
+  path <- withr::local_tempfile(fileext = ".html")
+  qc_report(fx$DNAm, fx$pheno, fx$result, clocks = fx$clocks, file = path, open = FALSE)
+  page <- readLines(path, warn = FALSE)
+  # the package and R versions differ between machines
+  page <- sub("by methylCIPHERv2 [^<]*</p>", "by methylCIPHERv2.</p>", page)
+  shown <- withr::local_tempfile(fileext = ".html")
+  writeLines(page, shown, useBytes = TRUE)
+  expect_snapshot_file(shown, "qc_report.html")
 })
