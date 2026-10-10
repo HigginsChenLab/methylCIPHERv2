@@ -81,3 +81,12 @@ poly_eval <- function(x, coef) {
   }
   out
 }
+
+# true when x has fewer than two finite values, or they are all equal. compare
+# the values, never sd() == 0: sd() and scale() take the mean in a long double,
+# which is plain double on arm64, so six copies of 0.1 give sd 1.5e-17 there
+# and exactly 0 on x86_64.
+is_flat <- function(x) {
+  x <- x[is.finite(x)]
+  length(x) < 2L || min(x) == max(x)
+}

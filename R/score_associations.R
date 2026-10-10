@@ -61,7 +61,7 @@ assoc_row <- function(id, v, age, r) {
   if (sum(ok) < MIN_ASSOC_N) {
     return(NULL)
   }
-  if (stats::sd(v[ok]) == 0 || stats::sd(age[ok]) == 0) {
+  if (is_flat(v[ok]) || is_flat(age[ok])) {
     return(NULL)
   }
   obs <- stats::cor(v[ok], age[ok])

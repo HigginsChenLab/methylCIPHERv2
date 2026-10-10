@@ -62,3 +62,13 @@ test_that("a surrogate that goes constant NAs the clock, not the cohort", {
     rownames(DNAm)
   )
 })
+
+# platform-independent: six copies of 0.1 have sd 1.5e-17 on arm64, so a
+# divisor test passed this column on macOS and divided by it
+test_that("a constant surrogate column is flat on every platform", {
+  skip_on_cran()
+  raws <- cbind(flat = rep(0.1, 6), live = c(3, 1, 4, 1, 5, 9))
+  z <- zscore_raws(raws)
+  expect_true(all(is.na(z[, "flat"])))
+  expect_false(anyNA(z[, "live"]))
+})
