@@ -105,6 +105,13 @@ run_bind_gates <- function(recs) {
   )
   gate_same_pheno_id(recs)
   gate_same_normalized(recs)
+  gate_same_set(
+    recs,
+    "scaled",
+    "scaled clocks",
+    "Use one {.arg scale_scores} setting for every batch. A clock that is
+     scaled in one batch, and not in another, gives two different columns."
+  )
   invisible(NULL)
 }
 
@@ -212,8 +219,8 @@ say_pending <- function(x) {
 #'
 #' @details
 #' Each input must use disjoint sample ids, the same scored clocks, the
-#' same `pheno_id`, and the same normalized clocks. `rbind()` stops when any
-#' of those differ between inputs.
+#' same `pheno_id`, the same normalized clocks, and the same scaled clocks.
+#' `rbind()` stops when any of those differ between inputs.
 #'
 #' The normalized clocks are the ones a run applied a scheme to, which are
 #' not always the ones it was asked to. A batch whose background panel was
@@ -304,6 +311,8 @@ rbind.mc_result <- function(..., deparse.level = 1) {
         dependencies = setdiff(clocks, requested),
         covariates_used = ref[["covariates_used"]],
         normalized = ref[["normalized"]],
+        # the gate made every batch agree
+        scaled = ref[["scaled"]],
         # kept per batch. never reconciled.
         normalize_requested = prov_by_batch(args, "normalize_requested"),
         min_clocks_coverage = prov(args, "min_clocks_coverage"),

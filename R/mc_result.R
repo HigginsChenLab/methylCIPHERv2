@@ -93,7 +93,8 @@ construct_mc_result <- function(
   input,
   scoring_failures = list(),
   partial_calibration = list(),
-  pending = list()
+  pending = list(),
+  scaled = character(0)
 ) {
   scores <- do.call(cbind, results[output_ids])
   dimnames(scores) <- list(sample_id, output_ids)
@@ -151,7 +152,9 @@ construct_mc_result <- function(
         # clock id -> cause -> ids normalized from a partial calibration
         partial_calibration = partial_calibration,
         # retained per-sample intermediates, so a bind can re-finalize exactly
-        pending = pending
+        pending = pending,
+        # output columns scaled across the samples (score_scaling)
+        scaled = scaled
       )
     ),
     class = "mc_result"

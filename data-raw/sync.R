@@ -87,7 +87,8 @@ FIELD_REGISTRY <- c(
   "definition",
   "n_cpgs",
   "n_cpgs_normalization",
-  "license"
+  "license",
+  "score_scaling"
 )
 
 # build-time only, stripped after resolution. `n_cpgs` cross-checks the derived panel.
@@ -377,8 +378,14 @@ build_codebook_table <- function(meta, clocks) {
 BIB_INDENT <- "  "
 BIB_ASSIGN <- " = {"
 
-# present on every entry, whatever its type (lib_bib.py REQUIRED_FIELDS)
-BIB_REQUIRED <- c("title", "author", "year", "pmid")
+# present on every entry, whatever its type (lib_bib.py REQUIRED_FIELDS). an
+# entry also carries its paper key: a pmid, or for a paper PubMed does not
+# index (upstream paper_key.py) its doi and no pmid.
+BIB_REQUIRED <- c("title", "author", "year")
+BIB_KEY_FIELDS <- c("pmid", "doi")
+
+# upstream paper key for a paper PubMed does not index: "doi:<lower-case doi>"
+DOI_KEY_PREFIX <- "doi:"
 
 # brace-protected casing ({DNA}, {eLife}) is a BibTeX rendering hint, not data
 bib_unbrace <- function(x) {
@@ -444,6 +451,9 @@ bib_entry_fields <- function(body, where) {
       paste(missing, collapse = ", "),
       call. = FALSE
     )
+  }
+  if (!any(BIB_KEY_FIELDS %in% names(out))) {
+    stop(where, ": entry carries neither a pmid nor a doi", call. = FALSE)
   }
   out
 }
@@ -526,12 +536,23 @@ attach_bib_fields <- function(citations, bib) {
   }
   idx <- match(citations[["bib_key"]], bib[["bib_key"]])
 
-  csv_pmid <- trimws(citations[["pmid"]])
+  # the csv pmid column holds the paper key: a PMID, or a DOI key for a paper
+  # PubMed does not index. a PMID must equal the entry's pmid. a DOI key must
+  # equal the entry's doi (as DOIs compare, without case) and the entry must
+  # carry no pmid, which would be a second identity for one paper.
+  csv_key <- trimws(citations[["pmid"]])
   bib_pmid <- trimws(bib[["pmid"]][idx])
-  clash <- nzchar(csv_pmid) & !is.na(bib_pmid) & csv_pmid != bib_pmid
+  bib_doi <- tolower(trimws(bib[["doi"]][idx]))
+  is_doi <- startsWith(csv_key, DOI_KEY_PREFIX)
+  doi_of_key <- substring(csv_key, nchar(DOI_KEY_PREFIX) + 1L)
+  clash <- ifelse(
+    is_doi,
+    is.na(bib_doi) | bib_doi != doi_of_key | !is.na(bib_pmid),
+    nzchar(csv_key) & !is.na(bib_pmid) & csv_key != bib_pmid
+  )
   if (any(clash)) {
     stop(
-      "pmid disagrees between clock_citations.csv and clocks.bib for: ",
+      "paper key disagrees between clock_citations.csv and clocks.bib for: ",
       paste(unique(citations[["bib_key"]][clash]), collapse = ", "),
       call. = FALSE
     )
@@ -1518,6 +1539,42 @@ attach_karyotype_euploid <- function(catalog) {
     )
   }
   catalog
+}
+
+# score scaling (upstream sec 4c)
+
+# every op R knows how to apply after the score. an op upstream adds is a sync
+# failure, never a clock that silently scores unscaled: add it here and to
+# scale_score() in R/score_cohort.R together.
+SCORE_SCALING_OPS <- "cohort_zscore"
+
+# each declared score_scaling is exactly {op, default}, op known, default a flag
+check_score_scaling <- function(catalog) {
+  for (cid in names(catalog[["clocks"]])) {
+    sc <- catalog[["clocks"]][[cid]][["score_scaling"]]
+    if (is.null(sc)) {
+      next
+    }
+    bad <- function(...) stop("clock '", cid, "': ", ..., call. = FALSE)
+    if (!is.list(sc) || !setequal(names(sc), c("op", "default"))) {
+      bad("score_scaling must be exactly {op, default}")
+    }
+    op_ok <- length(sc[["op"]]) == 1L && sc[["op"]] %in% SCORE_SCALING_OPS
+    if (!op_ok) {
+      bad(
+        "score_scaling op '",
+        paste(sc[["op"]], collapse = ", "),
+        "' is not in SCORE_SCALING_OPS (",
+        paste(SCORE_SCALING_OPS, collapse = ", "),
+        ")"
+      )
+    }
+    if (!(is.logical(sc[["default"]]) && length(sc[["default"]]) == 1L &&
+      !is.na(sc[["default"]]))) {
+      bad("score_scaling default must be TRUE or FALSE")
+    }
+  }
+  invisible(catalog)
 }
 
 # bmiq gold standards
@@ -2642,6 +2699,7 @@ build_sysdata <- function(
   catalog <- attach_sex_routed_aliases(catalog)
   catalog <- attach_score_routed_members(catalog)
   catalog <- attach_karyotype_euploid(catalog)
+  check_score_scaling(catalog)
   # before the trim: n_cpgs is a build-only field and the codebook reads it
   mc_codebook <- build_codebook_table(
     read_clock_meta(repo_path),
