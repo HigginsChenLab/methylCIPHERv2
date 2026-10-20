@@ -42,7 +42,8 @@ value is infinite.
 
 The \code{arguments} table gives the values each batch was scored under. Two
 batches can differ, because each one keeps the values of the call that
-scored it.
+scored it. A \code{scaled} column names the clocks whose scores are scaled
+across the samples, when there are any.
 
 The two problem tables count the same notes two ways. \code{by_clock} gives
 the number of samples for each clock, panel and note. \code{by_sample} counts
