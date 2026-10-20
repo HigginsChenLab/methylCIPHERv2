@@ -137,6 +137,17 @@ Do not reverse these without a `dev/DECISIONS.md` entry explaining why.
   `pending` rather than `scores`. `finalize_cross_sample()` reduces once after assembly and every
   front end calls it unconditionally (a no-op when `pending` is empty); the routing reads
   `spec$cross_sample`, never a clock id and never whether the run was chunked (DECISIONS 2026-07-27).
+  - **A scaled score takes the same route, decided per run.** A clock may declare a
+    `score_scaling` (upstream sec 4c, today only MultiAgeEpi): a step after its score that the
+    authors want on by default and a user may decline with `calc_clocks(scale_scores =)`. It is
+    not routing, so `score_type()` never reads it. `mc_spec()` adds every clock this run scales to
+    `spec$cross_sample`, the branch's ordinary score goes to `pending`, and
+    `finalize_cross_sample()` applies `scale_score()` from the declaration. That is what makes
+    `rbind()` + `refinalize_clocks()` re-scale over the whole cohort with no new code. The result
+    keeps the scaled columns in `$provenance$scaled`, `rbind()` refuses batches that disagree on
+    them, and a flat column scores `NA` through `is_flat()`, never through a zero sd. A scaled
+    clock may not be another clock's input: `mc_spec()` stops on it, because a held-back score is
+    not in `results` when the dependent runs.
   - Coverage depends on no score, so `compute_coverage()` (`R/coverage.R`) computes it once upstream
     of the scoring loop, keyed by clock id, and `construct_mc_result()` merges it under the run's
     **batch label**: `$coverage$per_clock[[batch]][[id]]`, even for a single-pass run. Batch is a
@@ -758,13 +769,20 @@ pre-release); `sync(upload = TRUE)` also needs a release-write token (maintainer
   the JSON number grammar stops it naming the file. Do not swap in `readr`, `vroom` or `fread`
   for speed: upstream measured `readr::parse_double` disagreeing with C `strtod` on 240,678
   strings, and on x86_64 `fread` misreads the same cells as base R.
+- **A citation's paper key is a PMID or a DOI key.** Upstream keys a paper PubMed does not index
+  by `doi:<lower-case doi>` (its `scripts/paper_key.py`, 2026-10-15; first case MultiAgeEpi). The
+  `pmid` column of `clock_citations.csv` and a meta's `pmid` then hold that text, and its
+  `clocks.bib` entry carries a `doi` and no `pmid`. `attach_bib_fields()` matches a DOI key against
+  the entry's `doi` without case and refuses an entry that also carries a `pmid`. Nothing in `R/`
+  reads a pmid, so the runtime is untouched.
 - **Entry point:** `sync(source_git_sha = NULL, upload = FALSE, force = FALSE)`.
   1. Resolve + checkout meta at `source_git_sha` (clone under `data-raw/methylCIPHER-meta/`).
   2. **Always** rebuild catalog + accessor objects + small bundles -> `R/sysdata.rda` (~2s, no
      build-skip cache).
      - **A registry adapting the upstream contract is closed, hard-coded, and asserted.** There
-       are **four**, all running inside the build so everything downstream sees ordinary catalog
-       entries. `attach_sex_routed_aliases()` mints one alias clock per `_group.meta.json`
+       are **five**, all running inside the build so everything downstream sees ordinary catalog
+       entries. `check_score_scaling()` checks every declared `score_scaling` against
+       `SCORE_SCALING_OPS` (today `cohort_zscore`), the ops `scale_score()` implements. `attach_sex_routed_aliases()` mints one alias clock per `_group.meta.json`
        `routing.sex` stem. `attach_score_routed_members()` checks `SCORE_ROUTED_MEMBERS` against
        each router's recipe and marks the members. `attach_karyotype_euploid()` checks every declared
        `routing.karyotype_call` against `KARYOTYPE_EXPECTED`, the four emitted labels with their

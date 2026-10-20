@@ -210,6 +210,17 @@ clock_cross_sample_at <- function(id) {
   as.integer(optional_field(id, "cross_sample_at", NA_integer_))[[1L]]
 }
 
+# score_scaling the clock declares, list(op, default), or NULL (meta sec 4c).
+# a step after the score that the user can decline, so not part of routing.
+clock_score_scaling <- function(id) {
+  optional_field(id, "score_scaling", NULL)
+}
+
+# true when calc_clocks() scales the clock's score unless the user declines
+clock_scales_by_default <- function(id) {
+  isTRUE(clock_score_scaling(id)[["default"]])
+}
+
 # true when the score depends on other samples (not chunk-safe)
 clock_is_cross_sample <- function(id) {
   !is.na(clock_cross_sample_at(id))

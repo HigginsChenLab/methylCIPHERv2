@@ -14,7 +14,8 @@ calc_clocks(
   min_samples_coverage = 0.75,
   normalize = NULL,
   ext_data = NULL,
-  ask = TRUE
+  ask = TRUE,
+  scale_scores = NULL
 )
 }
 \arguments{
@@ -51,6 +52,9 @@ assets. Default is \code{NULL}, which uses the assets directory.}
 \item{ask}{A boolean. Asks for confirmation before the assets directory
 changes. Default is \code{TRUE}. Pass \code{FALSE} to continue without asking, in a
 non-interactive session.}
+
+\item{scale_scores}{A named logical vector. Turns cohort scaling on or off
+for the clocks that declare a scaled score. Default is \code{NULL}.}
 }
 \value{
 An \code{mc_result} object. It holds the scores, the narrowed \code{pheno},
@@ -82,6 +86,29 @@ warning. Pass the returned value to \code{\link[=clocks_coverage]{clocks_coverag
 keeps the id column and the covariates that the clocks need, and drops the
 other columns.
 }
+\section{Scaled scores}{
+
+Some clocks are reported as a z-score across the samples that are scored
+together, because the authors define the clock that way. \code{scale_scores}
+accepts the same four forms as \code{normalize}.
+\itemize{
+\item \code{NULL} leaves every clock at its own default. A clock that declares a
+scaled score is scaled.
+\item \code{TRUE} or \code{FALSE} sets every clock that declares a scaled score.
+\item A character vector of clock ids turns scaling on for those clocks.
+\item A named logical vector sets the clocks it names, and leaves every other
+clock at its default.
+}
+
+A scaled score depends on the other samples in the call. The same sample
+can score differently in another cohort, and a call with one sample scores
+\code{NA}. To compare or pool scores from different studies, pass
+\code{scale_scores = FALSE}. After \code{\link[=rbind.mc_result]{rbind.mc_result()}}, call
+\code{\link[=refinalize_clocks]{refinalize_clocks()}} to scale again over every sample. The
+\code{scale_scores} column of \code{\link[=list_clocks]{list_clocks()}} with \code{all_columns = TRUE} gives
+the clocks that declare a scaled score.
+}
+
 \section{The assets directory}{
 
 Four clock groups keep their weights in downloadable assets, outside the

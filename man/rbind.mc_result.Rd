@@ -22,8 +22,8 @@ multiple batches.
 }
 \details{
 Each input must use disjoint sample ids, the same scored clocks, the
-same \code{pheno_id}, and the same normalized clocks. \code{rbind()} stops when any
-of those differ between inputs.
+same \code{pheno_id}, the same normalized clocks, and the same scaled clocks.
+\code{rbind()} stops when any of those differ between inputs.
 
 The normalized clocks are the ones a run applied a scheme to, which are
 not always the ones it was asked to. A batch whose background panel was

@@ -28,11 +28,13 @@ LIST_CLOCKS_DEFAULT_COLS <- c(
 #' `covariates` names the [calc_clocks()] `pheno` columns a clock needs, and
 #' `external` is `TRUE` for a clock whose weights are a download.
 #'
-#' `all_columns = TRUE` adds three columns about how a clock computes.
+#' `all_columns = TRUE` adds four columns about how a clock computes.
 #'
 #' - `group_size` counts the clocks a group token expands to.
 #' - `batch_dependent` is `TRUE` for a clock whose score depends on the other
 #'   samples scored with it.
+#' - `scale_scores` is `TRUE` for a clock that declares a scaled score. The
+#'   `scale_scores` argument of [calc_clocks()] turns the scaling on or off.
 #' - `normalize` names the background normalization scheme a clock declares,
 #'   and is empty for a clock that declares none. `"quantile"` is on by
 #'   default and `"bmiq"` is off. The `normalize` argument of [calc_clocks()]
@@ -107,7 +109,20 @@ list_clocks <- function(
       collapse = ", "
     ),
     external = idx[["external_group"]],
-    batch_dependent = idx[["batch_dependent"]],
+    # a clock scaled by default depends on the other samples unless declined
+    batch_dependent = idx[["batch_dependent"]] |
+      vapply(
+        idx[["clock_id"]],
+        clock_scales_by_default,
+        logical(1L),
+        USE.NAMES = FALSE
+      ),
+    scale_scores = vapply(
+      idx[["clock_id"]],
+      function(id) !is.null(clock_score_scaling(id)),
+      logical(1L),
+      USE.NAMES = FALSE
+    ),
     # the scheme actually applied, so a declared but inexpressible one reads ""
     normalize = vapply(
       idx[["clock_id"]],

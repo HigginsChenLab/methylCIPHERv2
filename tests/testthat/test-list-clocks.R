@@ -4,7 +4,9 @@ test_that("list_clocks filters, rejects an unknown group, and widens on demand",
 
   expect_equal(nrow(narrow), nrow(wide))
   added <- setdiff(names(wide), names(narrow))
-  expect_true(all(c("group_size", "batch_dependent", "normalize") %in% added))
+  expect_true(all(
+    c("group_size", "batch_dependent", "normalize", "scale_scores") %in% added
+  ))
   expect_true(all(c("n_cpgs", "description", "tissues_derived") %in% added))
 
   # a clock the descriptor table does not cover keeps NA, never a donor's value

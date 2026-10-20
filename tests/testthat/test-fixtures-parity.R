@@ -289,14 +289,16 @@ run_parity_target <- function(clock_id, cohort) {
     scored <- score_cohort(DNAm, spec, facts, 0)
     return(expect_parity(scored[["scores"]][[clock_id]][, 1L], clock_id, cohort))
   }
-  # parity gates numbers, not coverage policy
+  # parity gates numbers, not coverage policy. upstream fixtures are the
+  # unscaled score (meta sec 4c), so a clock that scales by default is read raw
   res <- calc_clocks(
     DNAm,
     request,
     pheno = cohort_pheno(cohort),
     ext_data = packs,
     min_clocks_coverage = 0,
-    min_samples_coverage = 0
+    min_samples_coverage = 0,
+    scale_scores = FALSE
   )
   # routed member scores land on the alias column for that sex's samples
   expect_parity(res$scores[, request], clock_id, cohort)
@@ -430,7 +432,8 @@ for (cohort_i in staged_cohorts) {
             pheno = cohort_pheno(cohort),
             normalize = norm_on,
             min_clocks_coverage = 0,
-            min_samples_coverage = 0
+            min_samples_coverage = 0,
+            scale_scores = FALSE
           )
           exp <- expected_scores(clock_id, cohort)
           got <- as.numeric(res$scores[, clock_id][exp$sample_id])

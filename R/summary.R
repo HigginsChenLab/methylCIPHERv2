@@ -53,6 +53,11 @@ argument_rows <- function(prov, labels, batch) {
       out[["normalized"]] <- done
     }
   }
+  # scaled clocks, only where a batch scaled one. rbind() makes them agree.
+  scaled <- normalize_cell(prov[["scaled"]])
+  if (!is.na(scaled)) {
+    out[["scaled"]] <- scaled
+  }
   add_batch(out, batch)
 }
 
@@ -206,7 +211,8 @@ batch_rows <- function(batch, labels) {
 #'
 #' The `arguments` table gives the values each batch was scored under. Two
 #' batches can differ, because each one keeps the values of the call that
-#' scored it.
+#' scored it. A `scaled` column names the clocks whose scores are scaled
+#' across the samples, when there are any.
 #'
 #' The two problem tables count the same notes two ways. `by_clock` gives
 #' the number of samples for each clock, panel and note. `by_sample` counts

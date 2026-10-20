@@ -33,11 +33,13 @@ Valid values for \code{tag} are the names of \code{\link[=list_clock_tags]{list_
 \code{covariates} names the \code{\link[=calc_clocks]{calc_clocks()}} \code{pheno} columns a clock needs, and
 \code{external} is \code{TRUE} for a clock whose weights are a download.
 
-\code{all_columns = TRUE} adds three columns about how a clock computes.
+\code{all_columns = TRUE} adds four columns about how a clock computes.
 \itemize{
 \item \code{group_size} counts the clocks a group token expands to.
 \item \code{batch_dependent} is \code{TRUE} for a clock whose score depends on the other
 samples scored with it.
+\item \code{scale_scores} is \code{TRUE} for a clock that declares a scaled score. The
+\code{scale_scores} argument of \code{\link[=calc_clocks]{calc_clocks()}} turns the scaling on or off.
 \item \code{normalize} names the background normalization scheme a clock declares,
 and is empty for a clock that declares none. \code{"quantile"} is on by
 default and \code{"bmiq"} is off. The \code{normalize} argument of \code{\link[=calc_clocks]{calc_clocks()}}

@@ -213,6 +213,89 @@ dedup_panels <- function(panels) {
 }
 
 # per-clock normalization decision (data-independent)
+# scale_scores= -> named logical over the sequence. a clock that declares a
+# score_scaling starts at its declared default, every other clock at FALSE.
+# the same four forms as normalize=, so the two arguments read alike.
+resolve_scale_scores <- function(scale_scores, clock_sequence) {
+  declares <- vapply(
+    clock_sequence,
+    function(id) !is.null(clock_score_scaling(id)),
+    logical(1L)
+  )
+  names(declares) <- clock_sequence
+  out <- stats::setNames(
+    vapply(clock_sequence, clock_scales_by_default, logical(1L)),
+    clock_sequence
+  )
+  if (is.null(scale_scores)) {
+    return(out)
+  }
+
+  # a character vector names the clocks to turn on: sugar for c(<id> = TRUE)
+  if (is.character(scale_scores)) {
+    checkmate::assert_character(
+      scale_scores,
+      any.missing = FALSE,
+      min.len = 1L,
+      min.chars = 1L
+    )
+    scale_scores <- stats::setNames(
+      rep(TRUE, length(scale_scores)),
+      scale_scores
+    )
+  }
+  checkmate::assert_logical(scale_scores, any.missing = FALSE, min.len = 1L)
+  nm <- names(scale_scores)
+
+  if (is.null(nm)) {
+    if (length(scale_scores) != 1L) {
+      cli::cli_abort(
+        c(
+          "{.arg scale_scores} must be one {.code TRUE} or {.code FALSE}, or a
+           named logical vector. It has {length(scale_scores)} unnamed values.",
+          "i" = "Name them by clock id, for example
+                 {.code scale_scores = c(MultiAgeEpi = FALSE)}."
+        ),
+        call = NULL
+      )
+    }
+    # a bare value applies to every clock that declares a scaled score
+    out[declares] <- scale_scores
+    return(out)
+  }
+
+  unknown <- setdiff(nm, clock_sequence)
+  if (length(unknown)) {
+    cli::cli_abort(
+      c(
+        "{.arg scale_scores} names {length(unknown)} clock{?s} that {?is/are}
+         not being scored: {.val {capped_vals(unknown)}}.",
+        "i" = "Name only a clock that {.arg clocks} reaches."
+      ),
+      call = NULL
+    )
+  }
+  # turning on a scaling the clock does not declare is an error
+  unusable <- nm[scale_scores & !declares[nm]]
+  if (length(unusable)) {
+    cli::cli_abort(
+      c(
+        "Cannot turn on {.arg scale_scores} for
+         {.val {capped_vals(unusable)}}.",
+        "i" = "{cli::qty(unusable)}{?That clock does/Those clocks do} not
+               declare a scaled score. The {.field scale_scores} column of
+               {.fn list_clocks} with {.code all_columns = TRUE} gives the
+               clocks that do.",
+        "i" = "{cli::qty(unusable)}Leave {?it/them} out of
+               {.arg scale_scores}, or set {?it/them} to {.code FALSE}."
+      ),
+      call = NULL
+    )
+  }
+  out[nm] <- scale_scores
+  out
+}
+
 resolve_normalize <- function(normalize, clock_sequence) {
   schemes <- vapply(clock_sequence, clock_norm_scheme, character(1))
   names(schemes) <- clock_sequence

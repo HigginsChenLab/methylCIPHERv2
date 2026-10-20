@@ -142,11 +142,29 @@ mc_spec <- function(
   pheno_id = "ID",
   normalize = NULL,
   ext_data = NULL,
-  ask = TRUE
+  ask = TRUE,
+  scale_scores = NULL
 ) {
   clock_ids <- resolve_clocks(clocks)
   clock_sequence <- resolve_clocks_sequence(clock_ids)
   normalize <- resolve_normalize(normalize, clock_sequence)
+  scale_scores <- resolve_scale_scores(scale_scores, clock_sequence)
+  scaled <- clock_sequence[scale_scores]
+  # a scaled score is held back until the cohort is assembled, so no clock in
+  # the run may read it as an input
+  for (id in clock_sequence) {
+    reads <- intersect(clock_depends_on(id), scaled)
+    if (length(reads)) {
+      stop(
+        sprintf(
+          "Clock %s reads clock %s, whose score is scaled (score_scaling).",
+          id,
+          paste(reads, collapse = ", ")
+        ),
+        call. = FALSE
+      )
+    }
+  }
   # routed members are scored but never a score column
   output_ids <- drop_routed_members(c(
     clock_ids,
@@ -171,14 +189,20 @@ mc_spec <- function(
     output_ids = output_ids,
     # requested normalize flags; facts[["normalize"]] is what the run applied.
     normalize = normalize,
+    # clocks whose finished score is scaled across the cohort (meta sec 4c)
+    scaled = scaled,
     covariates = covariates,
     pheno_id = pheno_id,
     packs = packs,
     panels = panels,
     # panel unions are functions of `panels` alone -- resolved here, not per block
     needed_union = panels_union(panels),
-    # clocks whose reduction is still inside the branch (catalog-declared)
-    cross_sample = split_cross_sample(clock_sequence)[["cross_sample"]],
+    # clocks reduced over the cohort after assembly: the catalog-declared
+    # ones, and every clock whose score this run scales
+    cross_sample = union(
+      split_cross_sample(clock_sequence)[["cross_sample"]],
+      scaled
+    ),
     # per-sample moment domains mc_cohort banks, keyed (catalog-declared)
     moment_domains = resolve_moment_domains(clock_sequence)
   )
@@ -557,14 +581,18 @@ finalize_cross_sample <- function(scores, pending) {
   for (p in names(pending)) {
     ty <- score_type(p)
     raws <- pending[[p]]
-    col <- switch(
-      ty,
-      PhysAge = finalize_PhysAge(p, raws),
+    # a clock only reaches pending through its catalog reduction (PhysAge) or a
+    # score_scaling this run turned on. the second reads the declaration.
+    col <- if (identical(ty, "PhysAge")) {
+      finalize_PhysAge(p, raws)
+    } else if (!is.null(clock_score_scaling(p))) {
+      scale_score(p, raws, clock_score_scaling(p))
+    } else {
       stop(
         sprintf("No finalize branch for score_type %s (clock %s).", ty, p),
         call. = FALSE
       )
-    )
+    }
     scores[[p]] <- col
     # note reduction losses only when intermediates existed. built in collector
     # shape by hand: this runs after assembly, so there is no block to write to.
@@ -574,4 +602,26 @@ finalize_cross_sample <- function(scores, pending) {
     }
   }
   list(scores = scores, notes = notes)
+}
+
+# a clock's finished score scaled across the samples in hand (meta sec 4c).
+# raws is the n x 1 per-sample score. a flat column has no spread to scale by,
+# so every sample is NA, which finalize_cross_sample() notes as fit_reduce.
+scale_score <- function(id, raws, scaling) {
+  op <- scaling[["op"]]
+  v <- raws[, 1L]
+  out <- switch(
+    op,
+    cohort_zscore = if (is_flat(v)) {
+      rep(NA_real_, length(v))
+    } else {
+      # scale() ignores NA in both the mean and the sd
+      as.numeric(scale(v))
+    },
+    stop(
+      sprintf("No score_scaling op %s (clock %s).", op, id),
+      call. = FALSE
+    )
+  )
+  score_matrix(out, rownames(raws), id)
 }
