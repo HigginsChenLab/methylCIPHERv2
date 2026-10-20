@@ -52,3 +52,22 @@ gait_holed_fixture <- function(n_drop = 5L, n = 4L) {
     pheno = mc_pheno(rownames(DNAm), Age = mc_ages(n), Female = rep(1L, n))
   )
 }
+
+# qc_report(): a small DNAm, pheno and mc_result, and a page read back as one string
+qc_fixture <- function(n = 12L, clocks = c("Horvath1", "Hannum")) {
+  DNAm <- random_betas(clock_cpgs(clocks), n = n)
+  pheno <- mc_pheno(
+    rownames(DNAm),
+    Age = mc_ages(n),
+    Female = rep(c(0L, 1L), length.out = n)
+  )
+  pheno[["site"]] <- rep(c("a", "b", "c"), length.out = n)
+  list(
+    DNAm = DNAm,
+    pheno = pheno,
+    result = calc_clocks(DNAm, clocks, pheno = pheno),
+    clocks = clocks
+  )
+}
+
+read_page <- function(path) paste(readLines(path, warn = FALSE), collapse = "\n")
