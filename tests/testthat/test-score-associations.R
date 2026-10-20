@@ -84,3 +84,10 @@ test_that("the flags read off the supplied reference", {
   expect_true(assoc_report(fx$result, fx$age, strong)$wrong_sign)
   expect_false(assoc_report(fx$result, fx$age, weak)$wrong_sign)
 })
+
+test_that("a constant clock column yields no association row", {
+  skip_on_cran()
+  age <- seq(20, 80, length.out = 10)
+  ref <- assoc_ref("x", 0.5, 0.2, 0.8)
+  expect_null(assoc_row("x", rep(0.1, 10), age, ref))
+})

@@ -26,16 +26,19 @@ jobs:
     runs-on: ${{ matrix.config.os }}
     name: test (${{ matrix.config.os }})
 
-    # Both platforms, because the package has compiled kernels and the two
+    # Three platforms, because the package has compiled kernels and they
     # differ where it matters: the src/ bounds checks are about integer width,
-    # and Windows is the maintainer's own platform and the one CRAN encoding
-    # rules bite on.
+    # Windows is the one CRAN encoding rules bite on, and macOS runners are
+    # arm64, where long double is plain double. That last one hid a PhysAge
+    # bug from the two x86_64 jobs: scale() on a constant column gives a
+    # non-zero sd on arm64, so a flat surrogate was divided by 1e-17.
     strategy:
       fail-fast: false
       matrix:
         config:
           - os: ubuntu-24.04
           - os: windows-latest
+          - os: macos-latest
 
     env:
       GITHUB_PAT: ${{ secrets.GITHUB_TOKEN }}

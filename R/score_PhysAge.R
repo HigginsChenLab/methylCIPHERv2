@@ -35,9 +35,9 @@ physage_raws <- function(id, cpgs, block, results) {
 # cohort z-score (scale() ignores NA; constant surrogate -> NA).
 zscore_raws <- function(raws) {
   z <- scale(raws)
-  # the divisor scale() actually used.
+  # flat is read off the raws, not scale()'s divisor (see is_flat())
   sds <- attr(z, "scaled:scale")
-  flat <- !is.finite(sds) | sds == 0
+  flat <- apply(raws, 2L, is_flat) | !is.finite(sds)
   if (any(flat)) {
     z[, flat] <- NA_real_
   }
@@ -51,6 +51,9 @@ finalize_PhysAge <- function(id, raws) {
   poly <- physage_poly_coef(id)
   score_vec <- if (is.null(poly)) {
     phys
+  } else if (is_flat(phys)) {
+    # no spread to standardize: NA, which finalize_cross_sample() notes
+    rep(NA_real_, length(phys))
   } else {
     poly_eval(as.numeric(scale(phys)), poly)
   }

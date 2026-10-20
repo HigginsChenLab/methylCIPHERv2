@@ -452,7 +452,7 @@ chart_scatter <- function(x, y, xlab, ylab, label, flag = NULL, titles = NULL,
                  margin = c(top = 10, right = 12, bottom = 42, left = 54))
   col <- col %||% if (is.null(flag)) SVG_SERIES[[1L]] else ifelse(flag, "var(--crit)", SVG_SERIES[[1L]])
   line <- ""
-  if (fit && sum(ok) >= 3L && stats::sd(x[ok]) > 0) {
+  if (fit && sum(ok) >= 3L && !is_flat(x[ok])) {
     cf <- stats::coef(stats::lm.fit(cbind(1, x[ok]), y[ok]))
     xs <- p[["xlim"]]
     line <- svg_line(p, xs, cf[[1L]] + cf[[2L]] * xs, "var(--ink-2)", width = 1.5,
