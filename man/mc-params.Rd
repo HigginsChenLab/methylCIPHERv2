@@ -33,9 +33,9 @@ non-interactive session.}
 frame leaves out by default. Default is \code{FALSE}.}
 
 \item{groups}{A character vector. The asset groups to act on. One or more
-of \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and \code{"Zhang2019"}, or
-\code{"all"} for every group. Repeated values are ignored, and an empty vector
-selects nothing. Default is \code{"all"}.}
+of \code{"GP_age"}, \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and
+\code{"Zhang2019"}, or \code{"all"} for every group. Repeated values are ignored,
+and an empty vector selects nothing. Default is \code{"all"}.}
 
 \item{long}{A boolean. Returns one row for each sample and clock when
 \code{TRUE}, and one row for each sample, with one column for each clock, when

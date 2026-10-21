@@ -8,9 +8,9 @@ load_mc_assets(groups, ext_data = NULL, ask = TRUE)
 }
 \arguments{
 \item{groups}{A character vector. The asset groups to load. One or more of
-\code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and \code{"Zhang2019"}, or
-\code{"all"} for every group. Repeated values are ignored, and an empty vector
-loads nothing.}
+\code{"GP_age"}, \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and
+\code{"Zhang2019"}, or \code{"all"} for every group. Repeated values are ignored,
+and an empty vector loads nothing.}
 
 \item{ext_data}{A string. The path to the directory that holds the clock
 assets. Default is \code{NULL}, which uses the assets directory.}
