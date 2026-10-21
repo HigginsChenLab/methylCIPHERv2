@@ -576,9 +576,9 @@ mc_canonicalize_ext_data <- function(ext_data) {
 #'
 #' @inheritParams mc-params
 #' @param groups A character vector. The asset groups to load. One or more of
-#'   `"PCBrainAge"`, `"PCClocks"`, `"SystemsAge"` and `"Zhang2019"`, or
-#'   `"all"` for every group. Repeated values are ignored, and an empty vector
-#'   loads nothing.
+#'   `"GP_age"`, `"PCBrainAge"`, `"PCClocks"`, `"SystemsAge"` and
+#'   `"Zhang2019"`, or `"all"` for every group. Repeated values are ignored,
+#'   and an empty vector loads nothing.
 #'
 #' @inheritSection mc-params The assets directory
 #'

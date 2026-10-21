@@ -8,9 +8,9 @@ list_mc_assets(groups = "all")
 }
 \arguments{
 \item{groups}{A character vector. The asset groups to act on. One or more
-of \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and \code{"Zhang2019"}, or
-\code{"all"} for every group. Repeated values are ignored, and an empty vector
-selects nothing. Default is \code{"all"}.}
+of \code{"GP_age"}, \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and
+\code{"Zhang2019"}, or \code{"all"} for every group. Repeated values are ignored,
+and an empty vector selects nothing. Default is \code{"all"}.}
 }
 \value{
 A data frame. One row for each requested group, with its clock

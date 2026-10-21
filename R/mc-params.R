@@ -24,9 +24,9 @@
 #' @param all_columns A boolean. Returns every column, including the ones the
 #'   frame leaves out by default. Default is `FALSE`.
 #' @param groups A character vector. The asset groups to act on. One or more
-#'   of `"PCBrainAge"`, `"PCClocks"`, `"SystemsAge"` and `"Zhang2019"`, or
-#'   `"all"` for every group. Repeated values are ignored, and an empty vector
-#'   selects nothing. Default is `"all"`.
+#'   of `"GP_age"`, `"PCBrainAge"`, `"PCClocks"`, `"SystemsAge"` and
+#'   `"Zhang2019"`, or `"all"` for every group. Repeated values are ignored,
+#'   and an empty vector selects nothing. Default is `"all"`.
 #' @param long A boolean. Returns one row for each sample and clock when
 #'   `TRUE`, and one row for each sample, with one column for each clock, when
 #'   `FALSE`. Default is `TRUE`.

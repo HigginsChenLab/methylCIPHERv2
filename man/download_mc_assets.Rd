@@ -8,9 +8,9 @@ download_mc_assets(groups = "all", ask = TRUE)
 }
 \arguments{
 \item{groups}{A character vector. The asset groups to act on. One or more
-of \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and \code{"Zhang2019"}, or
-\code{"all"} for every group. Repeated values are ignored, and an empty vector
-selects nothing. Default is \code{"all"}.}
+of \code{"GP_age"}, \code{"PCBrainAge"}, \code{"PCClocks"}, \code{"SystemsAge"} and
+\code{"Zhang2019"}, or \code{"all"} for every group. Repeated values are ignored,
+and an empty vector selects nothing. Default is \code{"all"}.}
 
 \item{ask}{A boolean. Asks for confirmation before the assets directory
 changes. Default is \code{TRUE}. Pass \code{FALSE} to continue without asking, in a
